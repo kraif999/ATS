@@ -1,5 +1,6 @@
-# ATS
+This branch aims: 
+- to compare of the performance of trading strategies (VIX futures contracts investing) built on various GARCH model specifications;
+- to distinguish noise from pattern/trend/dependencies
 
-# The comparison of the performance of VIX futures trading strategies, built on various GARCH model volatility forecasting techniques, is presented here.
 
 
