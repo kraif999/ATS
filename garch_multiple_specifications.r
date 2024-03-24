@@ -57,20 +57,14 @@ calculate_summary_statistics(sp500gk)
 
 # GARCH model parameters configuration scope
 # https://www.r-bloggers.com/problems-in-estimating-garch-parameters-in-r-part-2-rugarch/
-# specification_ <- as.character(c("sGARCH", "eGARCH", "gjrGARCH", "fGARCH"))
-# n.start_ <-as.numeric(c("252", "126", "504"))
-# refit.every_ <- as.numeric(c("21", "63", "126"))
-# refit.window_ <- as.character(c("moving", "expanding")) # window type: movign/expanding - same Mu, Sigma, Skew parameters
-# distribution.model_ <- as.character(c("norm", "snorm", "nig"))
-# realized.vol_ <- as.character(c("garman", "close")) 
 
 # Generate all possible combinations including performance metrics
 listgarch <- expand.grid(
-  specification = as.character("sGARCH"),
-  n.start = as.numeric(252),
-  refit.every = as.numeric(21),
+  specification = as.character(c("sGARCH", "eGARCH", "gjrGARCH", "fGARCH")),
+  n.start = as.numeric(c("252", "126", "504")),
+  refit.every = as.numeric(c("21", "63", "126")),
   refit.window = as.character(c("moving", "expanding")),
-  distribution.model = as.character("norm"),
+  distribution.model = as.character(c("norm", "snorm", "nig")),
   realized.vol = as.character(c("garman", "close")),
   aR = 0,
   aSD = 0,
