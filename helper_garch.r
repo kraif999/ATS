@@ -206,6 +206,7 @@ generate_entry_signals <- function(volData) {
 }
 
 generate_combinations <- function(
+  
   RV = "close", # Choose historical (realized volatility) estimator
   entry_signal_function = generate_entry_signals, # signal generation engine
   specification, n_start, refit_every, refit_window, distribution_model, realized_vol) { # GARCH specifications
@@ -237,7 +238,7 @@ max_cores <- parallel::detectCores(logical = FALSE)
 cl <- makePSOCKcluster(max_cores)
 #registerDoParallel(cl)
 
-RV <- "close" # which realized volatility estimation is chosen
+# RV <- "close" # which realized volatility estimation is chosen
 
 for (i in 1:dim(listgarch)[1]){
   tryCatch({ 

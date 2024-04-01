@@ -9,22 +9,21 @@ source("helper_garch.R")
 
 options(scipen = 999)
 
-# Meta data with symbols description
+# Asset meta data (asset, symbol, class, description)
 meta <- jsonlite::fromJSON("instr_config.json")
 
 # rm(list = ls())
 
-# Download data
-symbol <- "GC=F" # gold
-meta$assets[[symbol]]$class
-
+# Dates to download ts data
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2024-10-03", format = "%Y-%m-%d")
 
-symbols <- c("GC=F","SI=F")
+# Select all symbols within a given class (for example, Commodities)
+symbols <- names(Filter(function(x) x$class == "Commodities", meta$assets))
 
-final <- list()
+final <- list() # list  to store the results
 
+# Looping over symbols within a given single class
 for (symbol in symbols) {
 
 class <- meta$assets[[symbol]]$class # class of symbol
@@ -56,16 +55,13 @@ instr <- data %>%
                   EquityLine = cumprod(ifelse(is.na(rets), 1, 1 + rets))) %>%
             na.omit
           
-
 # Estimate historical (realized) volatility
 histVolest <- estimate_realized_volatility(data)
 
-# Check quantiles of different realized volatility estimators
+# Compute uantiles of different realized volatility estimators
 histVol <- as.data.frame(apply(histVolest %>% select(-TradeDate), 2, quantile, probs = c(0.5, 0.75, 0.95, 0.999, 1)))
 
 # Generate signals based on GARCH model volatility forecasts (as example for commodities, for other classes  you might need to adjust the entry/exit criteria)
-# Create class with signals strategies?
-
 generate_entry_signals <- function(volData) {
 
   modified_volData <- volData %>%
@@ -82,10 +78,18 @@ generate_entry_signals <- function(volData) {
 }
 
 # Generate performance results given historical volatility estimator, signal generation criteria and GARCH model specification
+
+# Multiple specifications
 listgarch <- generate_combinations(
-  RV = "close", 
-  entry_signal_function = generate_entry_signals,
-  specification = "sGARCH", n_start = 252, refit_every = 21, refit_window = 252, distribution_model = "norm", realized_vol = "close"
+  RV = "close", # historical volatility estimation
+  entry_signal_function = generate_entry_signals, # signals generation engine
+  # GARCH specifications
+  specification = c("eGARCH"), 
+  n_start = 252, # also, it is window.size
+  refit_every = 21, 
+  refit_window = c("moving", "expanding"), 
+  distribution_model = c("snorm"), 
+  realized_vol = "close"
   )
 
 final[[symbol]] <- listgarch
