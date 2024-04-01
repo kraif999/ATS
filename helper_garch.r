@@ -206,10 +206,13 @@ generate_entry_signals <- function(volData) {
 }
 
 generate_combinations <- function(
-  
+
   RV = "close", # Choose historical (realized volatility) estimator
   entry_signal_function = generate_entry_signals, # signal generation engine
-  specification, n_start, refit_every, refit_window, distribution_model, realized_vol) { # GARCH specifications
+  specification, # GARCH model specification
+  n_start, refit_every, refit_window, distribution_model, 
+  realized_vol,
+  plots_path) {
 
   listgarch <- expand.grid(
     specification = specification,
@@ -400,6 +403,9 @@ active_passive
 
 print(active_passive)
 
+# Plots
+generate_and_save_plot(performance, listgarch, i, plots_path)
+
 rm(roll, passive)
 
   } ,error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
@@ -413,6 +419,46 @@ rm(roll, passive)
 #fwrite(listgarch, "listgarchAll.csv")
   listgarch <- cbind(Symbol = symbol, Class = class, listgarch)
   return(listgarch)
+}
+
+generate_and_save_plot <- function(performance, listgarch, i, plots_path) {
+  # Wrap the long title text
+  wrapped_title <- str_wrap(
+    paste0(
+    meta$assets[[symbol]]$description, " (", 
+    meta$assets[[symbol]]$class, ")",
+    ": ", 
+    "the comparison of equity lines between GARCH based strategy ", 
+    "(specifcation: ", listgarch[i,"specification"], ",",
+    " window size: ",  listgarch[i,"window.size"], ",",
+    " refit frequency: ", listgarch[i, "refit.frequency"], ",",
+    " refit window type: ", listgarch[i, "refit.window.type"], ",",
+    " distribution: ", listgarch[i, "distribution.model"], ",",
+    " realized vol estimator: ", listgarch[i, "realized.vol.method"], ")",
+    " Vs and passive investing (buy and hold)"))
+
+  # Create ggplot with wrapped title and modified legend label
+  p <- ggplot(performance, aes(x = TradeDate)) +
+    geom_line(aes(y = eqlGARCH, color = "Strategy based on GARCH"), na.rm = TRUE) +
+    geom_line(aes(y = eqlPassive, color = "Passive (buy and hold)"), na.rm = TRUE) +
+    ggtitle(wrapped_title) +  # Use the wrapped title
+    scale_color_manual(values = c("Strategy based on GARCH" = "red", "Passive (buy and hold)" = "blue")) +
+    labs(x = "TradeDate", y = "Equity line value", color = "Strategy") +  # Modify legend label
+    theme_minimal() +
+    theme(plot.background = element_rect(fill = "white"),
+          plot.title = element_text(size = 12))  # Adjust title font size
+  
+  # Save the plot with a unique filename
+  plot_filename <- paste0(plots_path, "plot_", symbol, "_",
+                          listgarch[i,"specification"], "_", 
+                          listgarch[i,"window.size"], "_",
+                          listgarch[i, "refit.frequency"], "_",
+                          listgarch[i, "refit.window.type"], "_",
+                          listgarch[i, "distribution.model"], "_",
+                          listgarch[i, "realized.vol.method"], ".png")
+  
+  # Save the plot with a unique filename
+  ggsave(plot_filename, p)
 }
 
 # Calculate summary statistics for instr

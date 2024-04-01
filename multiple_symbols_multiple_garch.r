@@ -1,7 +1,7 @@
 # Load all libraries
 libraries <- c("PerformanceAnalytics", "ggplot2", "lmtest", "fBasics", "urca", "forecast", "quantmod", "tseries", "fUnitRoots", "xts",  "fBasics", "tseries",
  "car", "FinTS", "fGarch",  "psych", "rugarch", "parallel", "caTools", "plyr", "expss", "base", "tidyr", "dplyr", "MLmetrics", "tibble", "gridExtra", "writexl",
- "doParallel", "parallel", "lubridate", "reshape2", "R6")
+ "doParallel", "parallel", "lubridate", "reshape2", "R6", "stringr")
 invisible(lapply(libraries, library, character.only = TRUE))
 
 # Load helper functions
@@ -87,9 +87,10 @@ listgarch <- generate_combinations(
   specification = c("eGARCH"), 
   n_start = 252, # also, it is window.size
   refit_every = 21, 
-  refit_window = c("moving", "expanding"), 
+  refit_window = c("expanding", "moving"), 
   distribution_model = c("snorm"), 
-  realized_vol = "close"
+  realized_vol = "close",
+  plots_path = "EquityLines_garch_experiment/" # folder to save equity lines for GARCH based strategy vs Passive strategy 
   )
 
 final[[symbol]] <- listgarch
