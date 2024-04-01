@@ -1,4 +1,30 @@
 # Helper functions
+estimate_realized_volatility <- function(data) {
+
+ohlc <- data %>% 
+  data.frame %>%
+    rename_with(~ sub(".*\\.", "", .), everything()) %>%
+      select(-Volume, -Adjusted) %>%
+        na.omit  %>%
+          as.matrix
+
+# Different realized volatility estimators for returns (TTR)
+histVolest <- merge(
+  garman <- as.xts(na.omit(volatility(ohlc, calc = "garman"))) / sqrt(252),
+  close <- as.xts(na.omit(volatility(ohlc[,4], calc = "close"))) / sqrt(252),
+  parkinson <- as.xts(na.omit(volatility(ohlc, calc = "parkinson"))) / sqrt(252),
+  rogers.satchell <- as.xts(na.omit(volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
+  garman_modified <- as.xts(na.omit(volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
+  yang.zhang <- as.xts(na.omit(volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
+) %>% 
+  as.data.frame %>% 
+    rename_with(~ c("garman", "close", "parkinson", "rogers_satchell", "garman_modified", "yang_zhang")) %>%
+      mutate(TradeDate = as.Date(rownames(.))) %>%
+        select(TradeDate, everything(.)) %>%
+          na.omit
+
+return(histVolest)
+}
 
 # Extract GARCH forecast errors from a fitted object
 extract_forecast_data <- function(forecast) {
@@ -87,7 +113,7 @@ coef_roll_refit <- function(roll, plot = TRUE) {
   return(combined_coef_df)
 }
 
-# Calculate equity lines, number of positions
+# Calculate equity lines, number of positions WITH TRANSACTIONAL COSTS
 calculate_eqlGARCH <- function(data, dfl = 0.25, capital = 1000000, TC = 2) {
   data <- transform(data, pnl = c(0, signal[-nrow(data)] * diff(Close)),
                           pnlPassive = c(0, diff(Close)),
@@ -114,7 +140,8 @@ calculate_eqlGARCH <- function(data, dfl = 0.25, capital = 1000000, TC = 2) {
     pnlPassive <- data$pnlPassive[i]
     prev_nop_Passive <- floor(data$nopPassive[i - 1])
     current_nop_Passive <- floor((data$eqlPassive[i - 1] * dfl) / data$Close[i])
-    data$eqlPassive[i] <- data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive - TC * abs(prev_nop_Passive - current_nop_Passive)
+    # data$eqlPassive[i] <- data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive - TC * abs(prev_nop_Passive - current_nop_Passive) 
+    data$eqlPassive[i] <- data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive # remove TC since this is just B&H
     data$nopPassive[i] <- current_nop_Passive
   }
   r_eql <- data %>%
@@ -122,6 +149,268 @@ calculate_eqlGARCH <- function(data, dfl = 0.25, capital = 1000000, TC = 2) {
            r_eqlPassive = quantmod::Delt(eqlPassive)) %>%
             na.omit
   return(r_eql)
+}
+
+# Calculate equity lines, number of positions WITHOUT TRANSACTIONAL COSTS
+calculate_eqlGARCH_no_TC <- function(data, dfl = 0.25, capital = 1000000, TC = 2) {
+  data <- transform(data, pnl = c(0, signal[-nrow(data)] * diff(Close)),
+                          pnlPassive = c(0, diff(Close)),
+                          nop = 0, 
+                          eqlGARCH = 0,
+                          nopPassive = 0,
+                          eqlPassive = 0  # Initialize equity line for Passive strategy
+                          )  # Initialize positions for Passive strategy
+  
+  data$eqlGARCH[1] <- capital
+  data$nop[1] <- floor(capital * dfl / data$Close[1])
+  data$eqlPassive[1] <- capital  # Initial equity line for Passive strategy
+  data$nopPassive[1] <- data$nop[1]  # Initial position for Passive strategy
+  
+  for (i in 2:nrow(data)) {
+    # GARCH
+    pnl <- data$pnl[i]
+    prev_nop_GARCH <- floor(data$nop[i - 1])
+    current_nop_GARCH <- floor((data$eqlGARCH[i - 1] * dfl) / data$Close[i])
+    data$eqlGARCH[i] <- data$eqlGARCH[i - 1] + prev_nop_GARCH * pnl
+    data$nop[i] <- current_nop_GARCH
+    
+    # Passive
+    pnlPassive <- data$pnlPassive[i]
+    prev_nop_Passive <- floor(data$nopPassive[i - 1])
+    current_nop_Passive <- floor((data$eqlPassive[i - 1] * dfl) / data$Close[i])
+    # data$eqlPassive[i] <- data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive - TC * abs(prev_nop_Passive - current_nop_Passive) 
+    data$eqlPassive[i] <- data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive # remove TC since this is just B&H
+    data$nopPassive[i] <- current_nop_Passive
+  }
+  r_eql <- data %>%
+    mutate(r_eqlGARCH = quantmod::Delt(eqlGARCH),
+           r_eqlPassive = quantmod::Delt(eqlPassive)) %>%
+            na.omit
+  return(r_eql)
+}
+
+# Generate signals based on GARCH model volatility forecasts (as example for commodities)
+generate_entry_signals <- function(volData) {
+
+  modified_volData <- volData %>%
+    mutate(
+      signal = case_when(
+        Forecast < quantile(Forecast, probs = 0.75) ~ 1,
+        Forecast > quantile(Forecast, probs = 0.75) ~ -1,
+        TRUE ~ 0    
+      )
+    ) %>%
+    slice(-1)  # Remove the first row since it will have NA for signal
+  
+  return(modified_volData)
+}
+
+generate_combinations <- function(
+  RV = "close", # Choose historical (realized volatility) estimator
+  entry_signal_function = generate_entry_signals, # signal generation engine
+  specification, n_start, refit_every, refit_window, distribution_model, realized_vol) { # GARCH specifications
+
+  listgarch <- expand.grid(
+    specification = specification,
+    n_start = n_start,
+    refit_every = refit_every,
+    refit_window = refit_window,
+    distribution_model = distribution_model,
+    realized_vol = realized_vol,
+    aR = 0,
+    aSD = 0,
+    MD = 0,
+    IR = 0,
+    trades = 0,
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(across(c(aR, aSD, MD, IR, trades), as.numeric))
+    colnames(listgarch)[1:6] <- c("specification","window.size", "refit.frequency", "refit.window.type", "distribution.model", "realized.vol.method")
+  
+################################################################################
+# Roll density forecasts (one day ahead)
+################################################################################
+
+getDoParWorkers()
+max_cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(max_cores)
+registerDoParallel(cl)
+
+RV <- "close" # which realized volatility estimation is chosen
+
+for (i in 1:dim(listgarch)[1]){
+  tryCatch({ 
+  
+  if(listgarch[i,1] == "fGARCH") {
+    spec <- ugarchspec(
+        variance.model = list(
+        model = listgarch[i,1],
+        garchOrder = c(1, 1), 
+        submodel = "TGARCH", 
+        external.regressors = NULL, 
+        variance.targeting = FALSE), 
+        
+        mean.model = list(
+        armaOrder = c(1, 1), 
+        include.mean = TRUE, 
+        archm = FALSE, 
+        archpow = 1, 
+        arfima = FALSE, 
+        external.regressors = NULL, 
+        archex = FALSE),
+
+        distribution.model = listgarch[i,5]) 
+    # , start.pars = list(), fixed.pars = list(), ...)
+  } else {
+    spec <- ugarchspec(
+        variance.model = list(
+        model = listgarch[i,1], 
+        garchOrder = c(1, 1), 
+        submodel = NULL, 
+        external.regressors = NULL, 
+        variance.targeting = FALSE), 
+
+        mean.model = list(
+        armaOrder = c(1, 1), 
+        include.mean = TRUE, 
+        archm = FALSE, 
+        archpow = 1, 
+        arfima = FALSE, 
+        external.regressors = NULL, 
+        archex = FALSE),
+        
+        distribution.model = listgarch[i,5]) 
+  }
+
+  if(listgarch[i,4] == "moving") {
+    roll = ugarchroll(
+        spec, 
+        instr_ret[,1], 
+        # n.ahead = 1 - window size - the number of periods to forecast, supported only n.ahead = 1 by default
+        n.start = listgarch[i,2],  # starting point in the dataset from which to initialize the rolling forecast
+        refit.every = listgarch[i,3], # determines every how many periods the model is re-estimated.
+        refit.window = listgarch[i,4], # Whether the refit is done on an expanding window including all the previous data or a moving window,
+        # where all previous data is used for the first estimation and then moved by a length equal to refit.every (unless the window.size option is used instead).
+        window.size = listgarch[i,2],
+        solver = "hybrid", # the solver to use 
+        calculate.VaR = TRUE, # 
+        VaR.alpha = c(0.01, 0.05), 
+        cluster = cl,
+        # realizedVol = sp500ret2[,2], solver.control=list(tol=1e-6, trace=1), fit.control=list(scale=1),
+        keep.coef = TRUE) 
+} else {
+    roll = ugarchroll(
+        spec, 
+        instr_ret[,1], 
+        # n.ahead = 1 - window size - the number of periods to forecast, supported only n.ahead = 1 by default
+        n.start = listgarch[i,2],  # starting point in the dataset from which to initialize the rolling forecast
+        refit.every = listgarch[i,3], # determines every how many periods the model is re-estimated.
+        refit.window = listgarch[i,4], # Whether the refit is done on an expanding window including all the previous data or a moving window,
+        # where all previous data is used for the first estimation and then moved by a length equal to refit.every (unless the window.size option is used instead)
+        # window.size = listgarch[i,2],
+        solver = "hybrid", # the solver to use 
+        calculate.VaR = TRUE, # 
+        VaR.alpha = c(0.01, 0.05), 
+        cluster = cl,
+        # realizedVol = sp500ret2[,2], solver.control=list(tol=1e-6, trace=1), fit.control=list(scale=1),
+        keep.coef = TRUE) 
+  }
+
+# roll <- resume(roll, solver= "gosolnp") # if object contains non-converged windows
+
+# show(roll) # 20.02 secs
+
+forecastVolRoll <- data.frame(
+  Date = roll@model$index[(listgarch$window.size[i]+1):length(roll@model$index)],
+  Forecast = roll@forecast$density$Sigma
+)
+
+# Join realized volatility estimation and instr log returns given TradeDate
+volForHistRoll <- forecastVolRoll %>%
+  mutate(TradeDate = Date) %>% 
+    left_join(histVolest, by = 'TradeDate') %>%
+      na.omit %>% select(-Date) %>%
+        select(TradeDate, everything()) %>%
+          left_join(select(instr, TradeDate, Close, rets), by = "TradeDate")
+
+# Choose historical volatility estimator to compare with one day ahead rolling forecasts
+as.data.frame(apply(volForHistRoll %>% select(Forecast, histVol %>% names), 2, quantile, probs = c(0.5, 0.75, 0.95, 0.999, 1)))
+
+################################################################################
+# Generate entry signals
+################################################################################
+# volForHistRoll <- volForHistRoll %>%
+#    mutate(
+#   #   signal = case_when(
+#   #     Forecast > lag(volForHistRoll[[RV]]) ~ 1,
+#   #     Forecast < lag(volForHistRoll[[RV]]) ~ -1,
+#   #     TRUE ~ 0
+#   # ),
+#     signal = case_when(
+#       # Condition
+#       Forecast < quantile(Forecast, probs = 0.75) ~ 1,
+#       Forecast > quantile(Forecast, probs = 0.75) ~ -1,
+#       TRUE ~ 0    
+#           )) %>%
+#   slice(-1)
+
+volForHistRoll <- generate_entry_signals(volForHistRoll)
+
+################################################################################
+# Strategy performance
+################################################################################
+
+performance <- calculate_eqlGARCH_no_TC(volForHistRoll) # contains number of positions, equity lines, return of equity line given initial investment 
+
+# Performance metrics of strategy based on GARCH
+aR <- round(as.numeric(Return.annualized(as.numeric(performance$r_eqlGARCH), scale = 252, geometric = TRUE) * 100), 3)
+aSD <- round(as.numeric(StdDev.annualized(as.numeric(performance$r_eqlGARCH), scale = 252) * 100), 3)
+IR <- round(as.numeric(aR / aSD), 3) 
+MD <- round(as.numeric(maxDrawdown(as.numeric(performance$r_eqlGARCH), weights = NULL, geometric = TRUE, invert = TRUE) * 100),3)
+trades <- sum(c(1, ifelse(performance$signal[-1] * performance$signal[-length(performance$signal)] < 0, 1, 0)))
+
+listgarch[i, "aR"] <- aR
+listgarch[i, "aSD"] <- aSD
+listgarch[i, "MD"] <- MD
+listgarch[i, "IR"] <- IR
+listgarch[i, "trades"] <- trades
+
+# Passive strategy
+passive <- data.frame(
+  Buy_and_Hold = as.character(paste0(meta$assets[[symbol]]$description, "_buy_and_hold")),
+  aR = 0,
+  aSD = 0,
+  MD = 0,
+  IR = 0,
+  stringsAsFactors = FALSE
+) %>%
+mutate(
+  aR = round(as.numeric(Return.annualized(as.numeric(performance$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3),
+  aSD = round(as.numeric(StdDev.annualized(as.numeric(performance$r_eqlPassive), scale = 252) * 100), 3),
+  IR = round(aR / aSD, 3),
+  MD = round(as.numeric(maxDrawdown(as.numeric(performance$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+)
+
+active_passive <- bind_rows(passive %>% rename(Strategy_Specification = Buy_and_Hold), 
+          listgarch[i,] %>% rename(Strategy_Specification = specification) %>% select(Strategy_Specification, aR, aSD, MD, IR))
+
+active_passive
+
+print(active_passive)
+
+rm(roll, passive)
+
+  } ,error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+#   }, error = function(e) {
+#      cat("ERROR :",conditionMessage(e), "\n")
+#   })
+# }
+
+#fwrite(listgarch, "listgarchAll.csv")
+  return(listgarch)
 }
 
 # Calculate summary statistics for instr
@@ -136,3 +425,4 @@ calculate_summary_statistics <- function(data) {
     ) 
   return(summary_stats)
 }
+
