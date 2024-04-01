@@ -235,7 +235,7 @@ generate_combinations <- function(
 getDoParWorkers()
 max_cores <- parallel::detectCores(logical = FALSE)
 cl <- makePSOCKcluster(max_cores)
-registerDoParallel(cl)
+#registerDoParallel(cl)
 
 RV <- "close" # which realized volatility estimation is chosen
 
@@ -410,6 +410,7 @@ rm(roll, passive)
 # }
 
 #fwrite(listgarch, "listgarchAll.csv")
+  listgarch <- cbind(Symbol = symbol, Class = class, listgarch)
   return(listgarch)
 }
 
