@@ -1,0 +1,36 @@
+{
+    "strategies": ["Strategy1", "Strategy2", "Strategy3"],
+    "assets": {
+      
+      "USDEUR": {
+        "class": "FX",
+        "description": "US Dollar to Euro exchange rate"
+      },
+
+      "^GSPC": {
+        "class": "Equities",
+        "description": "S&P 500 Index"
+      },
+
+      "FTSE": {
+        "class": "Equities",
+        "description": "Stock market index of 100 of the most highly capitalised blue chip companies listed on the London Stock Exchange"
+      },
+
+      "GC=F": {
+        "class": "Commodities",
+        "description": "Gold"
+      },
+
+      "BZ=F": {
+        "class": "Commodities",
+        "description": "Oil"
+      },
+
+      "SI=F": {
+        "class": "Commodities",
+        "description": "Silver"
+    }
+  }
+}
+
