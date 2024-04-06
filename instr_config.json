@@ -2,7 +2,7 @@
     "strategies": ["Strategy1", "Strategy2", "Strategy3"],
     "assets": {
       
-      "USDEUR": {
+      "EUR=X": {
         "class": "FX",
         "description": "US Dollar to Euro exchange rate"
       },

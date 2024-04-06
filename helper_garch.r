@@ -189,21 +189,21 @@ calculate_eqlGARCH_no_TC <- function(data, dfl = 0.25, capital = 1000000, TC = 2
   return(r_eql)
 }
 
-# Generate signals based on GARCH model volatility forecasts (as example for commodities)
-generate_entry_signals <- function(volData) {
+# # Generate signals based on GARCH model volatility forecasts (as example for commodities)
+# generate_entry_signals <- function(volData) {
 
-  modified_volData <- volData %>%
-    mutate(
-      signal = case_when(
-        Forecast < quantile(Forecast, probs = 0.75) ~ 1,
-        Forecast > quantile(Forecast, probs = 0.75) ~ -1,
-        TRUE ~ 0    
-      )
-    ) %>%
-    slice(-1)  # Remove the first row since it will have NA for signal
+#   modified_volData <- volData %>%
+#     mutate(
+#       signal = case_when(
+#         Forecast < quantile(Forecast, probs = 0.75) ~ 1,
+#         Forecast > quantile(Forecast, probs = 0.75) ~ -1,
+#         TRUE ~ 0    
+#       )
+#     ) %>%
+#     slice(-1)  # Remove the first row since it will have NA for signal
   
-  return(modified_volData)
-}
+#   return(modified_volData)
+# }
 
 generate_combinations <- function(
 
