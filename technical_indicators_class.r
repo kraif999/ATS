@@ -152,8 +152,8 @@ ir_results <- lapply(window_sizes, function(ws) calculate_ir(wide_df_rets %>% se
 ir_results_df <- do.call(rbind, ir_results)
 
 #######################################################################################
-# modified SMA1
-# It consists of a rule that relates the current price of an asset with the price of the last ‘buy’ signal issued by a moving average strategy 
+# modified SMA1 and SMA2
+# Modification consists of a rule that relates the current price of an asset with the price of the last ‘buy’ signal issued by a moving average strategy 
 # (making this latter price a dynamic threshold) and it works as a dynamic trailing stop
 #######################################################################################
 
@@ -240,4 +240,83 @@ sma1_modified <- SMA1_modified$new(wide_df_rets %>% select(Date, `rets_BZ=F`), w
 sma1_modified$calculate_positions_and_equity_lines()
 sma1_modified$plot_equity_lines()
 
+# SMA2 (modified by dynamic trailing stop)
+SMA2_modified <- R6Class(
+  "SMA2_modified",
+  inherit = Strategy,
+  public = list(
+    window_size1 = NULL,
+    window_size2 = NULL,
+    ma_type = "simple",
+    initialize = function(data, window_size1, window_size2, ma_type = "simple") {
+      super$initialize(data)
+      self$window_size1 <- window_size1
+      self$window_size2 <- window_size2
+    },
 
+    generate_signals = function(ma_type = self$ma_type) {
+      
+      ma_func <- ifelse(ma_type == "simple", rollmean, EMA)
+      self$data <- mutate(self$data, 
+                          ma1 = rollmean(value, k = self$window_size1, align = "right", fill = NA),
+                          ma2 = rollmean(value, k = self$window_size2, align = "right", fill = NA),
+                          signal1 = ifelse(ma1 > ma2, 1, ifelse(ma1 < ma2, -1, 0)),
+                          position = lag(signal1, default = 0)) %>%
+                            na.omit
+      
+      # Initialize last_long_value and last_short_value
+      last_long_value <- NA
+      last_short_value <- NA
+
+      # Create empty columns in the data frame to store last long and short values
+      self$data$last_long_value <- NA
+      self$data$last_short_value <- NA
+
+      # Loop through each row of the data frame
+      for (i in 1:nrow(self$data)) {
+          # Check if current row has signal1 == 1
+          if (self$data$signal1[i] == 1) {
+            # Find the index of the first previous occurrence of 1
+            first_previous_index <- NA
+            if (any(self$data$signal1[1:(i-1)] == 1)) {
+              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == 1))
+            }
+            # If a previous occurrence of 1 is found, update last_long_value
+            if (!is.na(first_previous_index)) {
+              last_long_value <- self$data$ma1[first_previous_index]
+            }
+            # Assign last long value to the corresponding row in the data frame
+            self$data$last_long_value[i] <- last_long_value
+          }
+          # Check if current row has signal1 == -1
+          if (self$data$signal1[i] == -1) {
+            # Find the index of the first previous occurrence of -1
+            first_previous_index <- NA
+            if (any(self$data$signal1[1:(i-1)] == -1)) {
+              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == -1))
+            }
+            # If a previous occurrence of -1 is found, update last_short_value
+            if (!is.na(first_previous_index)) {
+              last_short_value <- self$data$ma2[first_previous_index]
+            }
+            # Assign last short value to the corresponding row in the data frame
+            self$data$last_short_value[i] <- last_short_value
+          }
+
+          # Replace NA or invalid values with 0 in the last_long_value and last_short_value columns
+          self$data$last_long_value <- replace(self$data$last_long_value, !is.finite(self$data$last_long_value), 0)
+          self$data$last_short_value <- replace(self$data$last_short_value, !is.finite(self$data$last_short_value), 0)
+      }
+
+      # Compare data$value[i] with the first previous value and update data$s2
+      self$data$signal <- ifelse((self$data$value > self$data$last_long_value) & (self$data$value > self$data$ma1), 1,
+                                 ifelse((self$data$value < self$data$last_short_value) & (self$data$value < self$data$ma1), -1, 0))
+      self$data <- self$data %>%
+        select(-c(last_long_value, last_short_value))
+    }
+  )
+)
+
+sma2_modified <- SMA2_modified$new(wide_df_rets %>% select(Date, `rets_BZ=F`), window_size1 = 50, window_size2 = 200, ma_type = "exp")
+sma2_modified$calculate_positions_and_equity_lines()
+sma2_modified$plot_equity_lines()
