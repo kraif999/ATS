@@ -13,20 +13,16 @@ Also, branch contains strategies based on technical indicators and implemented i
 The taxonomy of all trading strategies is as follows:
 
 ```mermaid
-flowchart TD
-    A[Strategy] --> B[Univariate]
-    A[Strategy] --> mult[Multivariate]
-    B --> C[GARCH]
-    C --> spec[Specification: sGARCH, eGARCH, jgrGARCH, fGARCH]
-    C --> sample[Training window size: 126, 252, 504]
-    C --> refit[Refit frequency: 21, 63, 126]
-    C --> type[Refit window type: moving, expanding]
-    C --> distr[Innovations: norm, snorm, nig]
-    C --> hist[Realized vol: close, yang.zhang]
-    B --> D[Technical indicators]
-    D --> E[Moving average:simple, exp]
-    E --> sma1[Moving average]
-    E --> sma2[Two moving averages]
-    E --> sma1m[Modified moving average]
-    E --> sma2m[Modified two moving averages]
-    D --> rsi[Relative Strength Index]
+flowchart LR
+    Strategy --> Univariate
+    Strategy --> Multivariate
+    Univariate --> GARCH
+    GARCH -->|Specification| spec[sGARCH, eGARCH, jgrGARCH, fGARCH]
+    GARCH -->|Training window size| training[126, 252, 504]
+    GARCH -->|Refit frequency| refit[21, 63, 126]
+    GARCH -->|Refit window type| type[Moving, Expanding]
+    GARCH -->|Innovations| distr[Norm, Snorm, NIG]
+    GARCH -->|Realized vol| rv[Close, Yang.Zhang]
+    Univariate --> Tech
+    Tech --> |Moving Average| ma[Moving average, Two moving averages, Modified moving average, Modified two moving averages]
+    Tech --> Relative_Strength_Index
