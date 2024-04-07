@@ -5,7 +5,7 @@ from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2024-10-03", format = "%Y-%m-%d")
 
 symbols <- c("GC=F", "BZ=F", "DX-Y.NYB", "^GSPC")  # list of all symbols
-symbols <- c("EUR=X") 
+#symbols <- c("EUR=X") 
 
 # Download data
 wide_df_rets <- convert_xts_to_wide_df(symbols, from_date, to_date, type = "rets")
@@ -39,6 +39,16 @@ Strategy <- R6Class(
                           equity_line_bh = cumsum(position_bh * value))
       
       return(self$data)
+    },
+
+    # Calculate cumulative return
+    calculate_cumulative_return = function() {
+      self$generate_signals()  # Call generate_signals dynamically
+      cret = data.frame(
+        Active = prod(1+self$data$value * self$data$position) - 1,
+        Buy_and_hold = prod(1+self$data$value) - 1
+      )
+      return(cret)
     },
 
     # Performance measurement (Information Ratio) for active and buy and hold strategies
@@ -102,7 +112,7 @@ SMA1 <- R6Class(
 sma1 <- SMA1$new(wide_df_rets %>% select(Date, `rets_GC=F`), window_size = 10, ma_type = 'exp')
 sma1$calculate_positions_and_equity_lines()
 sma1$plot_equity_lines()
-
+sma1$calculate_cumulative_return()
 # Create instances of SMA1 and SMA2
 sma1 <- SMA1$new(wide_df_rets %>% select(Date, `rets_GC=F`), window_size = 10)
 #sma1 <- SMA1$new(wide_df_rets %>% select(Date, `rets_EUR=X`), window_size = 10)
@@ -230,8 +240,8 @@ SMA1_modified <- R6Class(
     self$data$signal <- NA
     self$data$signal <- ifelse((self$data$value > self$data$last_long_value) & (self$data$value > self$data$ma), 1,
                         ifelse((self$data$value < self$data$last_short_value) & (self$data$value < self$data$ma), -1, 0))
-    self$data <- self$data %>%
-        select(-c(signal1, last_long_value, last_short_value))
+    self$data <- self$data 
+    # %>% select(-c(signal1, last_long_value, last_short_value))
         }
     )
 )
@@ -311,8 +321,8 @@ SMA2_modified <- R6Class(
       # Compare data$value[i] with the first previous value and update data$s2
       self$data$signal <- ifelse((self$data$value > self$data$last_long_value) & (self$data$value > self$data$ma1), 1,
                                  ifelse((self$data$value < self$data$last_short_value) & (self$data$value < self$data$ma1), -1, 0))
-      self$data <- self$data %>%
-        select(-c(last_long_value, last_short_value))
+      self$data <- self$data 
+      # %>% select(-c(last_long_value, last_short_value))
     }
   )
 )
@@ -320,3 +330,80 @@ SMA2_modified <- R6Class(
 sma2_modified <- SMA2_modified$new(wide_df_rets %>% select(Date, `rets_BZ=F`), window_size1 = 50, window_size2 = 200, ma_type = "exp")
 sma2_modified$calculate_positions_and_equity_lines()
 sma2_modified$plot_equity_lines()
+
+# Define Parameter Grids
+symbols <- c("rets_BZ=F", "rets_GC=F", "rets_EUR=X")  # Example symbols
+window_sizes <- list(c(50, 200), c(20, 50), c(100, 150))  # Example window size combinations
+ma_types <- c("simple", "exp")  # Example MA types
+
+#######################################################################################
+# Sensitivity analysis given symbol, moving average type, moving average window
+#######################################################################################
+
+# Iterate Over Parameter Combinations
+results <- list()
+for (symbol in symbols) {
+  for (window_size_pair in window_sizes) {
+    for (ma_type in ma_types) {
+      # Create instance of SMA2_modified
+      sma_instance <- SMA2_modified$new(wide_df_rets %>% select(Date, !!sym(symbol)), 
+                                         window_size1 = window_size_pair[1], 
+                                         window_size2 = window_size_pair[2], 
+                                         ma_type = ma_type)
+      
+      # Calculate positions and equity lines
+      sma_instance$calculate_positions_and_equity_lines()
+      
+      # Store results
+      results[[paste0("Symbol_", symbol, "_Window_", window_size_pair[1], "_", window_size_pair[2], "_MA_", ma_type)]] <- sma_instance
+    }
+  }
+}
+
+# Add plot method: include equity lines from 'Strategy' and avg returns and losses from RSI
+
+RSI <- R6Class(
+  "RSI",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL,
+    threshold_oversold = 30,
+    threshold_overbought = 70,
+    initialize = function(data, window_size, threshold_oversold = 30, threshold_overbought = 70) {
+      super$initialize(data)
+      self$window_size <- window_size
+      self$threshold_oversold <- threshold_oversold
+      self$threshold_overbought <- threshold_overbought
+    },
+    generate_signals = function() {
+      self$data <- mutate(self$data,
+                          avg_gain = rollmean(ifelse(value > 0, value, 0), k = self$window_size, align = "right", fill = NA),
+                          avg_loss = rollmean(ifelse(value < 0, abs(value), 0), k = self$window_size, align = "right", fill = NA),
+                          rs = avg_gain / avg_loss,
+                          rsi = 100 - (100 / (1 + rs)),
+                          signal = ifelse(rsi < self$threshold_oversold, 1, ifelse(rsi > self$threshold_overbought, -1, 0)),
+                          position = lag(signal, default = 0)) %>%
+                   na.omit
+    },
+
+    plot_avg_gain_loss_with_equity_lines = function() {
+      ggplot(self$data, aes(x = Date)) + # include the equity lines plot from the parent Strategy class
+        geom_line(aes(y = avg_gain, color = "Average Gain")) +
+        geom_line(aes(y = avg_loss, color = "Average Loss")) +
+        #geom_line(aes(y = equity_line, color = "Equity Line")) +  # Include equity line
+        geom_line(aes(y = equity_line, color = "Equity Line")) +  # Include equity line
+        labs(title = "Average Gain, Average Loss, and Equity Line",
+             x = "Date",
+             y = "Value") +
+        scale_color_manual(values = c("Average Gain" = "blue", "Average Loss" = "red", "Equity Line" = "green")) +
+        theme_minimal()
+    }
+  )
+)
+
+# Create an instance of RSI class
+rsi <- RSI$new(wide_df_rets %>% select(Date, `rets_GC=F`), window_size = 14, threshold_oversold = 40, threshold_overbought = 60)
+rsi$generate_signals()  # Generate signals
+rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
+rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
+rsi$plot_equity_lines()
