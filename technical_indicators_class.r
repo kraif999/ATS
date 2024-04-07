@@ -407,3 +407,64 @@ rsi$generate_signals()  # Generate signals
 rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
 rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
 rsi$plot_equity_lines()
+
+# Define SMA1 class
+SMA1 <- R6Class(
+  "SMA1",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL,
+    ma_type = "simple",
+    initialize = function(data, window_size, ma_type = "simple") {
+      super$initialize(data)
+      self$window_size <- window_size
+      self$ma_type <- ma_type
+    },
+    generate_signals = function(ma_type = self$ma_type) {
+      ma_func <- ifelse(ma_type == "simple", rollmean, EMA)
+      self$data <- mutate(self$data, 
+                          ma = ma_func(value, k = self$window_size, align = "right", fill = NA),
+                          signal = ifelse(value > ma, 1, ifelse(value < ma, -1, 0)),
+                          position = lag(signal, default = 0)) %>% 
+                            na.omit
+    }
+  )
+)
+
+# Define Bollinger Bands Breakout class
+BollingerBreakout <- R6Class(
+  "BollingerBreakout",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL,
+    sd_multiplier = 2,  # Multiplier for standard deviation
+    initialize = function(data, window_size, sd_multiplier = 2) {
+      super$initialize(data)
+      self$window_size <- window_size
+      self$sd_multiplier <- sd_multiplier
+    },
+    generate_signals = function() {
+      self$data <- mutate(self$data, 
+                          ma = rollmean(value, k = self$window_size, align = "right", fill = NA),
+                          sd = rollapply(value, width = self$window_size, sd, align = "right", fill = NA),
+                          upper_band = ma + self$sd_multiplier * sd,
+                          lower_band = ma - self$sd_multiplier * sd,
+                          signal = case_when(
+                            value > upper_band ~ 1,
+                            value < lower_band ~ -1,
+                            TRUE ~ 0
+                          ),
+                          position = lag(signal, default = 0)) %>% 
+                            na.omit
+    }
+  )
+)
+
+# Create an instance of BollingerBreakout class
+bol_br <- BollingerBreakout$new(wide_df_rets %>% select(Date, `rets_GC=F`), window_size = 20, sd_multiplier = 2)
+bol_br$generate_signals()  # Generate signals
+bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
+
+# Plot equity lines for Bollinger Breakout
+bol_br$plot_equity_lines()
+bol_br$calculate_cumulative_return()
