@@ -13,16 +13,17 @@ Also, branch contains strategies based on technical indicators and implemented i
 The taxonomy of all trading strategies is as follows:
 
 ```mermaid
+%%{init: {"flowchart": {"defaultRenderer": "elk", "nodeWidth": 1000}}}%%
 flowchart LR
-    Strategy --> Univariate
-    Strategy --> Multivariate
-    Univariate --> GARCH
-    GARCH -->|Specification| spec[sGARCH, eGARCH, jgrGARCH, fGARCH]
-    GARCH -->|Training window size| training[126, 252, 504]
-    GARCH -->|Refit frequency| refit[21, 63, 126]
-    GARCH -->|Refit window type| type[Moving, Expanding]
-    GARCH -->|Innovations| distr[Norm, Snorm, NIG]
-    GARCH -->|Realized vol| rv[Close, Yang.Zhang]
-    Univariate --> Tech
-    Tech --> |Moving Average| ma[Moving average, Two moving averages, Modified moving average, Modified two moving averages]
-    Tech --> Relative_Strength_Index
+    Strategy[Strategy] --> Univariate[Univariate ]
+    Strategy --> Multivariate[Multivariate]
+    Univariate --> GARCH[GARCH]
+    GARCH -->|Specification| spec[Specification: sGARCH, eGARCH, jgrGARCH, fGARCH]
+    GARCH -->|Training window size| training[Training window size: 126, 252, 504]
+    GARCH -->|Refit frequency| refit[Refit frequency: 21, 63, 126]
+    GARCH -->|Refit window type| type[Refit window type: Moving, Expanding]
+    GARCH -->|Innovations| distr[Innovations: Norm, Snorm, NIG]
+    GARCH -->|Realized vol| rv[Realized vol: Close, Yang.Zhang]
+    Univariate --> Tech[Technical indicators]
+    Tech --> |Moving Average| ma[Moving average: simple, exp, Two moving averages, Modified moving average, Modified two moving averages]
+    Tech --> Relative_Strength_Index[Relative Strength Index]
