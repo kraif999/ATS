@@ -408,29 +408,6 @@ rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lin
 rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
 rsi$plot_equity_lines()
 
-# Define SMA1 class
-SMA1 <- R6Class(
-  "SMA1",
-  inherit = Strategy,
-  public = list(
-    window_size = NULL,
-    ma_type = "simple",
-    initialize = function(data, window_size, ma_type = "simple") {
-      super$initialize(data)
-      self$window_size <- window_size
-      self$ma_type <- ma_type
-    },
-    generate_signals = function(ma_type = self$ma_type) {
-      ma_func <- ifelse(ma_type == "simple", rollmean, EMA)
-      self$data <- mutate(self$data, 
-                          ma = ma_func(value, k = self$window_size, align = "right", fill = NA),
-                          signal = ifelse(value > ma, 1, ifelse(value < ma, -1, 0)),
-                          position = lag(signal, default = 0)) %>% 
-                            na.omit
-    }
-  )
-)
-
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
   "BollingerBreakout",
