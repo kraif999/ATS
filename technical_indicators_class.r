@@ -445,3 +445,43 @@ bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity 
 # Plot equity lines for Bollinger Breakout
 bol_br$plot_equity_lines()
 bol_br$calculate_cumulative_return()
+
+# Define Volatility Mean Reversion class
+VolatilityMeanReversion <- R6Class(
+  "VolatilityMeanReversion",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL,
+    initialize = function(data, window_size) {
+      super$initialize(data)
+      self$window_size <- window_size
+    },
+    generate_signals = function() {
+      # Calculate historical volatility
+      hist_vol <- rollapply(self$data$value, width = self$window_size, sd, align = "right", fill = NA)
+      
+      # Calculate rolling mean of historical volatility
+      mean_vol <- rollmean(hist_vol, k = self$window_size, align = "right", fill = NA)
+      
+      # Generate signals
+      self$data <- mutate(self$data,
+                          historical_volatility = hist_vol,
+                          mean_volatility = mean_vol,
+                          signal = ifelse(hist_vol > mean_vol, -1, 1),
+                          position = lag(signal, default = 0)) %>%
+                        na.omit
+    }
+  )
+)
+
+
+# Create an instance of VolatilityMeanReversion class
+vol_mean_rev <- VolatilityMeanReversion$new(wide_df_rets %>% select(Date, `rets_GC=F`), window_size = 20)
+# Generate signals
+vol_mean_rev$generate_signals()
+# Calculate positions and equity lines
+vol_mean_rev$calculate_positions_and_equity_lines()
+# Plot equity lines for Volatility Mean Reversion
+vol_mean_rev$plot_equity_lines()
+# Calculate cumulative return
+vol_mean_rev$calculate_cumulative_return()

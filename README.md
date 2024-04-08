@@ -15,7 +15,7 @@ The taxonomy of all trading strategies is as follows:
 ```mermaid
 %%{init: {"flowchart": {"defaultRenderer": "elk", "nodeWidth": 1000}}}%%
 flowchart LR
-    Strategy[Strategy] --> Univariate[Univariate ]
+    Strategy[Strategy] --> Univariate[Univariate]
     Strategy --> Multivariate[Multivariate]
     Univariate --> GARCH[GARCH]
     GARCH -->|Specification| spec[sGARCH, eGARCH, jgrGARCH, fGARCH]
@@ -32,3 +32,4 @@ flowchart LR
     ma --> SMA2Modified
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
+    Tech --> vol[Volatility Mean Reversion]
