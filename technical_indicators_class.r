@@ -1,4 +1,4 @@
-source("helper_indicators.r")
+#source("helper_indicators.r")
 
 # Dates to download ts data
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
@@ -10,7 +10,67 @@ symbols <- c("GC=F", "BZ=F", "DX-Y.NYB", "^GSPC")  # list of all symbols
 # Download data
 wide_df_rets <- convert_xts_to_wide_df(symbols, from_date, to_date, type = "rets")
 
-# Consider 'Close' ts case
+# Define Data parent class (DataFetcher)
+DataFetcher <- R6Class(
+  "DataFetcher",
+  public = list(
+    symbols = NULL,
+    from_date = NULL,
+    to_date = NULL,
+    type = NULL,
+    initialize = function(symbols, from_date, to_date, type = "rets") {
+      self$symbols <- symbols
+      self$from_date <- from_date
+      self$to_date <- to_date
+      self$type <- type
+    },
+    convert_xts_to_wide_df = function() {
+      dfs <- list()
+      # Iterate through symbols to retrieve data and create data frames
+      for (symbol in self$symbols) {
+        # Fetch data for symbol
+        ts <- getSymbols(symbol, from = self$from_date, to = self$to_date, period = "day", auto.assign = FALSE)
+        ts <- na.omit(ts)
+        data <- coredata(ts)
+        dates <- index(ts)
+        close_price <- as.numeric(data[, 4])
+        # Create data frame for the symbol
+        switch(
+          self$type,
+          "rets" = {
+            # Combine Date and log returns into a data.frame
+            df <- data.frame(Date = as.Date(dates), 
+                             rets = as.numeric(log(close_price / lag(close_price)))) %>%
+              na.omit %>%
+              unnest(rets)
+          },
+          "Close" = {
+            df <- data.frame(Date = as.Date(dates), Close = close_price) %>% 
+              na.omit %>%
+              unnest
+          },
+          stop("Invalid value for 'type' argument. Choose 'rets' or 'Close'.")
+        )
+        # Store the data frame in the list
+        dfs[[symbol]] <- df
+      }
+      # Combine all data frames into a single wide data frame
+      wide_df <- bind_rows(dfs, .id = "symbol") %>%
+        pivot_wider(names_from = "symbol", values_from = ifelse(self$type == "rets", "rets", "Close"), 
+                    names_prefix = ifelse(self$type == "rets", "rets_", "Close_")) %>%
+        na.omit()
+      return(wide_df)
+    }
+  )
+)
+
+# Create an instance of DataFetcher
+fetcher_rets <- DataFetcher$new(symbols, from_date, to_date, type = "rets")
+wide_df_rets <- fetcher_rets$convert_xts_to_wide_df()
+
+# wide_df_rets[, c("Date", paste0("rets_", symbols[1]))]
+
+# Define parent Strategy class
 Strategy <- R6Class(
   "Strategy",
   public = list(
@@ -327,7 +387,7 @@ SMA2_modified <- R6Class(
   )
 )
 
-sma2_modified <- SMA2_modified$new(wide_df_rets %>% select(Date, `rets_BZ=F`), window_size1 = 50, window_size2 = 200, ma_type = "exp")
+sma2_modified <- SMA2_modified$new(wide_df_rets %>% select(Date, `rets_BZ=F`), window_size1 = 10, window_size2 = 200, ma_type = "exp")
 sma2_modified$calculate_positions_and_equity_lines()
 sma2_modified$plot_equity_lines()
 
@@ -360,8 +420,8 @@ for (symbol in symbols) {
   }
 }
 
-# Add plot method: include equity lines from 'Strategy' and avg returns and losses from RSI
 
+# Define Relative Strength Index class
 RSI <- R6Class(
   "RSI",
   inherit = Strategy,
