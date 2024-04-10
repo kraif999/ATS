@@ -1,16 +1,12 @@
-This branch endeavors to furnish functions for comparing the performance between a passive (buy and hold) strategy and a strategy grounded on GARCH model specifications across various training sample sizes.
+This branch encompasses forecasting experiments involving trading strategies rooted in different technical indicators and GARCH model specifications, executed across various training sample sizes and innovation distributions. The performance evaluation of these strategies, termed "Active," is compared against a benchmark buy-and-hold strategy, termed "Passive." The utilized dataset comprises univariate time series daily data.
 
-The functional concept involves the creation of custom functions for:
+All strategies are architected using the R6 class, enabling flexible incorporation of new strategies. The overarching design comprises:
 
-- Estimating historical volatility
-- Generating signals (utilizing a separate engine to define criteria for entry and exit points)
-- Computing performance metrics encompassing returns and risk
-The latter two functions are encapsulated within the main generate_combinations function.
-
-Initially, the implementation focuses on a single instrument. However, future iterations will extend this functionality to incorporate additional instruments.
-
-Also, branch contains strategies based on technical indicators and implemented in R6 class.
-The taxonomy of all trading strategies is as follows:
+- A parent class, 'DataFetcher,' which features methods for data retrieval from Yahoo.
+- A parent class, 'Strategy,' housing a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
+- The child classes of the Strategy represent specific trading strategies.
+- Following the signal generation phase, subsequent steps involve the provision of performance metrics and equity lines.
+The taxonomical hierarchy of trading strategies is portrayed as follows:
 
 ```mermaid
 %%{init: {"flowchart": {"defaultRenderer": "elk", "nodeWidth": 1000}}}%%
@@ -25,7 +21,7 @@ flowchart LR
     GARCH -->|Innovations| distr[Norm, Snorm, NIG]
     GARCH -->|Realized vol| rv[Close, Yang.Zhang]
     Univariate --> Tech[Technical indicators]
-    Tech --> ma[Moving Average: simple and exponential]
+    Tech --> ma[Moving Averages: simple and exponential]
     ma --> SMA1
     ma --> SMA2
     ma --> SMA1Modified
