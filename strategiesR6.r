@@ -150,10 +150,10 @@ plot_equity_lines = function() {
       ggplot(self$data, aes(x = Date)) +
         geom_line(aes(y = equity_line, color = "Active Strategy")) +
         geom_line(aes(y = equity_line_bh, color = "Buy and Hold Strategy")) +
-        labs(title = "Equity Lines for Active and Buy and Hold Strategies",
+        labs(title = "Equity Lines for Active (based on quantitative modeling) and Passive (buy-and-hold) Strategies",
              x = "Date",
              y = "Equity line") +
-        scale_color_manual(values = c("Active Strategy" = "blue", "Buy and Hold Strategy" = "red")) +
+        scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "green")) +
         theme_minimal()
 }
   )
