@@ -69,6 +69,7 @@ download_xts_data = function() {
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2024-10-03", format = "%Y-%m-%d")
 symbol <- "BZ=F"
+capital <- 50000
 
 data_fetcher_garch <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher_garch$download_xts_data()
@@ -124,32 +125,83 @@ calculate_cumulative_return = function() {
 },
 
 # Performance measurement (Information Ratio) for active and buy and hold strategies
-calculate_information_ratio = function() {
+estimate_performance = function() {
 
-      self$data <- na.omit(self$data)
-      # Calculate annualized returns
-      aR <- (self$data$equity_line[length(self$data$equity_line)] / self$data$equity_line[1]) ^ (252 / length(self$data$equity_line)) - 1
-      aR_bh <- (self$data$equity_line_bh[length(self$data$equity_line_bh)] / self$data$equity_line_bh[1]) ^ (252 / length(self$data$equity_line_bh)) - 1
+  self$generate_signals()  # Call generate_signals dynamically
 
-      # Calculate annualized standard deviation
-      aSD <- sd(self$data$equity_line) * sqrt(252)
-      aSD_bh <- sd(self$data$equity_line_bh) * sqrt(252)
+  self$data <- self$data %>% mutate(
+    pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+    pnlPassive = c(0, diff(Close)),
+    nopActive = 0,
+    nopPassive = 0,
+    eqlActive = 0,
+    eqlPassive = 0
+  )
 
-      # Create a data frame with information ratios for both strategies
-      ir_df <- data.frame(
-        Active_strategy = aR / aSD,
-        Buy_and_Hold_Strategy_IR = aR_bh / aSD_bh)
+  # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+  self$data$eqlActive[1] <- capital
+  self$data$nopActive[1] <- floor(capital / self$data$Close[1])
+  self$data$eqlPassive[1] <- capital
+  self$data$nopPassive[1] <- floor(capital / self$data$Close[1])   
+
+  for (i in 2:nrow(self$data)) {
+
+    # Active
+    pnlActive <- self$data$pnlActive[i]
+    prev_nop_Active <- floor(self$data$nopActive[i - 1])
+    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / self$data$Close[i])
+    self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
+    self$data$nopActive[i] <- current_nop_Active
     
-      return(ir_df)
+    # Passive
+    pnlPassive <- self$data$pnlPassive[i]
+    prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
+    current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / self$data$Close[i])
+    self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+    self$data$nopPassive[i] <- current_nop_Passive
+  }
 
+  self$data <- self$data %>%
+    mutate(r_eqlActive = quantmod::Delt(eqlActive),
+            r_eqlPassive = quantmod::Delt(eqlPassive)) %>%
+              na.omit
+
+  # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(self$data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(self$data$r_eqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(self$data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100),3)
+  trades_active <- sum(c(1, ifelse(self$data$signal[-1] * self$data$signal[-length(self$data$signal)] < 0, 1, 0)))
+
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(self$data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(self$data$r_eqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(self$data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100),3)
+  trades_passive <- 1
+
+  # Create dataframe
+  df <- data.frame(
+    Strategy = c("Active", "Passive"),
+    aR = c(aR_active, aR_passive),
+    aSD = c(aSD_active, aSD_passive),
+    IR = c(IR_active, IR_passive),
+    MD = c(MD_active, MD_passive),
+    trades = c(trades_active, trades_passive)
+  )
+
+  print(df)
+  return(self$data)
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
 plot_equity_lines = function() {
       # Plot equity lines
       ggplot(self$data, aes(x = Date)) +
-        geom_line(aes(y = equity_line, color = "Active Strategy")) +
-        geom_line(aes(y = equity_line_bh, color = "Buy and Hold Strategy")) +
+        #geom_line(aes(y = equity_line, color = "Active Strategy")) +
+        geom_line(aes(y = eqlActive, color = "Active Strategy")) +
+        #geom_line(aes(y = equity_line_bh, color = "Buy and Hold Strategy")) +
+        geom_line(aes(y = eqlPassive, color = "Buy and Hold Strategy")) +
         labs(title = "Equity Lines for Active (based on quantitative modeling) and Passive (buy-and-hold) Strategies",
              x = "Date",
              y = "Equity line") +
@@ -358,7 +410,7 @@ generate_signals = function() {
     self$data <- self$data %>% rename_with(~ sub(".*\\.", "", .), everything()) %>%
                 mutate(Date = as.Date(rownames(.))) %>%
                     select(Date, value) %>%
-                        left_join(select(volForHistRoll, Date, signal, position)) %>%
+                        left_join(select(volForHistRoll, Date, Close, signal, position)) %>%
                             na.omit %>%
                                 as.tibble
 }
@@ -376,10 +428,14 @@ garch_strategy <- GARCHStrategy$new(
   realized_vol = "close"
 )
 
-garch_strategy$calculate_positions_and_equity_lines()
+garch_strategy$estimate_performance()
 garch_strategy$plot_equity_lines()
-garch_strategy$calculate_cumulative_return()
-garch_strategy$calculate_information_ratio()
+
+#garch_strategy$generate_signals()
+# garch_strategy$calculate_positions_and_equity_lines()
+# garch_strategy$plot_equity_lines()
+# garch_strategy$calculate_cumulative_return()
+# garch_strategy$calculate_information_ratio()
 
 # Define SMA1 class
 SMA1 <- R6Class(
@@ -409,9 +465,14 @@ SMA1 <- R6Class(
 
 # Instances of SMA1 strategy
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'exp')
-sma1$calculate_positions_and_equity_lines()
+sma1$estimate_performance()
 sma1$plot_equity_lines()
-sma1$calculate_cumulative_return()
+
+# sma1$generate_signals()
+# sma1$calculate_positions_and_equity_lines()
+# sma1$calculate_cumulative_return()
+# sma1$calculate_information_ratio()
+# sma1$estimate_performance()
 
 # Define SMA2 class
 SMA2 <- R6Class(
@@ -448,9 +509,13 @@ SMA2 <- R6Class(
 
 # Create instances SMA2
 sma2 <- SMA2$new(ts, window_size1 = 10, window_size2 = 100,  ma_type = "simple")
-sma2$calculate_positions_and_equity_lines()
+sma2$estimate_performance()
 sma2$plot_equity_lines()
-sma2$calculate_cumulative_return()
+
+# sma2$generate_signals()
+# sma2$calculate_positions_and_equity_lines()
+# sma2$plot_equity_lines()
+# sma2$calculate_cumulative_return()
 
 # Define SMA1 class with modified signals
 SMA1M <- R6Class(
@@ -548,9 +613,12 @@ generate_signals = function(ma_type = self$ma_type) {
 
 # Instances of SMA1M strategy
 sma1m <- SMA1M$new(ts, window_size = 50, ma_type = 'exp')
-sma1m$calculate_positions_and_equity_lines()
+sma1m$estimate_performance()
 sma1m$plot_equity_lines()
-sma1m$calculate_cumulative_return()
+
+# sma1m$calculate_positions_and_equity_lines()
+# sma1m$plot_equity_lines()
+# sma1m$calculate_cumulative_return()
 
 # SMA2 (modified by dynamic trailing stop)
 SMA2M <- R6Class(
@@ -640,9 +708,12 @@ generate_signals = function(ma_type = self$ma_type) {
 )
 
 sma2m <- SMA2M$new(ts, window_size1 = 10, window_size2 = 200, ma_type = "exp")
-sma2m$calculate_positions_and_equity_lines()
+sma2m$estimate_performance()
 sma2m$plot_equity_lines()
-sma2m$calculate_cumulative_return()
+
+# sma2m$calculate_positions_and_equity_lines()
+# sma2m$plot_equity_lines()
+# sma2m$calculate_cumulative_return()
 
 # Define Relative Strength Index class
 RSI <- R6Class(
@@ -691,10 +762,13 @@ RSI <- R6Class(
 
 # Create an instance of RSI class
 rsi <- RSI$new(ts, window_size = 14, threshold_oversold = 40, threshold_overbought = 60)
-rsi$generate_signals()  # Generate signals
-rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
-rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
+rsi$estimate_performance()
 rsi$plot_equity_lines()
+
+# rsi$generate_signals()  # Generate signals
+# rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
+# rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
+# rsi$plot_equity_lines()
 
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
@@ -731,12 +805,14 @@ BollingerBreakout <- R6Class(
 
 # Create an instance of BollingerBreakout class
 bol_br <- BollingerBreakout$new(ts, window_size = 20, sd_multiplier = 2)
-bol_br$generate_signals()  # Generate signals
-bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
-
-# Plot equity lines for Bollinger Breakout
+bol_br$estimate_performance()
 bol_br$plot_equity_lines()
-bol_br$calculate_cumulative_return()
+
+# bol_br$generate_signals()  # Generate signals
+# bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
+# # Plot equity lines for Bollinger Breakout
+# bol_br$plot_equity_lines()
+# bol_br$calculate_cumulative_return()
 
 # Define Volatility Mean Reversion class
 VolatilityMeanReversion <- R6Class(
@@ -771,12 +847,48 @@ VolatilityMeanReversion <- R6Class(
 
 # Create an instance of VolatilityMeanReversion class
 vol_mean_rev <- VolatilityMeanReversion$new(ts, window_size = 20)
-# Generate signals
-vol_mean_rev$generate_signals()
-# Calculate positions and equity lines
-vol_mean_rev$calculate_positions_and_equity_lines()
-# Plot equity lines for Volatility Mean Reversion
+vol_mean_rev$estimate_performance()
 vol_mean_rev$plot_equity_lines()
-# Calculate cumulative return
-vol_mean_rev$calculate_cumulative_return()
+
+# # Generate signals
+# vol_mean_rev$generate_signals()
+# # Calculate positions and equity lines
+# vol_mean_rev$calculate_positions_and_equity_lines()
+# # Plot equity lines for Volatility Mean Reversion
+# vol_mean_rev$plot_equity_lines()
+# # Calculate cumulative return
+# vol_mean_rev$calculate_cumulative_return()
+
+# Define Random strategy class (generate random signals)
+Random <- R6Class(
+  "Random",
+  inherit = Strategy,
+  public = list(
+    prob = NULL,
+    initialize = function(data, prob = 0.5) {
+      super$initialize(data)
+      self$data <- super$convert_to_tibble(self$data)
+      self$prob = prob
+    },
+    generate_signals = function(prob = self$prob) {
+      self$data <- mutate(self$data, 
+                          signal = sample(c(-1,1), size = nrow(self$data), prob),
+                          position = lag(signal, default = 0)) %>% 
+                            na.omit
+    }
+  )
+)
+
+# Instances of Random strategy
+rand <- Random$new(ts, prob = 0.5)
+rand$estimate_performance()
+rand$plot_equity_lines()
+
+#rand$generate_signals()
+# rand$calculate_positions_and_equity_lines()
+# rand$plot_equity_lines()
+# rand$calculate_cumulative_return()
+# rand$calculate_information_ratio()
+
+
 

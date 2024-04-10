@@ -2,10 +2,10 @@ This branch encompasses forecasting experiments involving trading strategies roo
 
 All strategies are architected using the R6 class, enabling flexible incorporation of new strategies. The overarching design comprises:
 
-- A parent class, 'DataFetcher,' which features methods for data retrieval from Yahoo.
-- A parent class, 'Strategy,' housing a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
-- The child classes of the Strategy represent specific trading strategies.
-- Following the signal generation phase, subsequent steps involve the provision of performance metrics and equity lines.
+- A parent class, **DataFetcher**, which features methods for data retrieval from Yahoo.
+- A parent class, **Strategy**, housing a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
+- The child classes of the Strategy class represent specific trading strategies (*SMA1*, *SMA1M*, *SMA2*, *SMA2M*, *BollingerBreakout*, *VolatilityMeanReversion*, *RSI*, *Random*)
+- Following the signal generation phase, subsequent steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
 The taxonomical hierarchy of trading strategies is portrayed as follows:
 
 ```mermaid
@@ -29,3 +29,4 @@ flowchart LR
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
+    Univariate --> r[Random]
