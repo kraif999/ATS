@@ -1,4 +1,4 @@
-This branch encompasses forecasting experiments involving trading strategies rooted in different technical indicators and GARCH model specifications, executed across various training sample sizes and innovation distributions. The performance evaluation of these strategies, termed "Active," is compared against a benchmark buy-and-hold strategy, termed "Passive." The utilized dataset comprises univariate time series daily data.
+This branch encompasses forecasting experiments involving trading strategies rooted in different technical indicators and GARCH model specifications, executed across various training sample sizes and innovation distributions. The performance evaluation of these strategies, termed "Active," is compared against a benchmark buy-and-hold strategy, termed "Passive." The utilized dataset comprises univariate time series overlapping daily data.
 
 All strategies are architected using the R6 class, enabling flexible incorporation of new strategies. The overarching design comprises:
 

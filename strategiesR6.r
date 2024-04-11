@@ -13,6 +13,7 @@ initialize = function(symbol, from_date, to_date, type = "rets") {
       self$to_date <- to_date
       self$type <- type
     },
+  
 # Download data for multiple symbols and save tibble data frame in wide format    
 convert_xts_to_wide_df = function() {
     dfs <- list()
@@ -59,20 +60,119 @@ download_xts_data = function() {
     # UseMethod("mutate") : no applicable method for 'mutate' applied to an object of class "c('xts', 'zoo')"
     ts$value <-  log(ts[,paste0(symbol, ".Close")]) - log(lag(ts[,paste0(symbol, ".Close")]))
     ts <- na.omit(ts)
+    attr(ts, "na.action") <- NULL
 
     return(ts)
-    }
+},
+
+# Visualize Close price or returns
+plot_close_or_rets = function(type = "close") {
+  colnames(ts) <- sub(".*\\.", "", colnames(ts))
+  switch(type,
+        "close" = {
+          # Plot Close
+          ggplot(ts, aes(x = as.Date(index(ts)))) +
+            geom_line(aes(y = Close, color = "Active Strategy"), color = "black") +
+            geom_hline(yintercept = mean(ts$Close), linetype = "dashed", color = "blue") +
+            labs(title = "Close price",
+                  x = "Date",
+                  y = "Close price") +
+            scale_x_date(date_labels = "%b-%Y", date_breaks = "2 years") +
+            theme_minimal()
+        },
+
+        "rets" = {
+          # Assuming the return data is stored in a column named 'returns'
+          # ggplot(ts, aes(x = value)) +
+          #   geom_histogram(bins = 300, fill = "blue", color = "black", alpha = 0.5) +
+          #   labs(title = "Distribution of Returns",
+          #         x = "Returns",
+          #         y = "Frequency") +
+          #   theme_minimal()
+
+          ggplot(ts, aes(value)) +
+            geom_histogram(aes(y = after_stat(density)), binwidth = 0.001, fill = "lightblue", color = "black", boundary = 0.5) +
+            stat_function(fun = dnorm, args = list(mean = mean(ts$value), sd = sd(ts$value)), color = "red", size = 1) +
+            labs(title = "Histogram with Normal Distribution Curve", 
+                x = "Numeric Vector", 
+                y = "Density") +
+            theme_minimal()
+
+        },
+        stop("Invalid type. Choose either 'close' or 'rets'.")
+  )
+},
+
+# Compute missing ratio of values that are not available for Close price (US public holidays are not considered)
+compute_NA_close_price_ratio = function() {
+
+  dates <- data.frame(Date = as.Date(seq(from = from_date, to = to_date, by = "day") %>%
+    `[`(., !weekdays(.) %in% c("Saturday", "Sunday"))))
+
+  ts_df <- data.frame(ts)
+  ts_df <- ts_df %>%
+    rename_with(~ sub(".*\\.", "", .), everything()) %>%
+      mutate(Date = as.Date(rownames(.))) %>%
+        select(Date, everything())
+
+  df <- merge(ts_df %>% select(Date, Close), dates, by = "Date", all.y = TRUE)
+  print(paste("Missing Close values ratio considering all dates is:", sum(is.na(df$Close))/nrow(df)))
+
+  # Compute missing ratio across business weekdays
+  days <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday") 
+  NA_weekdays <- lapply(days, function(day) {
+  missing_ratio <- sum(is.na(df[df$Date %in% df$Date[weekdays(df$Date) %in% day],]$Close)) / nrow(df[df$Date %in% df$Date[weekdays(df$Date) %in% day],])
+  return(missing_ratio)
+  })
+
+  names(NA_weekdays) <- days
+  # Convert the list of missing ratios to a data frame
+  NA_weekdays <- data.frame(Weekday = names(NA_weekdays), Missing_Ratio = unlist(NA_weekdays))
+
+  return(NA_weekdays)
+}
   )
 )
 
-# Download data from Yahoo (instances of DataFetcher class)
+# Specify trading strategy parameters
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-to_date <- as.Date("2024-10-03", format = "%Y-%m-%d")
-symbol <- "BZ=F"
-capital <- 50000
+to_date <- as.Date("2024-03-10", format = "%Y-%m-%d")
+symbol <- "BZ=F" # oil
+capital <- 50000 # units of initial capital invested
 
+# Download data from Yahoo (instances of DataFetcher class)
 data_fetcher_garch <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher_garch$download_xts_data()
+data_fetcher_garch$plot_close_or_rets(type = "close")
+data_fetcher_garch$plot_close_or_rets(type = "rets")
+data_fetcher_garch$compute_NA_close_price_ratio()
+
+# Define TSA class
+TSA <- R6Class(
+  "TSA",
+  inherit = DataFetcher,
+  public = list(
+    data = NULL,
+    initialise  = function(data) {
+    self$data <- data
+    },
+    # ...
+    # Trend (State space models: Kalman filter)
+    # Seasonality
+    # Cyclicality
+    # Stationarity
+    # Autocorrelation
+    # Heteroscedasticity
+    # Outliers
+    # Seasonal decomposition
+    # Volatility
+  )
+)
+
+# Instances of TSA
+tsa <- TSA$new(symbol, from_date, to_date)
+ts <- tsa$download_xts_data()
+tsa$plots(type = "close")
 
 # Define parent Strategy class
 Strategy <- R6Class(
@@ -99,7 +199,7 @@ convert_to_tibble = function(ts) {
     return(ts_df)
 },
 
-# Calculate portfolio value for each trading day
+# Calculate portfolio value for each trading day (method to be removed)
 calculate_positions_and_equity_lines = function() {
       self$generate_signals()  # Call generate_signals dynamically
 
@@ -114,7 +214,7 @@ calculate_positions_and_equity_lines = function() {
       return(self$data)
 },
 
-# Calculate cumulative return
+# Calculate cumulative return (method to be removed)
 calculate_cumulative_return = function() {
       #self$generate_signals()  # Call generate_signals dynamically
       cret = data.frame(
@@ -195,19 +295,20 @@ estimate_performance = function() {
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
-plot_equity_lines = function() {
+plot_equity_lines = function(strategy_name) {
       # Plot equity lines
       ggplot(self$data, aes(x = Date)) +
         #geom_line(aes(y = equity_line, color = "Active Strategy")) +
         geom_line(aes(y = eqlActive, color = "Active Strategy")) +
         #geom_line(aes(y = equity_line_bh, color = "Buy and Hold Strategy")) +
         geom_line(aes(y = eqlPassive, color = "Buy and Hold Strategy")) +
-        labs(title = "Equity Lines for Active (based on quantitative modeling) and Passive (buy-and-hold) Strategies",
+        labs(title = paste0("Equity Lines for Active ", "(", as.character(strategy_name), ")", " and Passive (buy-and-hold) strategies"),
              x = "Date",
              y = "Equity line") +
         scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "green")) +
         theme_minimal()
 }
+
   )
 )
 
@@ -429,7 +530,7 @@ garch_strategy <- GARCHStrategy$new(
 )
 
 garch_strategy$estimate_performance()
-garch_strategy$plot_equity_lines()
+garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close")
 
 #garch_strategy$generate_signals()
 # garch_strategy$calculate_positions_and_equity_lines()
@@ -466,7 +567,7 @@ SMA1 <- R6Class(
 # Instances of SMA1 strategy
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'exp')
 sma1$estimate_performance()
-sma1$plot_equity_lines()
+sma1$plot_equity_lines("SMA1")
 
 # sma1$generate_signals()
 # sma1$calculate_positions_and_equity_lines()
@@ -510,7 +611,7 @@ SMA2 <- R6Class(
 # Create instances SMA2
 sma2 <- SMA2$new(ts, window_size1 = 10, window_size2 = 100,  ma_type = "simple")
 sma2$estimate_performance()
-sma2$plot_equity_lines()
+sma2$plot_equity_lines("SMA2")
 
 # sma2$generate_signals()
 # sma2$calculate_positions_and_equity_lines()
@@ -614,7 +715,7 @@ generate_signals = function(ma_type = self$ma_type) {
 # Instances of SMA1M strategy
 sma1m <- SMA1M$new(ts, window_size = 50, ma_type = 'exp')
 sma1m$estimate_performance()
-sma1m$plot_equity_lines()
+sma1m$plot_equity_lines("SMA1M")
 
 # sma1m$calculate_positions_and_equity_lines()
 # sma1m$plot_equity_lines()
@@ -709,7 +810,7 @@ generate_signals = function(ma_type = self$ma_type) {
 
 sma2m <- SMA2M$new(ts, window_size1 = 10, window_size2 = 200, ma_type = "exp")
 sma2m$estimate_performance()
-sma2m$plot_equity_lines()
+sma2m$plot_equity_lines("SMA2M")
 
 # sma2m$calculate_positions_and_equity_lines()
 # sma2m$plot_equity_lines()
@@ -732,7 +833,7 @@ RSI <- R6Class(
       self$threshold_overbought <- threshold_overbought
     },
 
-    generate_signals = function() {
+  generate_signals = function() {
         self$data <- mutate(self$data,
                             #avg_gain = rollmean(ifelse(value > 0, value, 0), k = self$window_size, align = "right", fill = NA),
                             avg_gain = rollmean(ifelse(Close > 0, Close, 0), k = self$window_size, align = "right", fill = NA),
@@ -763,7 +864,7 @@ RSI <- R6Class(
 # Create an instance of RSI class
 rsi <- RSI$new(ts, window_size = 14, threshold_oversold = 40, threshold_overbought = 60)
 rsi$estimate_performance()
-rsi$plot_equity_lines()
+rsi$plot_equity_lines("RSI")
 
 # rsi$generate_signals()  # Generate signals
 # rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
@@ -784,7 +885,7 @@ BollingerBreakout <- R6Class(
       self$window_size <- window_size
       self$sd_multiplier <- sd_multiplier
     },
-    generate_signals = function() {
+generate_signals = function() {
       self$data <- mutate(self$data, 
                           #ma = rollmean(value, k = self$window_size, align = "right", fill = NA),
                           ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
@@ -806,7 +907,7 @@ BollingerBreakout <- R6Class(
 # Create an instance of BollingerBreakout class
 bol_br <- BollingerBreakout$new(ts, window_size = 20, sd_multiplier = 2)
 bol_br$estimate_performance()
-bol_br$plot_equity_lines()
+bol_br$plot_equity_lines("BB")
 
 # bol_br$generate_signals()  # Generate signals
 # bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
@@ -826,6 +927,7 @@ VolatilityMeanReversion <- R6Class(
       self$data <- super$convert_to_tibble(self$data)
       self$window_size <- window_size
     },
+
     generate_signals = function() {
       # Estimate historical volatility
       #hist_vol <- rollapply(self$data$value, width = self$window_size, sd, align = "right", fill = NA)
@@ -848,7 +950,7 @@ VolatilityMeanReversion <- R6Class(
 # Create an instance of VolatilityMeanReversion class
 vol_mean_rev <- VolatilityMeanReversion$new(ts, window_size = 20)
 vol_mean_rev$estimate_performance()
-vol_mean_rev$plot_equity_lines()
+vol_mean_rev$plot_equity_lines("VolatilityMeanReversion")
 
 # # Generate signals
 # vol_mean_rev$generate_signals()
@@ -882,7 +984,7 @@ Random <- R6Class(
 # Instances of Random strategy
 rand <- Random$new(ts, prob = 0.5)
 rand$estimate_performance()
-rand$plot_equity_lines()
+rand$plot_equity_lines("Random")
 
 #rand$generate_signals()
 # rand$calculate_positions_and_equity_lines()
