@@ -224,7 +224,7 @@ calculate_cumulative_return = function() {
       return(cret)
 },
 
-# Performance measurement (Information Ratio) for active and buy and hold strategies
+# Performance estimation
 estimate_performance = function() {
 
   self$generate_signals()  # Call generate_signals dynamically
@@ -291,6 +291,28 @@ estimate_performance = function() {
   )
 
   print(df)
+
+  # Calculate success rates
+  buy_success_rate_active <- sum(self$data$position > 0 & self$data$value > 0) / nrow(self$data)
+  buy_success_rate_passive <- sum(self$data$value > 0) / nrow(self$data)
+
+  short_success_rate_active <- sum(self$data$position < 0 & self$data$value < 0) / nrow(self$data)
+  short_success_rate_passive <- 0
+
+  combined_rate_active <- (sum(self$data$position > 0 & self$data$value > 0) + sum(self$data$position < 0 & self$data$value < 0)) / nrow(self$data)
+  combined_rate_passive <- (sum(self$data$value > 0)) / nrow(self$data)
+
+  # Create data frame for success rates
+  success_rate <- data.frame(
+    Strategy = c("Active", "Passive"),
+    Buy_Success_Rate = c(buy_success_rate_active, buy_success_rate_passive),
+    Short_Success_Rate = c(short_success_rate_active, short_success_rate_passive),
+    Combined_Success_Rate = c(combined_rate_active, combined_rate_passive)
+  )
+
+  # Print the performance data frame and success rate data frame
+  print(success_rate)
+
   return(self$data)
 },
 
@@ -532,12 +554,6 @@ garch_strategy <- GARCHStrategy$new(
 garch_strategy$estimate_performance()
 garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close")
 
-#garch_strategy$generate_signals()
-# garch_strategy$calculate_positions_and_equity_lines()
-# garch_strategy$plot_equity_lines()
-# garch_strategy$calculate_cumulative_return()
-# garch_strategy$calculate_information_ratio()
-
 # Define SMA1 class
 SMA1 <- R6Class(
   "SMA1",
@@ -568,12 +584,6 @@ SMA1 <- R6Class(
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'exp')
 sma1$estimate_performance()
 sma1$plot_equity_lines("SMA1")
-
-# sma1$generate_signals()
-# sma1$calculate_positions_and_equity_lines()
-# sma1$calculate_cumulative_return()
-# sma1$calculate_information_ratio()
-# sma1$estimate_performance()
 
 # Define SMA2 class
 SMA2 <- R6Class(
@@ -612,11 +622,6 @@ SMA2 <- R6Class(
 sma2 <- SMA2$new(ts, window_size1 = 10, window_size2 = 100,  ma_type = "simple")
 sma2$estimate_performance()
 sma2$plot_equity_lines("SMA2")
-
-# sma2$generate_signals()
-# sma2$calculate_positions_and_equity_lines()
-# sma2$plot_equity_lines()
-# sma2$calculate_cumulative_return()
 
 # Define SMA1 class with modified signals
 SMA1M <- R6Class(
@@ -717,10 +722,6 @@ sma1m <- SMA1M$new(ts, window_size = 50, ma_type = 'exp')
 sma1m$estimate_performance()
 sma1m$plot_equity_lines("SMA1M")
 
-# sma1m$calculate_positions_and_equity_lines()
-# sma1m$plot_equity_lines()
-# sma1m$calculate_cumulative_return()
-
 # SMA2 (modified by dynamic trailing stop)
 SMA2M <- R6Class(
   "SMA2M",
@@ -812,10 +813,6 @@ sma2m <- SMA2M$new(ts, window_size1 = 10, window_size2 = 200, ma_type = "exp")
 sma2m$estimate_performance()
 sma2m$plot_equity_lines("SMA2M")
 
-# sma2m$calculate_positions_and_equity_lines()
-# sma2m$plot_equity_lines()
-# sma2m$calculate_cumulative_return()
-
 # Define Relative Strength Index class
 RSI <- R6Class(
   "RSI",
@@ -866,11 +863,6 @@ rsi <- RSI$new(ts, window_size = 14, threshold_oversold = 40, threshold_overboug
 rsi$estimate_performance()
 rsi$plot_equity_lines("RSI")
 
-# rsi$generate_signals()  # Generate signals
-# rsi$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
-# rsi$plot_avg_gain_loss_with_equity_lines()  # Plot average gain, average loss, and equity line
-# rsi$plot_equity_lines()
-
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
   "BollingerBreakout",
@@ -909,12 +901,6 @@ bol_br <- BollingerBreakout$new(ts, window_size = 20, sd_multiplier = 2)
 bol_br$estimate_performance()
 bol_br$plot_equity_lines("BB")
 
-# bol_br$generate_signals()  # Generate signals
-# bol_br$calculate_positions_and_equity_lines()  # Calculate positions and equity lines
-# # Plot equity lines for Bollinger Breakout
-# bol_br$plot_equity_lines()
-# bol_br$calculate_cumulative_return()
-
 # Define Volatility Mean Reversion class
 VolatilityMeanReversion <- R6Class(
   "VolatilityMeanReversion",
@@ -952,15 +938,6 @@ vol_mean_rev <- VolatilityMeanReversion$new(ts, window_size = 20)
 vol_mean_rev$estimate_performance()
 vol_mean_rev$plot_equity_lines("VolatilityMeanReversion")
 
-# # Generate signals
-# vol_mean_rev$generate_signals()
-# # Calculate positions and equity lines
-# vol_mean_rev$calculate_positions_and_equity_lines()
-# # Plot equity lines for Volatility Mean Reversion
-# vol_mean_rev$plot_equity_lines()
-# # Calculate cumulative return
-# vol_mean_rev$calculate_cumulative_return()
-
 # Define Random strategy class (generate random signals)
 Random <- R6Class(
   "Random",
@@ -986,11 +963,6 @@ rand <- Random$new(ts, prob = 0.5)
 rand$estimate_performance()
 rand$plot_equity_lines("Random")
 
-#rand$generate_signals()
-# rand$calculate_positions_and_equity_lines()
-# rand$plot_equity_lines()
-# rand$calculate_cumulative_return()
-# rand$calculate_information_ratio()
 
 
 
