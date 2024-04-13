@@ -82,13 +82,17 @@ plot_close_or_rets = function(type = "close") {
         },
 
         "rets" = {
-          # Assuming the return data is stored in a column named 'returns'
-          # ggplot(ts, aes(x = value)) +
-          #   geom_histogram(bins = 300, fill = "blue", color = "black", alpha = 0.5) +
-          #   labs(title = "Distribution of Returns",
-          #         x = "Returns",
-          #         y = "Frequency") +
-          #   theme_minimal()
+         ggplot(ts, aes(x = as.Date(index(ts)))) +
+            geom_line(aes(y = value, color = "Active Strategy"), color = "black") +
+            geom_hline(yintercept = mean(ts$value), linetype = "dashed", color = "blue") +
+            labs(title = "Log returns",
+                  x = "Date",
+                  y = "log return") +
+            scale_x_date(date_labels = "%b-%Y", date_breaks = "2 years") +
+            theme_minimal()         
+        },
+
+        "rets_hist" = {
 
           ggplot(ts, aes(value)) +
             geom_histogram(aes(y = after_stat(density)), binwidth = 0.001, fill = "lightblue", color = "black", boundary = 0.5) +
@@ -97,7 +101,6 @@ plot_close_or_rets = function(type = "close") {
                 x = "Numeric Vector", 
                 y = "Density") +
             theme_minimal()
-
         },
         stop("Invalid type. Choose either 'close' or 'rets'.")
   )
@@ -134,11 +137,13 @@ compute_NA_close_price_ratio = function() {
   )
 )
 
+######################################################
 # Specify trading strategy parameters
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2024-03-10", format = "%Y-%m-%d")
 symbol <- "BZ=F" # oil
 capital <- 50000 # units of initial capital invested
+######################################################
 
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher_garch <- DataFetcher$new(symbol, from_date, to_date)
@@ -150,29 +155,130 @@ data_fetcher_garch$compute_NA_close_price_ratio()
 # Define TSA class
 TSA <- R6Class(
   "TSA",
-  inherit = DataFetcher,
   public = list(
+    original_data = NULL,
     data = NULL,
-    initialise  = function(data) {
-    self$data <- data
+    initialize = function(data) {
+      self$original_data <- data
+      self$data <- private$preprocess_data(freq = "daily")
     },
-    # ...
-    # Trend (State space models: Kalman filter)
-    # Seasonality
-    # Cyclicality
-    # Stationarity
-    # Autocorrelation
-    # Heteroscedasticity
-    # Outliers
-    # Seasonal decomposition
-    # Volatility
+    
+estimate_stationarity = function(freq = "daily", plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      adf <- aTSA::adf.test(self$data$value, output = FALSE)[["type1"]] %>% data.frame()
+      
+      # Plot values
+      if (plot_flag) {
+        print(
+          ggplot(self$data, aes(x = Date, y = value)) +
+            geom_line() +
+            labs(title = "Stationarity (ADF test)") +
+            scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+            theme_minimal()
+        )
+      }
+      return(adf)
+},
+    
+estimate_autocorr_rets_vol = function(test, freq = "daily", plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      switch(test,
+             "rets" = {
+               # ACF test for returns  
+               acf <- acf(self$data$value, main = "Autocorrelation", plot = TRUE)
+               return(list(acf = acf))
+             },
+             "vol" = {
+               # ACF test for squared returns
+               acf2 <- acf(self$data$value^2, main = "Volatility clustering", plot = TRUE)
+               return(list(acf = acf2))
+             }
+      )
+},
+    
+estimate_seasonality = function(freq = "daily") {
+      self$data <- private$preprocess_data(freq)
+      self$data <- ts(self$data$value, frequency = ifelse(freq == "daily", 26, 52))
+      # Decompose the time series
+      decomposed_data <- decompose(self$data)
+      # Plot the decomposed components
+      plot(decomposed_data)
+},
+    
+estimate_heteroscedasticity = function(freq, plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      
+      # Fit a linear regression model to the squared log returns
+      model <- lm(self$data$value^2 ~ self$data$value, data = data.frame(value = self$data$value))
+      
+      # Perform Breusch-Pagan test and print results
+      bp_test <- bptest(model)
+      print(bp_test)
+      
+      # Get the residuals from the linear regression model
+      residuals <- residuals(model)
+      
+      # Create a data frame for the residuals
+      residual_df <- data.frame(Residuals = residuals, Observation = 1:length(residuals))
+      
+      # Plot using ggplot
+      if (plot_flag) {
+        print(
+          ggplot(residual_df, aes(x = Observation, y = Residuals)) +
+            geom_point() +
+            geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+            labs(title = "Residuals from Linear Regression Model",
+                 x = "Observation Number",
+                 y = "Residuals") +
+            theme_minimal()
+        )
+      }
+}
+  ),
+  
+private = list(
+
+preprocess_data = function(freq) {
+      # Convert xts data into tibble 
+      data <- data.frame(self$original_data)  
+      data <- data %>%
+        rename_with(~ sub(".*\\.", "", .), everything()) %>%
+        mutate(Date = as.Date(rownames(data))) %>%
+        select(Date, everything()) %>%
+        na.omit() %>%
+        as.tibble()
+      
+      # Choose values frequency: daily overlapping values or bi-weekly non-overlapping 
+      switch(
+        freq,
+        "daily" = {
+          data <- data
+        },
+        "biweekly" = {
+          bdates <- seq.Date(
+            from = (from_date + 0:6)[weekdays(from_date + 0:6) %in% "Wednesday"], 
+            to = (to_date - 0:6)[weekdays(to_date - 0:6) %in% "Wednesday"], by = 14)
+            data <- data %>% filter(Date %in% bdates)
+        },
+        stop("Invalid value for 'freq' argument. Choose 'daily' or 'biweekly'.")
+      )
+      return(data)
+    }
   )
 )
 
 # Instances of TSA
-tsa <- TSA$new(symbol, from_date, to_date)
-ts <- tsa$download_xts_data()
-tsa$plots(type = "close")
+# daily overlapping returns
+tsa <- TSA$new(ts)
+tsa$estimate_stationarity(freq = "daily")
+tsa$estimate_heteroscedasticity(freq = "daily")
+tsa$estimate_autocorr_rets_vol(test = "rets", freq = "daily", plot_flag = TRUE)
+tsa$estimate_seasonality(freq = "daily")
+# biweekly non-overlapping returns
+tsa$estimate_stationarity(freq = "biweekly")
+tsa$estimate_heteroscedasticity(freq = "biweekly")
+tsa$estimate_autocorr_rets_vol(test = "rets", freq = "biweekly", plot_flag = TRUE)
+tsa$estimate_seasonality(freq = "biweekly")
 
 # Define parent Strategy class
 Strategy <- R6Class(
