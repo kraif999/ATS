@@ -200,7 +200,7 @@ estimate_seasonality = function(freq = "daily") {
       self$data <- private$preprocess_data(freq)
       self$data <- ts(self$data$value, frequency = ifelse(freq == "daily", 26, 52))
       # Decompose the time series
-      decomposed_data <- decompose(self$data)
+      decomposed_data <- decompose(self$data) # decompose into 1) original ts, 2) trend component, 3) seasonal component, 4) residual component
       # Plot the decomposed components
       plot(decomposed_data)
 },
@@ -233,7 +233,92 @@ estimate_heteroscedasticity = function(freq, plot_flag = TRUE) {
             theme_minimal()
         )
       }
-}
+},
+
+estimate_outliers = function(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5) {
+  self$data <- private$preprocess_data(freq)
+  switch(
+    test,
+    # Super smoothing
+    "supsmu" = {  
+    ts_rets <- ts(self$data$value, frequency = 1)
+
+    # Clean the time series using tsclean
+    clean_ts <- tsclean(ts_rets)
+
+    # Identify outliers using tsoutliers
+    outliers <- tsoutliers(ts_rets)
+
+    # Plot the original time series, cleaned time series, and outliers
+    if (plot_flag) {
+      print(
+        autoplot(clean_ts, series = "Cleaned", color = 'red', lwd = 0.9) +
+        autolayer(ts_rets, series = "Original", color = 'gray', lwd = 1) +
+        geom_point(data = outliers %>% as.data.frame(),
+        aes(x = index, y = replacements), col = 'blue') +
+        labs(x = "Date", y = "Close Price", title = "Time Series with Outliers Highlighted (via SuperSmoothing 'tsoutliers' function)")
+        )
+      }
+    
+    # Create a data frame from the outliers list
+    outliers_df <- data.frame(
+      index = outliers$index,
+      replacements = outliers$replacements
+    )
+    return(outliers_df)
+    },
+
+    "zscore" = {
+    ts_rets <- ts(self$data$value, frequency = 1)
+     # Calculate Modified Z-scores
+     median_val <- median(ts_rets)
+     mad_val <- mad(ts_rets)
+
+     modified_z_scores <- abs(0.6745 * (ts_rets - median_val) / mad_val)
+
+     # Identify outliers (e.g., Modified Z-score > 3.5)
+     outliers_modified <- which(modified_z_scores > 3.5)
+
+     # Plot outliers
+      if (plot_flag) {
+        print(
+          ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
+            geom_line() +
+            geom_point(data = data.frame(Date = time(ts_rets)[outliers_modified], Value = ts_rets[outliers_modified]), aes(x = Date, y = Value), color = "red") +
+            labs(title = "Time Series Data with Outliers Identified by Modified Z-Score")
+        )
+      }
+
+      # Create a data frame from the outliers list
+      outliers_df <- data.frame(
+        index = time(ts_rets)[outliers_modified],
+        replacements = ts_rets[outliers_modified]
+      )
+      return(outliers_df)
+        },
+      
+    "fences" = {
+    ts_rets <- ts(self$data$value, frequency = 1)
+    # Calculate IQR
+    Q1 <- quantile(ts_rets, q1)
+    Q3 <- quantile(ts_rets, q3)
+    IQR_val <- Q3 - Q1
+
+    # Identify outliers (e.g., values < Q1 - 1.5 * IQR or values > Q3 + 1.5 * IQR)
+    outliers_tukey <- which(ts_rets < (Q1 - threshold * IQR_val) | ts_rets > (Q3 + threshold * IQR_val))
+
+    # Plot outliers
+    if (plot_flag) {
+      print(
+    ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
+        geom_line() +
+        geom_point(data = data.frame(Date = time(ts_rets)[outliers_tukey], Value = ts_rets[outliers_tukey]), aes(x = Date, y = Value), color = "red", size = 2) +
+        labs(title = "Time Series Data with Outliers Identified by Tukey's Fences")
+            )   
+          }
+        }
+      )
+    }
   ),
   
 private = list(
@@ -279,6 +364,8 @@ tsa$estimate_stationarity(freq = "biweekly")
 tsa$estimate_heteroscedasticity(freq = "biweekly")
 tsa$estimate_autocorr_rets_vol(test = "rets", freq = "biweekly", plot_flag = TRUE)
 tsa$estimate_seasonality(freq = "biweekly")
+tsa$estimate_outliers(test = "zscore", freq = "daily", plot_flag = TRUE)
+tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 1.5)
 
 # Define parent Strategy class
 Strategy <- R6Class(
