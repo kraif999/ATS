@@ -366,6 +366,7 @@ tsa$estimate_autocorr_rets_vol(test = "rets", freq = "biweekly", plot_flag = TRU
 tsa$estimate_seasonality(freq = "biweekly")
 tsa$estimate_outliers(test = "zscore", freq = "daily", plot_flag = TRUE)
 tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 1.5)
+tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 2)
 
 # Define parent Strategy class
 Strategy <- R6Class(
