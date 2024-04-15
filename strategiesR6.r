@@ -150,6 +150,7 @@ data_fetcher_garch <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher_garch$download_xts_data()
 data_fetcher_garch$plot_close_or_rets(type = "close")
 data_fetcher_garch$plot_close_or_rets(type = "rets")
+data_fetcher_garch$plot_close_or_rets(type = "rets_hist")
 data_fetcher_garch$compute_NA_close_price_ratio()
 
 # Define TSA class
@@ -205,7 +206,7 @@ estimate_seasonality = function(freq = "daily") {
       plot(decomposed_data)
 },
     
-estimate_heteroscedasticity = function(freq, plot_flag = TRUE) {
+estimate_heteroscedasticity = function(freq = "daily", plot_flag = TRUE) {
       self$data <- private$preprocess_data(freq)
       
       # Fit a linear regression model to the squared log returns
@@ -233,6 +234,18 @@ estimate_heteroscedasticity = function(freq, plot_flag = TRUE) {
             theme_minimal()
         )
       }
+},
+
+estimate_arch_effects = function(freq = "daily", p = 1, q = 1, plot_flag = TRUE) {
+  
+  self$data <- private$preprocess_data(freq)
+  
+  # Fit an ARIMA model
+  fit <- arima(self$data$value, order=c(p,0,q))
+  
+  # Engle's ARCH test
+  arch <- arch.test(fit)
+  return(arch)
 },
 
 estimate_outliers = function(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5) {
@@ -318,8 +331,66 @@ estimate_outliers = function(test, freq = "daily", plot_flag = TRUE, q1 = NULL, 
           }
         }
       )
-    }
-  ),
+},
+
+compute_wkd_rets = function(freq = "daily") {
+  self$data <- private$preprocess_data(freq)
+  self$data <- self$data %>%
+    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) 
+
+  # Compute average return on weekdays
+  avg_wkd_rets <- self$data %>%
+    group_by(weekday) %>%
+      summarize(avg_return = mean(value, na.rm = TRUE)) %>%
+        arrange(weekday)
+  
+  # Compute longest consequtive streak of positive and negative weekday returns
+  positive <- self$data %>%
+    group_by(weekday) %>%
+      summarise(longest_series_weekdays = max(rle(value > 0)$lengths * (rle(value > 0)$values))) %>%
+          ungroup()
+
+  negative <- self$data %>%
+    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) %>%
+      group_by(weekday) %>%
+        summarise(longest_series_weekdays = max(rle(value < 0)$lengths * (rle(value < 0)$values))) %>%
+            ungroup()
+
+  res_longest <- merge(positive, negative, by = "weekday", all = TRUE) %>%
+    rename(longest_positive = longest_series_weekdays.x, longest_negative = longest_series_weekdays.y) %>% 
+      arrange(weekday)
+
+  # Test hypothesis if any weekday return is statistically different from rets mean return
+
+  # Overall mean return
+  overall_mean <- mean(self$data$value)
+
+  # Perform Wilcoxon signed-rank test for each weekday
+  avg_wkd_rets <- avg_wkd_rets %>%
+    rowwise() %>%
+      mutate(
+    test_statistic = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$statistic,
+    p_value = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$p.value
+  )
+
+  return(list(avg_wkd_rets = avg_wkd_rets, res_longest = res_longest))
+},
+
+compute_summary_statistics = function(freq = "daily") {
+  self$data <- private$preprocess_data(freq)
+  summary_stats <- self$data %>%
+    summarise(
+      mean_return = mean(value),
+      median_return = median(value),
+      sd_return = sd(value),
+      skewness = skewness(value),
+      kurtosis = kurtosis(value)
+    )
+  
+  return(summary_stats)
+}
+
+  ), # end of public list arguments
   
 private = list(
 
@@ -359,6 +430,10 @@ tsa$estimate_stationarity(freq = "daily")
 tsa$estimate_heteroscedasticity(freq = "daily")
 tsa$estimate_autocorr_rets_vol(test = "rets", freq = "daily", plot_flag = TRUE)
 tsa$estimate_seasonality(freq = "daily")
+tsa$estimate_arch_effects(freq = "daily", p = 1, q = 1)
+tsa$compute_wkd_rets(freq = "daily")
+tsa$compute_summary_statistics(freq = "daily")
+
 # biweekly non-overlapping returns
 tsa$estimate_stationarity(freq = "biweekly")
 tsa$estimate_heteroscedasticity(freq = "biweekly")
@@ -367,6 +442,8 @@ tsa$estimate_seasonality(freq = "biweekly")
 tsa$estimate_outliers(test = "zscore", freq = "daily", plot_flag = TRUE)
 tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 1.5)
 tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 2)
+tsa$estimate_arch_effects(freq = "daily", p = 1, q = 1)
+
 
 # Define parent Strategy class
 Strategy <- R6Class(

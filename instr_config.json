@@ -30,7 +30,11 @@
       "SI=F": {
         "class": "Commodities",
         "description": "Silver"
+    },
+     
+      "BTC-USD": {
+        "class": "Cryptocurrency",
+        "description": "Bitcoin"
     }
   }
 }
-
