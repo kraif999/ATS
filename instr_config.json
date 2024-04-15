@@ -1,5 +1,5 @@
 {
-    "strategies": ["Strategy1", "Strategy2", "Strategy3"],
+    "strategies": ["GARCH", "TI", "Random"],
     "assets": {
       
       "EUR=X": {
@@ -16,6 +16,56 @@
         "class": "Equities",
         "description": "Stock market index of 100 of the most highly capitalised blue chip companies listed on the London Stock Exchange"
       },
+      
+      "SPY": {
+        "class": "Equities",
+        "description": "SPDR S&P 500 ETF Trust"
+      },
+
+      "VUG": {
+        "class": "Equities",
+        "description": "Vanguard Growth Index Fund ETF Shares"
+      },
+
+      "VBR": {
+        "class": "Equities",
+        "description": "Vanguard Small-Cap Value Index Fund ETF Shares"
+      },
+
+      "AGG": {
+        "class": "Fixed Income",
+        "description": "iShares Core U.S. Aggregate Bond ETF (AGG)"
+      },
+
+      "VTI": {
+        "class": "Macro",
+        "description": "Vanguard Total Stock Market Index Fund ETF Shares"
+      },
+
+      "LQD": {
+        "class": "Credit",
+        "description": "iShares iBoxx $ Investment Grade Corporate Bond ETF (LQD)"
+      },
+
+      "HYG": {
+        "class": "Liquidity",
+        "description": "iShares iBoxx $ High Yield Corporate Bond ETF"
+      },
+
+      "USO": {
+        "class": "Commodities",
+        "description": "United States Oil Fund, LP"
+      },
+
+      "HACK": {
+        "class": "Operational",
+        "description": "Amplify Cybersecurity ETF"
+      },
+
+      "TLT": {
+        "class": "Rates",
+        "description": "iShares 20+ Year Treasury Bond ETF"
+      },
 
       "GC=F": {
         "class": "Commodities",
@@ -30,6 +80,11 @@
       "SI=F": {
         "class": "Commodities",
         "description": "Silver"
+    },
+
+      "TIP": {
+        "class": "Inflation",
+        "description": "iShares TIPS Bond ETF"
     },
      
       "BTC-USD": {
