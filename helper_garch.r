@@ -10,12 +10,12 @@ ohlc <- data %>%
 
 # Different realized volatility estimators for returns (TTR)
 histVolest <- merge(
-  garman <- as.xts(na.omit(volatility(ohlc, calc = "garman"))) / sqrt(252),
-  close <- as.xts(na.omit(volatility(ohlc[,4], calc = "close"))) / sqrt(252),
-  parkinson <- as.xts(na.omit(volatility(ohlc, calc = "parkinson"))) / sqrt(252),
-  rogers.satchell <- as.xts(na.omit(volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
-  garman_modified <- as.xts(na.omit(volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
-  yang.zhang <- as.xts(na.omit(volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
+  garman <- as.xts(na.omit(TTR::volatility(ohlc, calc = "garman"))) / sqrt(252),
+  close <- as.xts(na.omit(TTR::volatility(ohlc[,4], calc = "close"))) / sqrt(252),
+  parkinson <- as.xts(na.omit(TTR::volatility(ohlc, calc = "parkinson"))) / sqrt(252),
+  rogers.satchell <- as.xts(na.omit(TTR::volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
+  garman_modified <- as.xts(na.omit(TTR::volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
+  yang.zhang <- as.xts(na.omit(TTR::volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
 ) %>% 
   as.data.frame %>% 
     rename_with(~ c("garman", "close", "parkinson", "rogers_satchell", "garman_modified", "yang_zhang")) %>%
@@ -188,22 +188,6 @@ calculate_eqlGARCH_no_TC <- function(data, dfl = 0.25, capital = 1000000, TC = 2
             na.omit
   return(r_eql)
 }
-
-# # Generate signals based on GARCH model volatility forecasts (as example for commodities)
-# generate_entry_signals <- function(volData) {
-
-#   modified_volData <- volData %>%
-#     mutate(
-#       signal = case_when(
-#         Forecast < quantile(Forecast, probs = 0.75) ~ 1,
-#         Forecast > quantile(Forecast, probs = 0.75) ~ -1,
-#         TRUE ~ 0    
-#       )
-#     ) %>%
-#     slice(-1)  # Remove the first row since it will have NA for signal
-  
-#   return(modified_volData)
-# }
 
 generate_combinations <- function(
 
