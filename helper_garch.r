@@ -196,7 +196,8 @@ generate_combinations <- function(
   specification, # GARCH model specification
   n_start, refit_every, refit_window, distribution_model, 
   realized_vol,
-  plots_path) {
+  plots_path,
+  cl) {
 
   listgarch <- expand.grid(
     specification = specification,
@@ -324,24 +325,6 @@ volForHistRoll <- forecastVolRoll %>%
 
 # Choose historical volatility estimator to compare with one day ahead rolling forecasts
 as.data.frame(apply(volForHistRoll %>% select(Forecast, histVol %>% names), 2, quantile, probs = c(0.5, 0.75, 0.95, 0.999, 1)))
-
-################################################################################
-# Generate entry signals
-################################################################################
-# volForHistRoll <- volForHistRoll %>%
-#    mutate(
-#   #   signal = case_when(
-#   #     Forecast > lag(volForHistRoll[[RV]]) ~ 1,
-#   #     Forecast < lag(volForHistRoll[[RV]]) ~ -1,
-#   #     TRUE ~ 0
-#   # ),
-#     signal = case_when(
-#       # Condition
-#       Forecast < quantile(Forecast, probs = 0.75) ~ 1,
-#       Forecast > quantile(Forecast, probs = 0.75) ~ -1,
-#       TRUE ~ 0    
-#           )) %>%
-#   slice(-1)
 
 volForHistRoll <- generate_entry_signals(volForHistRoll)
 

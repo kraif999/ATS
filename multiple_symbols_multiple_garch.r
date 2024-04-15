@@ -21,6 +21,11 @@ to_date <- as.Date("2024-10-03", format = "%Y-%m-%d")
 # Select all symbols within a given class (for example, Commodities)
 symbols <- names(Filter(function(x) x$class == "Commodities", meta$assets))
 
+# Setting up clusters for parallel processing in 'ugarchroll'
+getDoParWorkers()
+max_cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(max_cores)
+
 final <- list() # list  to store the results
 
 # Looping over symbols within a given single class
@@ -93,7 +98,8 @@ listgarch <- generate_combinations(
   refit_window = c("expanding", "moving"), 
   distribution_model = c("snorm"), 
   realized_vol = "close",
-  plots_path = "EquityLines_garch_experiment_modified_signal/" # folder to save equity lines for GARCH based strategy vs Passive strategy 
+  plots_path = "EquityLines_garch_experiment_modified_signal/", # folder to save equity lines for GARCH based strategy vs Passive strategy 
+  cl
   )
 
 final[[symbol]] <- listgarch
