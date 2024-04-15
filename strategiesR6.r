@@ -244,7 +244,7 @@ estimate_arch_effects = function(freq = "daily", p = 1, q = 1, plot_flag = TRUE)
   fit <- arima(self$data$value, order=c(p,0,q))
   
   # Engle's ARCH test
-  arch <- arch.test(fit)
+  arch <- aTSA::arch.test(fit)
   return(arch)
 },
 
@@ -370,7 +370,7 @@ compute_wkd_rets = function(freq = "daily") {
     rowwise() %>%
       mutate(
     test_statistic = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$statistic,
-    p_value = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$p.value
+    p_value = format(wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$p.value, nsmall = 5)
   )
 
   return(list(avg_wkd_rets = avg_wkd_rets, res_longest = res_longest))
@@ -470,37 +470,13 @@ convert_to_tibble = function(ts) {
     return(ts_df)
 },
 
-# Calculate portfolio value for each trading day (method to be removed)
-calculate_positions_and_equity_lines = function() {
-      self$generate_signals()  # Call generate_signals dynamically
-
-      # Active strategy
-      self$data <- mutate(self$data, equity_line = cumsum(position * value))
-      
-      # Buy and hold
-      self$data <- mutate(self$data, 
-                          position_bh = 1,
-                          equity_line_bh = cumsum(position_bh * value))
-      # Filter out OHLC (used for GARCH based strategies only)
-      return(self$data)
-},
-
-# Calculate cumulative return (method to be removed)
-calculate_cumulative_return = function() {
-      #self$generate_signals()  # Call generate_signals dynamically
-      cret = data.frame(
-        Active = prod(1+self$data$value * self$data$position) - 1,
-        Buy_and_hold = prod(1+self$data$value) - 1
-      )
-      return(cret)
-},
-
-# Performance estimation
+# Performance estimation for Active and Passive strategies (annualized return, standard deviation, Information ratio, maximum drawdown, trades count, success prediction rate)
 estimate_performance = function() {
 
   self$generate_signals()  # Call generate_signals dynamically
 
-  self$data <- self$data %>% mutate(
+  self$data <- self$data %>% 
+    mutate(
     pnlActive = c(0, diff(Close) * signal[-length(Close)]),
     pnlPassive = c(0, diff(Close)),
     nopActive = 0,
@@ -585,6 +561,16 @@ estimate_performance = function() {
   print(success_rate)
 
   return(self$data)
+},
+
+# Calculate cumulative return (method to be removed)
+calculate_cumulative_return = function() {
+      #self$generate_signals()  # Call generate_signals dynamically
+      cret = data.frame(
+        Active = prod(1+self$data$value * self$data$position) - 1,
+        Buy_and_hold = prod(1+self$data$value) - 1
+      )
+      return(cret)
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
@@ -1185,7 +1171,7 @@ VolatilityMeanReversion <- R6Class(
       self$window_size <- window_size
     },
 
-    generate_signals = function() {
+generate_signals = function() {
       # Estimate historical volatility
       #hist_vol <- rollapply(self$data$value, width = self$window_size, sd, align = "right", fill = NA)
       hist_vol <- rollapply(self$data$Close, width = self$window_size, sd, align = "right", fill = NA)
