@@ -92,11 +92,11 @@ listgarch <- generate_combinations(
   RV = "close", # historical volatility estimation
   entry_signal_function = generate_entry_signals, # signals generation engine
   # GARCH specifications
-  specification = c("eGARCH", "gjrGARCH"), 
-  n_start = c(252,126), # also, it is window.size
-  refit_every = 21, 
+  specification = c("eGARCH", "sGARCH", "gjrGARCH", "fGARCH"), 
+  n_start = c(126, 252), # also, it is window.size
+  refit_every = c(21, 63), 
   refit_window = c("expanding", "moving"), 
-  distribution_model = c("snorm"), 
+  distribution_model = c("snorm", "norm"), 
   realized_vol = "close",
   plots_path = "EquityLines_garch_experiment_modified_signal/", # folder to save equity lines for GARCH based strategy vs Passive strategy 
   cl

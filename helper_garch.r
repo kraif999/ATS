@@ -221,9 +221,6 @@ generate_combinations <- function(
 # Roll density forecasts (one day ahead)
 ################################################################################
 
-getDoParWorkers()
-max_cores <- parallel::detectCores(logical = FALSE)
-cl <- makePSOCKcluster(max_cores)
 #registerDoParallel(cl)
 
 # RV <- "close" # which realized volatility estimation is chosen

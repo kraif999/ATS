@@ -6,7 +6,7 @@ All strategies are architected using the R6 class, enabling flexible incorporati
 - A parent class, **Strategy**, housing a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
 - The child classes of the Strategy class represent specific trading strategies (*SMA1*, *SMA1M*, *SMA2*, *SMA2M*, *BollingerBreakout*, *VolatilityMeanReversion*, *RSI*, *Random*)
 - Following the signal generation phase, subsequent steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
-The taxonomical hierarchy of trading strategies is portrayed as follows:
+The taxonomical hierarchy of trading strategies is as follows:
 
 ```mermaid
 %%{init: {"flowchart": {"defaultRenderer": "elk", "nodeWidth": 1000}}}%%
@@ -30,3 +30,38 @@ flowchart LR
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
     Univariate --> r[Random]
+```
+
+The taxonomy of assets which represent 11 unique asset classes and used in trading strategies is as follows:
+
+```mermaid
+flowchart TB
+    asset[Asset] --> fx[FX]
+    fx[FX] --> fx1[EUR=X]
+    asset[Asset] --> eq[Equities]
+    eq[Equities] --> eq1[^GSPC]
+    eq[Equities] --> eq2[FTSE]
+    eq[Equities] --> eq3[SPY]
+    eq[Equities] --> eq4[VUG]
+    eq[Equities] --> eq5[VBR]
+    asset[Asset] --> fi[Fixed Income]
+    fi[Fixed Income] --> fi1[AGG]
+    asset[Asset] --> macro[Macro]
+    macro[Macro] --> macro1[VTI]
+    asset[Asset] --> cr[Credit]
+    cr[Credit] --> cr1[LQD]
+    asset[Asset] --> lq[Liquidity]
+    lq[Liquidity] --> lq1[HYG]
+    asset[Asset] --> cmd[Commodities]
+    cmd[Commodities] --> cmd1[USO]
+    cmd[Commodities] --> cmd2[GC=F]
+    cmd[Commodities] --> cmd3[SI=F]
+    asset[Asset] --> or[Operational]
+    or[Operational] --> or1[HACK]
+    asset[Asset] --> rates[Rates]
+    rates[Rates] --> rates1[TLT]
+    asset[Asset] --> inf[Inflation]
+    inf[Inflation] --> inf1[TIP]
+    asset[Asset] --> crypto[Cryptocurrency]
+    crypto[Cryptocurrency] --> crypto1[BTC-USD]
+```
