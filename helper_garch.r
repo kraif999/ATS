@@ -196,6 +196,7 @@ generate_combinations <- function(
   specification, # GARCH model specification
   n_start, refit_every, refit_window, distribution_model, 
   realized_vol,
+  plot_flag,
   plots_path,
   cl) {
 
@@ -368,19 +369,17 @@ active_passive
 print(active_passive)
 
 # Plots
-generate_and_save_plot(performance, listgarch, i, plots_path)
+if (plot_flag) {
+  generate_and_save_plot(performance, listgarch, i, plots_path)
+} else {
+  # No plots
+}
 
 rm(roll, passive)
 
   } ,error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
 }
 
-#   }, error = function(e) {
-#      cat("ERROR :",conditionMessage(e), "\n")
-#   })
-# }
-
-#fwrite(listgarch, "listgarchAll.csv")
   listgarch <- cbind(Symbol = symbol, Class = class, listgarch)
   return(listgarch)
 }

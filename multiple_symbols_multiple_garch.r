@@ -98,6 +98,7 @@ listgarch <- generate_combinations(
   refit_window = c("expanding", "moving"), 
   distribution_model = c("snorm", "norm"), 
   realized_vol = "close",
+  plot_flag = FALSE,
   plots_path = "EquityLines_garch_experiment_modified_signal/", # folder to save equity lines for GARCH based strategy vs Passive strategy 
   cl
   )
