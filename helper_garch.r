@@ -304,7 +304,7 @@ for (i in 1:dim(listgarch)[1]){
         keep.coef = TRUE) 
   }
 
-# roll <- resume(roll, solver= "gosolnp") # if object contains non-converged windows
+roll <- resume(roll, solver= "gosolnp") # if object contains non-converged windows
 
 # show(roll) # 20.02 secs
 

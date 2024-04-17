@@ -21,11 +21,12 @@ flowchart LR
     GARCH -->|Innovations| distr[Norm, Snorm, NIG]
     GARCH -->|Realized vol| rv[Close, Yang.Zhang]
     Univariate --> Tech[Technical indicators]
-    Tech --> ma[Moving Averages: simple and exponential]
+    Tech --> ma[Moving Averages: different types]
     ma --> SMA1
     ma --> SMA2
     ma --> SMA1Modified
     ma --> SMA2Modified
+    ma --> MACD
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
