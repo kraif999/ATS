@@ -628,7 +628,7 @@ GARCHStrategy <- R6Class(
     refit_window = NULL, 
     distribution_model = NULL, 
     realized_vol = NULL, 
-    #cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE)),
+    cluster = NULL,
 
 initialize = function(
     data,
@@ -646,7 +646,7 @@ initialize = function(
       self$refit_window <- refit_window
       self$distribution_model <- distribution_model
       self$realized_vol <- realized_vol
-      #self$cluster <- cluster
+      self$cluster <- cluster
 },
 
 # Method to estimate realized volatility by different approaches
@@ -768,7 +768,7 @@ generate_signals = function() {
         solver = "hybrid", # the solver to use 
         calculate.VaR = TRUE, # 
         VaR.alpha = c(0.01, 0.05), 
-        cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE)),
+        cluster = self$cluster,
         # realizedVol = sp500ret2[,2], solver.control=list(tol=1e-6, trace=1), fit.control=list(scale=1),
         keep.coef = TRUE) 
     } else {
@@ -785,7 +785,7 @@ generate_signals = function() {
         solver = "hybrid", # the solver to use 
         calculate.VaR = TRUE, # 
         VaR.alpha = c(0.01, 0.05), 
-        cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE)),
+        cluster = self$cluster,
         # realizedVol = sp500ret2[,2], solver.control=list(tol=1e-6, trace=1), fit.control=list(scale=1),
         keep.coef = TRUE) 
   }
@@ -819,6 +819,90 @@ generate_signals = function() {
                         left_join(select(volForHistRoll, Date, Close, signal, position)) %>%
                             na.omit %>%
                                 as.tibble
+},
+
+run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_every  = NULL, refit_windows = NULL, distribution_models = NULL, realized_vols = NULL, output_df = FALSE) {
+  
+  # Create an empty list to store results
+  results <- list()
+  
+  # Loop through the combinations of specifications and parameters
+  for (symbol in symbols) {
+    for (spec in specifications) {
+      for (n_start in n_starts) {
+        for (refit in refits_every) {
+          for (window in refit_windows) {
+            for (dist_model in distribution_models) {
+              for (realized_vol in realized_vols) {
+
+            # Fetch data using DataFetcher for the current symbol and date range
+            data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+            data <- data_fetcher$download_xts_data()
+              
+              # Create an instance of GARCHStrategy
+              garch_instance <- GARCHStrategy$new(
+                data = data,
+                specification = spec,
+                n_start = n_start,
+                refit_every = refit,
+                refit_window = window,
+                distribution_model = dist_model,
+                realized_vol = realized_vol,
+                cluster = self$cluster
+              )
+              
+        
+              # Store the results
+              results[[paste(symbol, spec, n_start, refit, window, dist_model, realized_vol, sep = "_")]] <- list(
+                Symbol = symbol,
+                Specification = spec,
+                N_Start = n_start,
+                Refit_Every = refit,
+                Refit_Window = window,
+                Distribution_Model = dist_model,
+                Realized_Vol = realized_vol,
+                Performance = garch_instance$estimate_performance() # Assuming you have an estimate_performance method
+              )
+
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+      # Convert results to a data frame
+      results_df <- map_dfr(names(results), ~{
+        item <- results[[.x]]
+        data_frame(
+          Symbol = item$Symbol,
+          Specification = item$Specification,
+          N_Start = item$N_Start,
+          Refit_Every = item$Refit_Every,
+          Refit_Window = item$Refit_Window,
+          Distribution_Model = item$Distribution_Model,
+          Realized_Vol = item$Realized_Vol,
+          Strategy = item$Performance$Strategy,
+          aR = item$Performance$aR,
+          aSD = item$Performance$aSD,
+          IR = item$Performance$IR,
+          MD = item$Performance$MD,
+          trades = item$Performance$trades,
+          avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+          buys = item$Performance$buys,
+          sells = item$Performance$sells,
+          Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+          Short_Success_Rate = item$Performance$Short_Success_Rate,
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate
+        )
+      })
+
+      if (output_df) {
+        return(results_df)
+    }   else {
+          return(results)
+      }
 }
   )
 )
@@ -831,11 +915,24 @@ garch_strategy <- GARCHStrategy$new(
   refit_every = 21,
   refit_window = "moving",
   distribution_model = "snorm",
-  realized_vol = "close"
+  realized_vol = "close",
+  cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
 )
 
 garch_strategy$estimate_performance()
 garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close", signal_flag = TRUE)
+
+# Instances of GARCH based strategy (run backtesting)
+res_garch <- garch_strategy$run_backtest(
+  symbols = c("GC=F", "BZ=F"),
+  specifications = "sGARCH",
+  n_starts = c(126, 252),
+  refits_every = 21,
+  refit_windows = "moving",
+  distribution_models = "snorm",
+  realized_vols = "close",
+  output_df = FALSE
+)
 
 # Define SMA1 (trend following strategy) class
 SMA1 <- R6Class(
