@@ -22,13 +22,15 @@ flowchart LR
     GARCH -->|Realized vol| rv[Close, Yang.Zhang]
     Univariate --> Tech[Technical indicators]
     Tech --> ma[Moving Averages: different types]
-    ma --> SMA1
-    ma --> SMA2
-    ma --> SMA1Modified
-    ma --> SMA2Modified
-    ma --> MACD
-    ma --> TurtleStrategy
-    ma --> DonchianChannels
+    ma --> sma1[SMA1]
+    ma --> sma2[SMA2]
+    ma --> sma1m[SMA1 Modified]
+    ma --> sma2m[SMA2 Modified]
+    ma --> macd[MACD]
+    ma --> tt[Turtle Strategy]
+    ma --> dc[Donchian Channels]
+    ma --> sra[Stop and Reversal 'parabolic SAR']
+    ma --> adx[Average Directional Index 'ADX']
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]

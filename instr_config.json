@@ -7,6 +7,11 @@
         "description": "US Dollar to Euro exchange rate"
       },
 
+      "USDPLN=X": {
+        "class": "FX",
+        "description": "US Dollar to Polish zloty"
+      },
+
       "^GSPC": {
         "class": "Equities",
         "description": "S&P 500 Index"

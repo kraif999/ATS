@@ -1,3 +1,5 @@
+# Price-time based strategies
+
 # Define Data parent class (DataFetcher)
 DataFetcher <- R6Class(
   "DataFetcher",
@@ -141,6 +143,7 @@ compute_NA_close_price_ratio = function() {
 # Specify trading strategy parameters
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2024-03-10", format = "%Y-%m-%d")
+# to_date <- as.Date("2024-04-18", format = "%Y-%m-%d") # today Close is available tomorrow
 symbol <- "BZ=F" # oil
 capital <- 50000 # units of initial capital invested
 ######################################################
@@ -916,6 +919,7 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
 )
 
 # Instances of GARCH strategy
+cl <- makePSOCKcluster(parallel::detectCores(logical = FALSE))
 garch_strategy <- GARCHStrategy$new(
   data = ts,
   specification = "sGARCH",
@@ -924,11 +928,11 @@ garch_strategy <- GARCHStrategy$new(
   refit_window = "moving",
   distribution_model = "snorm",
   realized_vol = "close",
-  cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
-)
+  cluster = cl)
 
 garch_strategy$estimate_performance()
 garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close", signal_flag = TRUE)
+# ggsave(filename = "garch.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
 
 # Instances of GARCH based strategy (run backtesting)
 res_garch <- garch_strategy$run_backtest(
@@ -1912,7 +1916,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
 # Create instance of TurtleTrading class
 tt <- TurtleTrading$new(ts, window_size1 = 20, window_size2 = 40)
 tt$estimate_performance()
-tt$plot_equity_lines("TurtleTrading", signal_flag = TRUE)
+tt$plot_equity_lines("TurtleTrading, w1 = 20, w2 = 40", signal_flag = TRUE)
+# ggsave(filename = "tt.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
 
 # Instances of Turtle Trading strategy (run backtesting)
 res_tt <- tt$run_backtest(
@@ -1924,6 +1929,231 @@ res_tt <- tt$run_backtest(
   output_df = FALSE
 )
 
+# Define Stop and Reversal (SAR) class
+StopAndReversal <- R6Class(
+  "StopAndReversal",
+  inherit = Strategy,
+  public = list(
+    accel = NULL,
+    accel_max = NULL,
+    accel_vector = NULL,
+
+initialize = function(data, accel, accel_max) {
+      super$initialize(data)
+      self$data <- super$convert_to_tibble(self$data)
+      self$accel <- accel
+      self$accel_max <- accel_max
+      self$accel_vector <- c(accel, accel_max)
+    },
+
+generate_signals = function() {
+      self$data <- self$data %>% 
+        mutate(
+          SAR = TTR::SAR(select(., High, Low), accel = self$accel_vector),
+          signal = case_when(
+            Close > lag(SAR) ~ 1,
+            Close < lag(SAR) ~ -1,
+            TRUE ~ 0
+          ),
+          position = lag(signal, default = 0)
+        ) %>%
+        na.omit()
+},
+
+plot_sar = function(name){
+  ggplot(self$data, aes(x = Date)) +
+  geom_line(aes(y = Close, color = "Price"), size = 0.5) +
+  geom_point(aes(y = SAR, color = "SAR"), size = 1) +
+  labs(
+    title = paste0("Parabolic SAR for ", name),
+    x = "Date",
+    y = "Price"
+  ) +
+  scale_color_manual(values = c("Price" = "red", "SAR" = "blue")) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme_minimal()
+},
+
+run_backtest = function(symbols, accels, accels_max, from_date, to_date, output_df = TRUE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window size  and bands to create instances and estimate performance
+  for (symbol in symbols) {
+    for (accel in accels) {
+      for (accel_max in accels_max) {
+
+          # Fetch data using DataFetcher for the current symbol and date range
+          data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+          data <- data_fetcher$download_xts_data()
+        
+          # Create an instance of MACD strategy
+          sra <- StopAndReversal$new(data, accel, accel_max)
+
+          # Store the results
+            results[[paste(symbol, accel, accel_max, sep = "_")]] <- list(
+              Symbol = symbol,
+              Accel = accel,
+              Accel_max = accel_max,
+              Performance = sra$estimate_performance()
+            )
+        }
+      }
+    }
+  
+  # Convert results to a data frame
+  results_df <- map_dfr(names(results), ~{
+    item <- results[[.x]]
+    data_frame(
+      Symbol = item$Symbol,
+      Accel = item$Accel,
+      Accel_max = item$Accel_max,
+      Strategy = item$Performance$Strategy,
+      aR = item$Performance$aR,
+      aSD = item$Performance$aSD,
+      IR = item$Performance$IR,
+      MD = item$Performance$MD,
+      trades = item$Performance$trades,
+      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+      buys = item$Performance$buys,
+      sells = item$Performance$sells,
+      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+      Short_Success_Rate = item$Performance$Short_Success_Rate,
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
+    )
+  })
+
+    if (output_df) {
+      return(results_df)
+    } else {
+      return(results)
+    }
+}
+  )
+)
+
+# Create instance of Stop and Reversal strategy
+sar <- StopAndReversal$new(ts, 0.02, 0.2)
+sar$estimate_performance()
+sar$plot_sar("acceleration: 0.02, 0,2")
+sar$plot_equity_lines("acceleration: 0.02, 0.2")
+
+#  Instances of Stop and Reversal strategy (run backtest)
+res_sar <- sar$run_backtest(
+  symbols = c("USDPLN=X", "GC=F"), # fx, gold
+  accels = seq(0.01, 0.03, by = 0.01),
+  accels_max = seq(0.1, 0.3, by = 0.1),
+  from_date,
+  to_date,
+  output_df = FALSE
+)
+
+# Define Average Directional Index (ADX) class
+ADX <- R6Class(
+  "AverageDirectionalIndex",
+  inherit = Strategy,
+  public = list(
+    ndx = NULL,
+    trend_strength = NULL,
+
+initialize = function(data, ndx, trend_strength) {
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$ndx = ndx
+  self$trend_strength = trend_strength
+},
+
+generate_signals = function() {
+  self$data <- self$data %>%
+                  mutate(
+                  self$data,
+                  as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
+                  signal1 = case_when(
+                    DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
+                    DIp < DIn & ADX > self$trend_strength ~ -1,
+                    TRUE ~ 0
+                  ),
+                  signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+                  position = lag(signal, default = 0)
+                  ) %>%
+                  na.omit()
+                    
+},
+
+run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, output_df = TRUE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window size  and bands to create instances and estimate performance
+  for (symbol in symbols) {
+    for (ndx in ndxs) {
+      for (trend_strength in trend_strengths) {
+
+          # Fetch data using DataFetcher for the current symbol and date range
+          data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+          data <- data_fetcher$download_xts_data()
+        
+          # Create an instance of MACD strategy
+          adx <- ADX$new(data, ndx, trend_strength)
+
+          # Store the results
+            results[[paste(symbol, ndx, trend_strength, sep = "_")]] <- list(
+              Symbol = symbol,
+              Ndx = ndx,
+              Trend_strength = trend_strength,
+              Performance = adx$estimate_performance()
+            )
+        }
+      }
+    }
+  
+  # Convert results to a data frame
+  results_df <- map_dfr(names(results), ~{
+    item <- results[[.x]]
+    data_frame(
+      Symbol = item$Symbol,
+      Ndx = item$Ndx,
+      Trend_strength = item$Trend_strength,
+      Strategy = item$Performance$Strategy,
+      aR = item$Performance$aR,
+      aSD = item$Performance$aSD,
+      IR = item$Performance$IR,
+      MD = item$Performance$MD,
+      trades = item$Performance$trades,
+      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+      buys = item$Performance$buys,
+      sells = item$Performance$sells,
+      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+      Short_Success_Rate = item$Performance$Short_Success_Rate,
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
+    )
+  })
+
+    if (output_df) {
+      return(results_df)
+    } else {
+      return(results)
+    }
+}
+  )
+)
+
+# Create  an instance of the ADX class
+adx <- ADX$new(ts, ndx = 14, trend_strength = 25)
+adx$estimate_performance()
+adx$plot_equity_lines("Average Directional Index, ndx = 14, trend_strength = 25", signal_flag = TRUE)
+
+# Create  an instance of the ADX class (run backtesting)
+res_adx <- adx$run_backtest(
+  symbols = c("USDPLN=X", "BZ=F"),
+  ndxs = seq(12, 14, by = 2),
+  trend_strengths = seq(23, 25, by = 2),
+  from_date,
+  to_date,
+  output_df = FALSE
+)
 
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
@@ -1931,14 +2161,15 @@ BollingerBreakout <- R6Class(
   inherit = Strategy,
   public = list(
     window_size = NULL,
-    sd_mult = 2,  # Multiplier for standard deviation
+    sd_mult = NULL,  # Multiplier for standard deviation
 
 initialize = function(data, window_size, sd_mult = 2) {
     super$initialize(data)
     self$data <- super$convert_to_tibble(self$data)
     self$window_size <- window_size
     self$sd_mult <- sd_mult
-    },
+},
+
 generate_signals = function() {
     self$data <- mutate(self$data, 
                         ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
@@ -1946,8 +2177,8 @@ generate_signals = function() {
                         upper_band = ma + self$sd_mult * sd,
                         lower_band = ma - self$sd_mult * sd,
                         signal = case_when(
-                          Close > upper_band ~ 1,
-                          Close < lower_band ~ -1,
+                          Close > lag(upper_band) ~ 1,
+                          Close < lag(lower_band) ~ -1,
                           TRUE ~ 0
                         ),
                         position = lag(signal, default = 0)) %>% 
