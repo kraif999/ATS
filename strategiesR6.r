@@ -146,12 +146,12 @@ capital <- 50000 # units of initial capital invested
 ######################################################
 
 # Download data from Yahoo (instances of DataFetcher class)
-data_fetcher_garch <- DataFetcher$new(symbol, from_date, to_date)
-ts <- data_fetcher_garch$download_xts_data()
-data_fetcher_garch$plot_close_or_rets(type = "close")
-data_fetcher_garch$plot_close_or_rets(type = "rets")
-data_fetcher_garch$plot_close_or_rets(type = "rets_hist")
-data_fetcher_garch$compute_NA_close_price_ratio()
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+data_fetcher$plot_close_or_rets(type = "close")
+data_fetcher$plot_close_or_rets(type = "rets")
+data_fetcher$plot_close_or_rets(type = "rets_hist")
+data_fetcher$compute_NA_close_price_ratio()
 
 # Define TSA class
 TSA <- R6Class(
@@ -558,7 +558,8 @@ estimate_performance = function() {
     sells = c(short_active, short_passive),
     Buy_Success_Rate = c(buy_success_rate_active, buy_success_rate_passive),
     Short_Success_Rate = c(short_success_rate_active, short_success_rate_passive),
-    Combined_Success_Rate = c(combined_rate_active, combined_rate_passive)
+    Combined_Success_Rate = c(combined_rate_active, combined_rate_passive),
+    PortfolioEndValue = c(self$data[nrow(self$data),]$eqlActive, self$data[nrow(self$data),]$eqlPassive)
   )
 
   # Print the performance data frame and success rate data frame
@@ -604,7 +605,8 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
   p <- p +
     geom_line(aes(y = eqlActive, color = "Active Strategy"), size = active_line_size) +
     geom_line(aes(y = eqlPassive, color = "Buy and Hold Strategy"), size = passive_line_size) +
-    scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "darkgreen"))
+    scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "darkgreen")) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
 
   # Print or return the plot
   if (signal_flag) {
@@ -660,12 +662,12 @@ estimate_realized_volatility = function(data) {
 
     # Different realized volatility estimators for returns (TTR)
     histVolest <- merge(
-    garman <- as.xts(na.omit(volatility(ohlc, calc = "garman"))) / sqrt(252),
-    close <- as.xts(na.omit(volatility(ohlc[,4], calc = "close"))) / sqrt(252),
-    parkinson <- as.xts(na.omit(volatility(ohlc, calc = "parkinson"))) / sqrt(252),
-    rogers.satchell <- as.xts(na.omit(volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
-    garman_modified <- as.xts(na.omit(volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
-    yang.zhang <- as.xts(na.omit(volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
+    garman <- as.xts(na.omit(TTR::volatility(ohlc, calc = "garman"))) / sqrt(252),
+    close <- as.xts(na.omit(TTR::volatility(ohlc[,4], calc = "close"))) / sqrt(252),
+    parkinson <- as.xts(na.omit(TTR::volatility(ohlc, calc = "parkinson"))) / sqrt(252),
+    rogers.satchell <- as.xts(na.omit(TTR::volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
+    garman_modified <- as.xts(na.omit(TTR::volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
+    yang.zhang <- as.xts(na.omit(TTR::volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
     ) %>% 
     as.data.frame %>% 
         rename_with(~ c("garman", "close", "parkinson", "rogers_satchell", "garman_modified", "yang_zhang")) %>%
@@ -835,6 +837,8 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
             for (dist_model in distribution_models) {
               for (realized_vol in realized_vols) {
 
+            tryCatch({
+
             # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
@@ -863,7 +867,10 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
                 Realized_Vol = realized_vol,
                 Performance = garch_instance$estimate_performance() # Assuming you have an estimate_performance method
               )
-
+              }, error = function(e) {
+                cat("Error:", e$message, "occurred for", paste(symbol, n_start, refit, window, dist_model, realized_vol, sep = "_"), "\n")
+                }
+                )
               }
             }
           }
@@ -894,7 +901,8 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
           sells = item$Performance$sells,
           Buy_Success_Rate = item$Performance$Buy_Success_Rate,
           Short_Success_Rate = item$Performance$Short_Success_Rate,
-          Combined_Success_Rate = item$Performance$Combined_Success_Rate
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+          PortfolioValue = item$Performance$PortfolioEndValue
         )
       })
 
@@ -924,8 +932,8 @@ garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close", signal_flag
 
 # Instances of GARCH based strategy (run backtesting)
 res_garch <- garch_strategy$run_backtest(
-  symbols = c("GC=F", "BZ=F"),
-  specifications = "sGARCH",
+  symbols = "EUR=X",
+  specifications = c("sGARCH"),
   n_starts = c(126, 252),
   refits_every = 21,
   refit_windows = "moving",
@@ -1003,7 +1011,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
           sells = item$Performance$sells,
           Buy_Success_Rate = item$Performance$Buy_Success_Rate,
           Short_Success_Rate = item$Performance$Short_Success_Rate,
-          Combined_Success_Rate = item$Performance$Combined_Success_Rate
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+          PortfolioValue = item$Performance$PortfolioEndValue
         )
       })
 
@@ -1108,7 +1117,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
         sells = item$Performance$sells,
         Buy_Success_Rate = item$Performance$Buy_Success_Rate,
         Short_Success_Rate = item$Performance$Short_Success_Rate,
-        Combined_Success_Rate = item$Performance$Combined_Success_Rate
+        Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+        PortfolioValue = item$Performance$PortfolioEndValue
       )
     })
 
@@ -1273,6 +1283,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
           Buy_Success_Rate = item$Performance$Buy_Success_Rate,
           Short_Success_Rate = item$Performance$Short_Success_Rate,
           Combined_Success_Rate = item$Performance$Combined_Success_Rate
+          PortfolioValue = item$Performance$PortfolioEndValue
         )
       })
 
@@ -1431,7 +1442,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
         sells = item$Performance$sells,
         Buy_Success_Rate = item$Performance$Buy_Success_Rate,
         Short_Success_Rate = item$Performance$Short_Success_Rate,
-        Combined_Success_Rate = item$Performance$Combined_Success_Rate
+        Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+        PortfolioValue = item$Performance$PortfolioEndValue
       )
     })
 
@@ -1539,7 +1551,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, from_date
         sells = item$Performance$sells,
         Buy_Success_Rate = item$Performance$Buy_Success_Rate,
         Short_Success_Rate = item$Performance$Short_Success_Rate,
-        Combined_Success_Rate = item$Performance$Combined_Success_Rate
+        Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+        PortfolioValue = item$Performance$PortfolioEndValue
       )
     })
 
@@ -1569,6 +1582,120 @@ res_macd <- macd$run_backtest(
   output_df = FALSE
 )
 
+# Define Donchian Channel (DC) class (also, it could be used with RSI and MACD)
+DonchianChannel <- R6Class(
+  "DonchianChannel",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL,
+
+initialize = function(data, window_size) {
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size = window_size
+},
+
+generate_signals = function() {
+  self$data <- mutate(self$data,
+                      upper_channel = rollapply(self$data$High, self$window_size, max, align = "right", fill = NA),
+                      lower_channel = rollapply(self$data$Low, self$window_size, min, align = "right", fill = NA),
+                      mid = (upper_channel + lower_channel) / 2, # optional
+                      signal1 = ifelse(Close > lag(upper_channel), 1, ifelse(Close < lag(lower_channel), -1, 0)),
+                      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+                          position = lag(signal, default = 0)) %>% 
+                        na.omit()
+},
+
+plot_channels = function(name) {
+  ggplot(self$data, aes(x = Date)) +
+    geom_line(aes(y = Close, color = "black"), size = 1) +
+    geom_line(aes(y = upper_channel, color = "green"), linetype = "longdash", size = 1) +
+    geom_line(aes(y = lower_channel, color = "red"), linetype = "longdash", size = 1) +
+    geom_line(aes(y = mid, color = "yellow"), linetype = "longdash", size = 1) +
+    labs(
+      title = paste0("Donchian Channel for ", name),
+      x = "Date",
+      y = "Price"
+    ) +
+    scale_y_continuous(breaks = seq(min(self$data$lower_channel, na.rm = TRUE), 
+                                  max(self$data$upper_channel, na.rm = TRUE), 
+                                  by = 20)) +
+    
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    
+    theme_minimal()
+},
+
+run_backtest = function(symbols, window_sizes, from_date, to_date, output_df = TRUE) {
+      # Create an empty list to store results
+      results <- list()
+
+      # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+      for (symbol in symbols) {
+        for (window_size in window_sizes) {
+
+            # Fetch data using DataFetcher for the current symbol and date range
+            data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+            data <- data_fetcher$download_xts_data()
+            
+            # Create an instance of SMA1 strategy
+            dc <- DonchianChannel$new(data, window_size = window_size)
+                        
+            # Store the results
+            results[[paste(symbol, window_size, sep = "_")]] <- list(
+              Symbol = symbol,
+              Window_Size = window_size,
+              Performance = dc$estimate_performance()
+            )
+        }
+      }
+
+      # Convert results to a data frame
+      results_df <- map_dfr(names(results), ~{
+        item <- results[[.x]]
+        data_frame(
+          Symbol = item$Symbol,
+          Window_Size = item$Window_Size,
+          Strategy = item$Performance$Strategy,
+          aR = item$Performance$aR,
+          aSD = item$Performance$aSD,
+          IR = item$Performance$IR,
+          MD = item$Performance$MD,
+          trades = item$Performance$trades,
+          avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+          buys = item$Performance$buys,
+          sells = item$Performance$sells,
+          Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+          Short_Success_Rate = item$Performance$Short_Success_Rate,
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+          PortfolioValue = item$Performance$PortfolioEndValue
+        )
+      })
+
+      if (output_df) {
+        return(results_df)
+    }   else {
+          return(results)
+      }
+}
+  )
+)
+
+# Instances of DonchianChannel class
+dc <- DonchianChannel$new(ts, window_size = 20)
+dc$estimate_performance()
+dc$plot_channels("window_size = 20")
+dc$plot_equity_lines("DC", signal_flag = TRUE)
+
+# Instances of DonchianChannel strategy (run_backtest)
+res_dc <- dc$run_backtest(
+  symbols = "BZ=F", 
+  window_sizes = seq(14, 20, by = 6), 
+  from_date,
+  to_date,
+  output_df = FALSE
+)
+
 # Define Relative Strength Index class
 RSI <- R6Class(
   "RSI",
@@ -1587,14 +1714,14 @@ initialize = function(data, window_size, threshold_oversold = 30, threshold_over
 },
 
 generate_signals = function() {
-        self$data <- mutate(self$data,
-                            avg_gain = rollmean(ifelse(Close > 0, Close, 0), k = self$window_size, align = "right", fill = NA),
-                            avg_loss = rollmean(ifelse(Close < 0, abs(Close), 0), k = self$window_size, align = "right", fill = NA),
-                            rs = avg_gain / avg_loss,
-                            rsi = 100 - (100 / (1 + rs)),
-                            signal = ifelse(rsi < self$threshold_oversold, 1, ifelse(rsi > self$threshold_overbought, -1, 0)),
-                            position = lag(signal, default = 0)) %>%
-                    na.omit
+  self$data <- mutate(self$data,
+                      avg_gain = rollmean(ifelse(Close > 0, Close, 0), k = self$window_size, align = "right", fill = NA),
+                      avg_loss = rollmean(ifelse(Close < 0, abs(Close), 0), k = self$window_size, align = "right", fill = NA),
+                      rs = avg_gain / avg_loss,
+                      rsi = 100 - (100 / (1 + rs)),
+                      signal = ifelse(rsi < self$threshold_oversold, 1, ifelse(rsi > self$threshold_overbought, -1, 0)),
+                      position = lag(signal, default = 0)) %>%
+              na.omit
 },
 
 plot_avg_gain_loss_with_equity_lines = function() {
@@ -1662,7 +1789,8 @@ run_backtest = function(symbols, window_sizes, thresholds_overbought, thresholds
       sells = item$Performance$sells,
       Buy_Success_Rate = item$Performance$Buy_Success_Rate,
       Short_Success_Rate = item$Performance$Short_Success_Rate,
-      Combined_Success_Rate = item$Performance$Combined_Success_Rate
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
     )
   })
 
@@ -1691,6 +1819,112 @@ res_rsi <- rsi$run_backtest(
   output_df = FALSE
 )
 
+# Define TurtleTrading class (Richard)
+TurtleTrading <- R6Class(
+  "TurtleTrading",
+  inherit = Strategy,
+  public = list(
+    window_size1 = NULL,
+    window_size2 = NULL,
+
+initialize = function(data, window_size1, window_size2) {
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size1 <- window_size1
+  self$window_size2 <- window_size2
+},
+
+generate_signals = function() {
+  self$data <- mutate(self$data,
+                      upper_channel1 = rollapply(self$data$High, self$window_size1, max, align = "right", fill = NA),
+                      upper_channel2 = rollapply(self$data$High, self$window_size2, max, align = "right", fill = NA),
+                      lower_channel1 = rollapply(self$data$Low, self$window_size1, min, align = "right", fill = NA),
+                      lower_channel2 = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
+                      mid1 = (upper_channel1 / lower_channel1) / 2,
+                      mid2 = (upper_channel2 / lower_channel2) / 2,
+                      signal1 = ifelse(Close > lag(upper_channel1) & Close > lag(upper_channel2), 1,
+                        ifelse(Close < lag(lower_channel1) & Close < lag(lower_channel2), -1, 0)),
+                      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+                      position = lag(signal, default = 0)) %>% 
+                        na.omit()
+},
+
+run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_date, output_df = TRUE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size1 in window_sizes1) {
+      for (window_size2 in window_sizes2) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Create an instance of SMA1 strategy
+        dc <- TurtleTrading$new(data, window_size1 = window_size1, window_size2 = window_size2)
+                    
+        # Store the results
+        results[[paste(symbol, window_size1, window_size2, sep = "_")]] <- list(
+          Symbol = symbol,
+          Window_Size1 = window_size1,
+          Window_Size2 = window_size2,
+          Performance = dc$estimate_performance()
+        )
+      }
+    }
+  }
+
+  # Convert results to a data frame
+  results_df <- map_dfr(names(results), ~{
+    item <- results[[.x]]
+    data_frame(
+      Symbol = item$Symbol,
+      Window_Size1 = item$Window_Size1,
+      Window_Size2 = item$Window_Size2,
+      Strategy = item$Performance$Strategy,
+      aR = item$Performance$aR,
+      aSD = item$Performance$aSD,
+      IR = item$Performance$IR,
+      MD = item$Performance$MD,
+      trades = item$Performance$trades,
+      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+      buys = item$Performance$buys,
+      sells = item$Performance$sells,
+      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+      Short_Success_Rate = item$Performance$Short_Success_Rate,
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
+    )
+  })
+
+  if (output_df) {
+    return(results_df)
+  }   else {
+      return(results)
+  }
+}
+
+  )
+)
+
+# Create instance of TurtleTrading class
+tt <- TurtleTrading$new(ts, window_size1 = 20, window_size2 = 40)
+tt$estimate_performance()
+tt$plot_equity_lines("TurtleTrading", signal_flag = TRUE)
+
+# Instances of Turtle Trading strategy (run backtesting)
+res_tt <- tt$run_backtest(
+  symbols = "BZ=F", 
+  window_sizes1 = seq(20, 40, by = 5), 
+  window_sizes2 = seq(40, 60, by = 10),
+  from_date,
+  to_date,
+  output_df = FALSE
+)
+
+
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
   "BollingerBreakout",
@@ -1699,25 +1933,25 @@ BollingerBreakout <- R6Class(
     window_size = NULL,
     sd_mult = 2,  # Multiplier for standard deviation
 
-    initialize = function(data, window_size, sd_mult = 2) {
-      super$initialize(data)
-      self$data <- super$convert_to_tibble(self$data)
-      self$window_size <- window_size
-      self$sd_mult <- sd_mult
+initialize = function(data, window_size, sd_mult = 2) {
+    super$initialize(data)
+    self$data <- super$convert_to_tibble(self$data)
+    self$window_size <- window_size
+    self$sd_mult <- sd_mult
     },
 generate_signals = function() {
-      self$data <- mutate(self$data, 
-                          ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
-                          sd = rollapply(Close, width = self$window_size, sd, align = "right", fill = NA),
-                          upper_band = ma + self$sd_mult * sd,
-                          lower_band = ma - self$sd_mult * sd,
-                          signal = case_when(
-                            Close > upper_band ~ 1,
-                            Close < lower_band ~ -1,
-                            TRUE ~ 0
-                          ),
-                          position = lag(signal, default = 0)) %>% 
-                            na.omit
+    self$data <- mutate(self$data, 
+                        ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
+                        sd = rollapply(Close, width = self$window_size, sd, align = "right", fill = NA),
+                        upper_band = ma + self$sd_mult * sd,
+                        lower_band = ma - self$sd_mult * sd,
+                        signal = case_when(
+                          Close > upper_band ~ 1,
+                          Close < lower_band ~ -1,
+                          TRUE ~ 0
+                        ),
+                        position = lag(signal, default = 0)) %>% 
+                          na.omit
 },
 
 run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, output_df = TRUE) {
@@ -1766,7 +2000,8 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
       sells = item$Performance$sells,
       Buy_Success_Rate = item$Performance$Buy_Success_Rate,
       Short_Success_Rate = item$Performance$Short_Success_Rate,
-      Combined_Success_Rate = item$Performance$Combined_Success_Rate
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
     )
   })
 
@@ -1868,7 +2103,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
       sells = item$Performance$sells,
       Buy_Success_Rate = item$Performance$Buy_Success_Rate,
       Short_Success_Rate = item$Performance$Short_Success_Rate,
-      Combined_Success_Rate = item$Performance$Combined_Success_Rate
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
     )
   })
 
@@ -1961,7 +2197,8 @@ run_backtest = function(symbols, probs, seed, from_date, to_date, output_df = TR
       sells = item$Performance$sells,
       Buy_Success_Rate = item$Performance$Buy_Success_Rate,
       Short_Success_Rate = item$Performance$Short_Success_Rate,
-      Combined_Success_Rate = item$Performance$Combined_Success_Rate
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
     )
   })
 
@@ -1980,7 +2217,6 @@ rand$estimate_performance()
 rand$plot_equity_lines("Random", signal_flag = TRUE)
 
 # Instances of Random strategy (run backtesting)
-
 res_random <- rand$run_backtest(
   symbols = c("BZ=F", "GC=F"),
   probs = seq(0.45, 0.55, by = 0.05),

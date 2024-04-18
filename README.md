@@ -27,6 +27,8 @@ flowchart LR
     ma --> SMA1Modified
     ma --> SMA2Modified
     ma --> MACD
+    ma --> TurtleStrategy
+    ma --> DonchianChannels
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
