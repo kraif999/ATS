@@ -623,8 +623,8 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
 )
 
 # Define class for Strategy based on GARCH model
-GARCHStrategy <- R6Class(
-  "GARCHStrategy",
+GARCHbasedStrategy <- R6Class(
+  "GARCHbasedStrategy",
     inherit = Strategy,
     public = list(
     specification = NULL, 
@@ -846,8 +846,8 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
               
-              # Create an instance of GARCHStrategy
-              garch_instance <- GARCHStrategy$new(
+              # Create an instance of GARCHbasedStrategy
+              garch_instance <- GARCHbasedStrategy$new(
                 data = data,
                 specification = spec,
                 n_start = n_start,
@@ -862,6 +862,8 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
               # Store the results
               results[[paste(symbol, spec, n_start, refit, window, dist_model, realized_vol, sep = "_")]] <- list(
                 Symbol = symbol,
+                Class = meta$assets[[symbol]]$class,
+                Methodology = "GARCH_based",
                 Specification = spec,
                 N_Start = n_start,
                 Refit_Every = refit,
@@ -887,6 +889,8 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
         item <- results[[.x]]
         data_frame(
           Symbol = item$Symbol,
+          Class =  item$Class,
+          Methodology = item$Methodology,
           Specification = item$Specification,
           N_Start = item$N_Start,
           Refit_Every = item$Refit_Every,
@@ -920,7 +924,7 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
 
 # Instances of GARCH strategy
 cl <- makePSOCKcluster(parallel::detectCores(logical = FALSE))
-garch_strategy <- GARCHStrategy$new(
+garch_strategy <- GARCHbasedStrategy$new(
   data = ts,
   specification = "sGARCH",
   n_start = 126,
@@ -989,6 +993,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
             # Store the results
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "SMA1",
               Window_Size = window_size,
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
@@ -1002,6 +1008,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
         item <- results[[.x]]
         data_frame(
           Symbol = item$Symbol,
+          Class = item$Class,
+          Methodology = item$Methodology,
           Window_Size = item$Window_Size,
           MA_Type = item$MA_Type,
           Strategy = item$Performance$Strategy,
@@ -1092,6 +1100,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
             # Store the results
             results[[paste(symbol, window_size1, window_size2, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "SMA2",
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               MA_Type = ma_type,
@@ -1107,6 +1117,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
       item <- results[[.x]]
       data_frame(
         Symbol = item$Symbol,
+        Class = item$Class,
+        Methodology = item$Methodology,
         Window_Size1 = item$Window_Size1,
         Window_Size2 = item$Window_Size2,
         MA_Type = item$MA_Type,
@@ -1260,6 +1272,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
             # Store the results
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "SMA1M",
               Window_Size = window_size,
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
@@ -1273,6 +1287,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
         item <- results[[.x]]
         data_frame(
           Symbol = item$Symbol,
+          Class = item$Class,
+          Methodology = item$Methodology,
           Window_Size = item$Window_Size,
           MA_Type = item$MA_Type,
           Strategy = item$Performance$Strategy,
@@ -1286,7 +1302,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
           sells = item$Performance$sells,
           Buy_Success_Rate = item$Performance$Buy_Success_Rate,
           Short_Success_Rate = item$Performance$Short_Success_Rate,
-          Combined_Success_Rate = item$Performance$Combined_Success_Rate
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
           PortfolioValue = item$Performance$PortfolioEndValue
         )
       })
@@ -1417,6 +1433,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
             # Store the results
             results[[paste(symbol, window_size1, window_size2, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "SMA2M",
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               MA_Type = ma_type,
@@ -1432,6 +1450,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
       item <- results[[.x]]
       data_frame(
         Symbol = item$Symbol,
+        Class = item$Class,
+        Methodology = item$Methodology,
         Window_Size1 = item$Window_Size1,
         Window_Size2 = item$Window_Size2,
         MA_Type = item$MA_Type,
@@ -1527,6 +1547,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, from_date
             # Store the results
             results[[paste(symbol, window_size1, window_size2, sline, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "MACD",
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               Sline = sline,
@@ -1541,6 +1563,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, from_date
       item <- results[[.x]]
       data_frame(
         Symbol = item$Symbol,
+        Class = item$Class,
+        Methodology = item$Methodology,
         Window_Size1 = item$Window_Size1,
         Window_Size2 = item$Window_Size2,
         Sline = item$Sline,
@@ -1648,6 +1672,8 @@ run_backtest = function(symbols, window_sizes, from_date, to_date, output_df = T
             # Store the results
             results[[paste(symbol, window_size, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "DonchianChannel",
               Window_Size = window_size,
               Performance = dc$estimate_performance()
             )
@@ -1659,6 +1685,8 @@ run_backtest = function(symbols, window_sizes, from_date, to_date, output_df = T
         item <- results[[.x]]
         data_frame(
           Symbol = item$Symbol,
+          Class = item$Class,
+          Methodology = item$Methodology,
           Window_Size = item$Window_Size,
           Strategy = item$Performance$Strategy,
           aR = item$Performance$aR,
@@ -1764,6 +1792,8 @@ run_backtest = function(symbols, window_sizes, thresholds_overbought, thresholds
           # Store the results
           results[[paste(symbol, window_size, threshold_oversold, threshold_overbought, sep = "_")]] <- list(
             Symbol = symbol,
+            Class = meta$assets[[symbol]]$class,
+            Methodology = "RSI",
             Window_Size = window_size,
             Threshold_oversold = threshold_oversold,
             Threshold_overbought = threshold_overbought,
@@ -1779,6 +1809,8 @@ run_backtest = function(symbols, window_sizes, thresholds_overbought, thresholds
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Window_Size = item$Window_Size,
       Threshold_oversold = item$Threshold_oversold,
       Threshold_overbought = item$Threshold_overbought,
@@ -1872,6 +1904,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
         # Store the results
         results[[paste(symbol, window_size1, window_size2, sep = "_")]] <- list(
           Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = "TurtleTrading",
           Window_Size1 = window_size1,
           Window_Size2 = window_size2,
           Performance = dc$estimate_performance()
@@ -1885,6 +1919,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Window_Size1 = item$Window_Size1,
       Window_Size2 = item$Window_Size2,
       Strategy = item$Performance$Strategy,
@@ -1993,6 +2029,8 @@ run_backtest = function(symbols, accels, accels_max, from_date, to_date, output_
           # Store the results
             results[[paste(symbol, accel, accel_max, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "Stop_and_reversal",
               Accel = accel,
               Accel_max = accel_max,
               Performance = sra$estimate_performance()
@@ -2006,6 +2044,8 @@ run_backtest = function(symbols, accels, accels_max, from_date, to_date, output_
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Accel = item$Accel,
       Accel_max = item$Accel_max,
       Strategy = item$Performance$Strategy,
@@ -2100,6 +2140,8 @@ run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, outp
           # Store the results
             results[[paste(symbol, ndx, trend_strength, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "Average_Directional_Index",
               Ndx = ndx,
               Trend_strength = trend_strength,
               Performance = adx$estimate_performance()
@@ -2113,6 +2155,8 @@ run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, outp
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Ndx = item$Ndx,
       Trend_strength = item$Trend_strength,
       Strategy = item$Performance$Strategy,
@@ -2153,6 +2197,16 @@ res_adx <- adx$run_backtest(
   from_date,
   to_date,
   output_df = FALSE
+)
+
+# Create  an instance of the ADX class (run backtesting)
+res_adx_df <- adx$run_backtest(
+  symbols = c("USDPLN=X", "BZ=F"),
+  ndxs = seq(12, 14, by = 2),
+  trend_strengths = seq(23, 25, by = 2),
+  from_date,
+  to_date,
+  output_df = TRUE
 )
 
 # Define Bollinger Bands Breakout class
@@ -2205,6 +2259,8 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
           # Store the results
             results[[paste(symbol, window_size, sd_mult, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "BollingerBreakout",
               Window_Size = window_size,
               SD_Multiplier = sd_mult,
               Performance = bb$estimate_performance()
@@ -2218,6 +2274,8 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Window_Size = item$Window_Size,
       SD_Multiplier = item$SD_Multiplier,
       Strategy = item$Performance$Strategy,
@@ -2308,6 +2366,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
           # Store the results
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "Volatility_mean_reversion",
               Window_Size = window_size,
               MA_type = ma_type,
               Performance = vmr$estimate_performance()
@@ -2321,6 +2381,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Window_Size = item$Window_Size,
       MA_Type = item$MA_type,
       Strategy = item$Performance$Strategy,
@@ -2405,6 +2467,8 @@ run_backtest = function(symbols, probs, seed, from_date, to_date, output_df = TR
           # Store the results
             results[[paste(symbol, prob, sep = "_")]] <- list(
               Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = "Random",
               Probability = prob,
               Performance = random$estimate_performance()
             )
@@ -2416,6 +2480,8 @@ run_backtest = function(symbols, probs, seed, from_date, to_date, output_df = TR
     item <- results[[.x]]
     data_frame(
       Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
       Probability = item$Probability,
       Strategy = item$Performance$Strategy,
       aR = item$Performance$aR,
