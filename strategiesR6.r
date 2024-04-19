@@ -863,7 +863,7 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
               results[[paste(symbol, spec, n_start, refit, window, dist_model, realized_vol, sep = "_")]] <- list(
                 Symbol = symbol,
                 Class = meta$assets[[symbol]]$class,
-                Methodology = "GARCH_based",
+                Methodology = paste(spec, ":", n_start, refit, window, dist_model, realized_vol),
                 Specification = spec,
                 N_Start = n_start,
                 Refit_Every = refit,
@@ -940,15 +940,16 @@ garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close", signal_flag
 
 # Instances of GARCH based strategy (run backtesting)
 res_garch <- garch_strategy$run_backtest(
-  symbols = "EUR=X",
+  symbols = "BZ=F",
   specifications = c("sGARCH"),
   n_starts = c(126, 252),
   refits_every = 21,
   refit_windows = "moving",
   distribution_models = "snorm",
   realized_vols = "close",
-  output_df = FALSE
-)
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define SMA1 (trend following strategy) class
 SMA1 <- R6Class(
@@ -994,7 +995,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "SMA1",
+              Methodology = paste("SMA1:", window_size, ma_type),
               Window_Size = window_size,
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
@@ -1049,8 +1050,10 @@ res_sma1 <- sma1$run_backtest(
   ma_type = c("EMA", "SMA"),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define SMA2 (trend following strategy) class
 SMA2 <- R6Class(
@@ -1101,7 +1104,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
             results[[paste(symbol, window_size1, window_size2, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "SMA2",
+              Methodology = paste("SMA2:", window_size1, window_size2, ma_type),
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               MA_Type = ma_type,
@@ -1161,8 +1164,10 @@ res_sma2 <- sma2$run_backtest(
   ma_type = c("EMA", "SMA"),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define SMA1 class with modified signals
 SMA1M <- R6Class(
@@ -1273,7 +1278,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "SMA1M",
+              Methodology = paste("SMA1M:", window_size, ma_type),
               Window_Size = window_size,
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
@@ -1329,7 +1334,9 @@ res_sma1m <- sma1m$run_backtest(
   from_date,
   to_date,
   output_df = FALSE
-)
+  #output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # SMA2 (modified by dynamic trailing stop)
 SMA2M <- R6Class(
@@ -1434,7 +1441,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
             results[[paste(symbol, window_size1, window_size2, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "SMA2M",
+              Methodology = paste("SMA2M:", window_size1, window_size2, ma_type),
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               MA_Type = ma_type,
@@ -1493,8 +1500,10 @@ res_sma2m <- sma2m$run_backtest(
   ma_type = c("SMA", "EMA"),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define MACD class
 MACD <- R6Class(
@@ -1548,7 +1557,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, from_date
             results[[paste(symbol, window_size1, window_size2, sline, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "MACD",
+              Methodology = paste("MACD:", window_size1, window_size2, sline),
               Window_Size1 = window_size1,
               Window_Size2 = window_size2,
               Sline = sline,
@@ -1607,8 +1616,10 @@ res_macd <- macd$run_backtest(
   sline = seq(9, 10, by = 1),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Donchian Channel (DC) class (also, it could be used with RSI and MACD)
 DonchianChannel <- R6Class(
@@ -1673,7 +1684,7 @@ run_backtest = function(symbols, window_sizes, from_date, to_date, output_df = T
             results[[paste(symbol, window_size, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "DonchianChannel",
+              Methodology = paste("DonchianChannel:", window_size),
               Window_Size = window_size,
               Performance = dc$estimate_performance()
             )
@@ -1725,8 +1736,10 @@ res_dc <- dc$run_backtest(
   window_sizes = seq(14, 20, by = 6), 
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Relative Strength Index class
 RSI <- R6Class(
@@ -1793,7 +1806,7 @@ run_backtest = function(symbols, window_sizes, thresholds_overbought, thresholds
           results[[paste(symbol, window_size, threshold_oversold, threshold_overbought, sep = "_")]] <- list(
             Symbol = symbol,
             Class = meta$assets[[symbol]]$class,
-            Methodology = "RSI",
+            Methodology = paste("RSI:", window_size, threshold_oversold, threshold_overbought),
             Window_Size = window_size,
             Threshold_oversold = threshold_oversold,
             Threshold_overbought = threshold_overbought,
@@ -1852,8 +1865,10 @@ res_rsi <- rsi$run_backtest(
   thresholds_overbought = seq(60, 70, by = 10),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define TurtleTrading class (Richard)
 TurtleTrading <- R6Class(
@@ -1905,7 +1920,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
         results[[paste(symbol, window_size1, window_size2, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = "TurtleTrading",
+          Methodology = paste("TurtleTrading:", window_size1, window_size2),
           Window_Size1 = window_size1,
           Window_Size2 = window_size2,
           Performance = dc$estimate_performance()
@@ -1962,8 +1977,10 @@ res_tt <- tt$run_backtest(
   window_sizes2 = seq(40, 60, by = 10),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Stop and Reversal (SAR) class
 StopAndReversal <- R6Class(
@@ -2030,7 +2047,7 @@ run_backtest = function(symbols, accels, accels_max, from_date, to_date, output_
             results[[paste(symbol, accel, accel_max, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "Stop_and_reversal",
+              Methodology = paste("Stop_and_reversal:", accel, accel_max),
               Accel = accel,
               Accel_max = accel_max,
               Performance = sra$estimate_performance()
@@ -2086,8 +2103,10 @@ res_sar <- sar$run_backtest(
   accels_max = seq(0.1, 0.3, by = 0.1),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Average Directional Index (ADX) class
 ADX <- R6Class(
@@ -2141,7 +2160,7 @@ run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, outp
             results[[paste(symbol, ndx, trend_strength, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "Average_Directional_Index",
+              Methodology = paste("Average_Directional_Index:", ndx, trend_strength),
               Ndx = ndx,
               Trend_strength = trend_strength,
               Performance = adx$estimate_performance()
@@ -2196,18 +2215,10 @@ res_adx <- adx$run_backtest(
   trend_strengths = seq(23, 25, by = 2),
   from_date,
   to_date,
-  output_df = FALSE
-)
-
-# Create  an instance of the ADX class (run backtesting)
-res_adx_df <- adx$run_backtest(
-  symbols = c("USDPLN=X", "BZ=F"),
-  ndxs = seq(12, 14, by = 2),
-  trend_strengths = seq(23, 25, by = 2),
-  from_date,
-  to_date,
+  #output_df = FALSE
   output_df = TRUE
-)
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Bollinger Bands Breakout class
 BollingerBreakout <- R6Class(
@@ -2260,7 +2271,7 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
             results[[paste(symbol, window_size, sd_mult, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "BollingerBreakout",
+              Methodology = paste("BollingerBreakout:", window_size, sd_mult),
               Window_Size = window_size,
               SD_Multiplier = sd_mult,
               Performance = bb$estimate_performance()
@@ -2315,8 +2326,10 @@ res_bb <- bb$run_backtest(
   sd_mults = seq(0.5, 1, by = 0.5),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Volatility Mean Reversion class
 VolatilityMeanReversion <- R6Class(
@@ -2367,7 +2380,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
             results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "Volatility_mean_reversion",
+              Methodology = paste("Volatility_mean_reversion:", window_size, ma_type),
               Window_Size = window_size,
               MA_type = ma_type,
               Performance = vmr$estimate_performance()
@@ -2422,8 +2435,10 @@ res_vmr <- vmr$run_backtest(
   ma_types = c("SMA", "EMA"),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define Random strategy class (generate random signals)
 Random <- R6Class(
@@ -2468,7 +2483,7 @@ run_backtest = function(symbols, probs, seed, from_date, to_date, output_df = TR
             results[[paste(symbol, prob, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = "Random",
+              Methodology = paste("Random:", prob),
               Probability = prob,
               Performance = random$estimate_performance()
             )
@@ -2520,7 +2535,9 @@ res_random <- rand$run_backtest(
   seed = TRUE,
   from_date = from_date,
   to_date = to_date,
-  output_df = FALSE
-)
+  #output_df = FALSE
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+  trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 
