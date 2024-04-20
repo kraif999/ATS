@@ -4,12 +4,37 @@
       
       "EUR=X": {
         "class": "FX",
-        "description": "US Dollar to Euro exchange rate"
+        "description": "USD/EUR"
+      },
+
+      "EURUSD=X": {
+        "class": "FX",
+        "description": "EUR/USD"
+      },
+
+      "JPY=X": {
+        "class": "FX",
+        "description": "USD/JPY"
+      },
+
+      "GBPUSD=X": {
+        "class": "FX",
+        "description": "GBP/USD"
+      },
+
+      "AUDUSD=X": {
+        "class": "FX",
+        "description": "AUD/USD"
+      },
+
+      "CAD=X": {
+        "class": "FX",
+        "description": "USD/CAD"
       },
 
       "USDPLN=X": {
         "class": "FX",
-        "description": "US Dollar to Polish zloty"
+        "description": "USD/PLN"
       },
 
       "^GSPC": {

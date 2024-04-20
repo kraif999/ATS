@@ -34,6 +34,8 @@ flowchart LR
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
+    Univariate --> ml[Machine Learning techniques]
+    ml --> svm[Support Vector Machine]
     Univariate --> r[Random]
 ```
 

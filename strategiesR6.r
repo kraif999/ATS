@@ -559,10 +559,10 @@ estimate_performance = function() {
     avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
     buys = c(buy_active, buy_passive),
     sells = c(short_active, short_passive),
-    Buy_Success_Rate = c(buy_success_rate_active, buy_success_rate_passive),
-    Short_Success_Rate = c(short_success_rate_active, short_success_rate_passive),
-    Combined_Success_Rate = c(combined_rate_active, combined_rate_passive),
-    PortfolioEndValue = c(self$data[nrow(self$data),]$eqlActive, self$data[nrow(self$data),]$eqlPassive)
+    Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+    Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+    Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+    PortfolioEndValue = round(c(self$data[nrow(self$data),]$eqlActive, self$data[nrow(self$data),]$eqlPassive), 0)
   )
 
   # Print the performance data frame and success rate data frame
@@ -935,7 +935,7 @@ garch_strategy <- GARCHbasedStrategy$new(
   cluster = cl)
 
 garch_strategy$estimate_performance()
-garch_strategy$plot_equity_lines("sGARCH-126-21-moving-snorm-close", signal_flag = TRUE)
+garch_strategy$plot_equity_lines(paste(symbol, ":", "sGARCH-126-21-moving-snorm-close"), signal_flag = TRUE)
 # ggsave(filename = "garch.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
 
 # Instances of GARCH based strategy (run backtesting)
@@ -1324,17 +1324,18 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
 # Instances of SMA1M class
 sma1m <- SMA1M$new(ts, window_size = 50, ma_type = 'EMA')
 sma1m$estimate_performance()
-sma1m$plot_equity_lines("SMA1M")
+sma1m$plot_equity_lines(paste(symbol, ":", "SMA1M, window_size = 50, ma_type = EMA"))
+View(sma1m$data %>% select(Date, Close, signal, pnlActive, pnlPassive, eqlActive, eqlPassive))
 
 # Instances of SMA1M strategy (run backtesting)
 res_sma1m <- sma1m$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes = seq(50, 60, by = 10), 
-  ma_type = c("EMA", "SMA"),
+  symbols = "USDPLN=X", 
+  window_sizes = seq(10, 100, by = 10), 
+  ma_type = c("EMA", "SMA", "HMA"),
   from_date,
   to_date,
-  output_df = FALSE
-  #output_df = TRUE
+  #output_df = FALSE
+  output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
@@ -1967,8 +1968,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
 # Create instance of TurtleTrading class
 tt <- TurtleTrading$new(ts, window_size1 = 20, window_size2 = 40)
 tt$estimate_performance()
-tt$plot_equity_lines("TurtleTrading, w1 = 20, w2 = 40", signal_flag = TRUE)
-# ggsave(filename = "tt.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
+tt$plot_equity_lines(paste(symbol, ":", "TurtleTrading, w1 = 20, w2 = 40"), signal_flag = TRUE)
+#ggsave(filename = "tt.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
 
 # Instances of Turtle Trading strategy (run backtesting)
 res_tt <- tt$run_backtest(
@@ -2540,4 +2541,4 @@ res_random <- rand$run_backtest(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
-
+# Define Support Vector Machine (SVA) class 
