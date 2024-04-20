@@ -1,5 +1,5 @@
 {
-    "strategies": ["GARCH", "TI", "Random"],
+    "strategies": ["TI", "Q", "ML", "Random"],
     "assets": {
       
       "EUR=X": {
@@ -37,14 +37,59 @@
         "description": "USD/PLN"
       },
 
+      "MXN=X": {
+        "class": "FX",
+        "description": "USD/MXN"
+      },
+
       "^GSPC": {
         "class": "Equities",
         "description": "S&P 500 Index"
       },
 
+      "^IXIC": {
+        "class": "Equities",
+        "description": "NASDAQ"
+      },
+
       "FTSE": {
         "class": "Equities",
-        "description": "Stock market index of 100 of the most highly capitalised blue chip companies listed on the London Stock Exchange"
+        "description": "Stock market index of 100 most highly cap on LSE"
+      },
+
+      "^GDAXI": {
+        "class": "Equities",
+        "description": "DAX PERFORMANCE INDEX"
+      },
+
+      "^FCHI": {
+        "class": "Equities",
+        "description": "CAC 40 Index at Euronext Paris"
+      },
+
+      "^N100": {
+        "class": "Equities",
+        "description": "Euronext 100 Index"
+      },
+
+      "WIG20.WA": {
+        "class": "Equities",
+        "description": "WIG20 WSE"
+      },
+
+      "^N225": {
+        "class": "Equities",
+        "description": "Nikkei 225"
+      },
+
+      "^HSI": {
+        "class": "Equities",
+        "description": "HANG SENG INDEX"
+      },
+
+      "000001.SS": {
+        "class": "Equities",
+        "description": "Composite Index at Shanghai Stock Exchange"
       },
       
       "SPY": {
@@ -97,6 +142,11 @@
         "description": "iShares 20+ Year Treasury Bond ETF"
       },
 
+      "^FVX": {
+        "class": "Rates",
+        "description": "Treasury Yield 5 Years"
+      },
+
       "GC=F": {
         "class": "Commodities",
         "description": "Gold"
@@ -110,16 +160,32 @@
       "SI=F": {
         "class": "Commodities",
         "description": "Silver"
-    },
+      },
+
+      "NG=F": {
+        "class": "Commodities",
+        "description": "Natural Gas"
+      },
+
+      "HG=F": {
+        "class": "Commodities",
+        "description": "Copper"
+      },
 
       "TIP": {
         "class": "Inflation",
         "description": "iShares TIPS Bond ETF"
-    },
+      },
      
       "BTC-USD": {
         "class": "Cryptocurrency",
-        "description": "Bitcoin"
-    }
+        "description": "Bitcoin USD"
+      },
+
+      "ETH-USD": {
+        "class": "Cryptocurrency",
+        "description": "Ethereum USD"
+      }
+
   }
 }

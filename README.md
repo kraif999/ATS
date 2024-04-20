@@ -13,13 +13,15 @@ The taxonomical hierarchy of trading strategies is as follows:
 flowchart LR
     Strategy[Strategy] --> Univariate[Univariate]
     Strategy --> Multivariate[Multivariate]
-    Univariate --> GARCH[GARCH]
+    Univariate --> Stats[Stats]
+    Stats[Stats] --> GARCH
     GARCH -->|Specification| spec[sGARCH, eGARCH, jgrGARCH, fGARCH]
     GARCH -->|Training window size| training[126, 252, 504]
     GARCH -->|Refit frequency| refit[21, 63, 126]
     GARCH -->|Refit window type| type[Moving, Expanding]
     GARCH -->|Innovations| distr[Norm, Snorm, NIG]
     GARCH -->|Realized vol| rv[Close, Yang.Zhang]
+    Stats[Stats] --> ARIMA
     Univariate --> Tech[Technical indicators]
     Tech --> ma[Moving Averages: different types]
     ma --> sma1[SMA1]
@@ -34,7 +36,7 @@ flowchart LR
     Tech --> rsi[Relative Strength Index]
     Tech --> bb[Bollinger Bounds]
     Tech --> vol[Volatility Mean Reversion]
-    Univariate --> ml[Machine Learning techniques]
+    Univariate --> ml[Machine Learning]
     ml --> svm[Support Vector Machine]
     Univariate --> r[Random]
 ```
