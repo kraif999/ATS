@@ -2541,21 +2541,22 @@ res_random <- rand$run_backtest(
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define ARIMA class
-
-ARIMAbased <- R6Class(
-  "ARIMAbased",
+ARIMAbased_foreach <- R6Class(
+  "ARIMAbased_foreach",
   inherit = Strategy,
   public = list(
-    window_size = NULL,
+    window_size = NULL, # for "moving" window_type it is window_size, for "expanding" window_type it is starting window_size only (as then it expands given iterations)
+    window_type = NULL,
     best_arima = NULL,
     p1 = NULL,
     d1 = NULL,
     q1 = NULL,
     
-initialize = function(data, window_size, best_arima = TRUE, p1 = NULL, d1 = NULL, q1 = NULL) {
+initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NULL, d1 = NULL, q1 = NULL) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$window_size <- window_size
+      self$window_type <- window_type
       self$best_arima <- best_arima
       self$p1 <- p1
       self$d1 <- d1
@@ -2563,15 +2564,21 @@ initialize = function(data, window_size, best_arima = TRUE, p1 = NULL, d1 = NULL
 },
     
 generate_signals = function() {
-      
-      n <- nrow(self$data)
-      # Preallocate vectors
-      forecast_values <- numeric(n - self$window_size + 1)
-      actual_values <- numeric(n - self$window_size + 1)
-      dates <- as.Date(character(n - self$window_size + 1))
-      
+  num_cores <- parallel::detectCores() - 1 
+  registerDoParallel(cores = num_cores)
+  n <- nrow(self$data)
+  # Preallocate vectors
+  forecast_values <- numeric(n - self$window_size + 1)
+  actual_values <- numeric(n - self$window_size + 1)
+  dates <- as.Date(character(n - self$window_size + 1))
+  
+  # Rolling window type
+  switch(
+    self$window_type,
+    "moving" = {
       # Perform rolling forecasts
-      for (i in 1:(n - self$window_size + 1)) {
+      #for (i in 1:(n - self$window_size + 1)) {
+      foreach(i = 1:(n - self$window_size + 1)) %dopar% {
         # Extract current window of data
         window_data <- self$data$Close[i:(i + self$window_size - 1)]
         
@@ -2586,7 +2593,7 @@ generate_signals = function() {
             D <- best_arima$arma[5]
             Q <- best_arima$arma[6]
             
-            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method  = "CSS-ML")
+            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
           } else {
             # Use provided p1, d1, q1 parameters
             fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
@@ -2595,67 +2602,163 @@ generate_signals = function() {
           # Forecast (1 day ahead)
           forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
             data.frame %>% 
-            select(Forecast) %>% as.numeric
+              select(Forecast) %>% as.numeric
           
-          # Store dates, forecast and actual value
-          forecast_values <- c(forecast_values, forecast_result)
-          actual_values <- c(actual_values, self$data$Close[i + self$window_size - 1])
-          dates <- c(dates, self$data$Date[i + self$window_size - 1])
+          # Store dates, forecast, and actual value
+          forecast_values[i] <- forecast_result
+          actual_values[i] <- self$data$Close[i + self$window_size - 1]
+          dates[i] <- self$data$Date[i + self$window_size - 1]
         }, error = function(e) {
           # Handle errors
           print(paste("Error in iteration", i, ":", e$message))
         })
       }
-      
-      res <- data.frame(
-        Date = dates,
-        Forecast = forecast_values, 
-        Actual = actual_values
+    },
+
+    "expanding" = {
+      # Perform expanding window forecasts
+      # for (i in self$window_size:n) {
+      foreach(i = self$window_size:n) %dopar% {
+        # Extract current window of data
+        window_data <- self$data$Close[1:i]
+        
+        tryCatch({
+          if (self$best_arima) {    
+            # Fit ARIMA model
+            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
+            p <- best_arima$arma[1]
+            d <- best_arima$arma[2]
+            q <- best_arima$arma[3]
+            P <- best_arima$arma[4]
+            D <- best_arima$arma[5]
+            Q <- best_arima$arma[6]
+            
+            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
+          } else {
+            # Use provided p1, d1, q1 parameters
+            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
+          }
+          
+          # Forecast (1 day ahead)
+          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
+            data.frame %>% 
+              select(Forecast) %>% as.numeric
+          
+          # Store dates, forecast, and actual value
+          forecast_values[i] <- forecast_result
+          actual_values[i] <- self$data$Close[i]
+          dates[i] <- self$data$Date[i]
+        }, error = function(e) {
+          # Handle errors
+          print(paste("Error in iteration", i, ":", e$message))
+        })
+      }
+    }
+  )
+  
+  res <- data.frame(
+    Date = dates,
+    Forecast = forecast_values, 
+    Actual = actual_values
+  )
+  
+  # Compare Forecast with Actual value
+  self$data <- self$data %>%
+    left_join(res %>% select(Date, Forecast), by = "Date") %>%
+    mutate(
+      signal1 = case_when(
+        Forecast > Close ~ 1,
+        Forecast < Close ~ -1,
+        TRUE ~ 0 
       )
-      
-      self$data <- self$data %>%
-        left_join(res %>% select(Date, Forecast), by = "Date") %>%
-        mutate(
-          signal = case_when(
-            Forecast > Close ~ 1,
-            Forecast < Close ~ -1,
-            TRUE ~ 0 
-          ),
-          position = lag(signal, default = 0)
-        ) %>%
-        na.omit()
+      # position = lag(signal, default = 0)
+    ) %>%
+      na.omit()
+
+  # Initialize last_long_value and last_short_value (dynamic trailing threshold)
+  last_long_value <- rep(NA, nrow(self$data))
+  last_short_value <- rep(NA, nrow(self$data))
+
+  # Loop through each row of the data frame
+  for (i in 1:nrow(self$data)) {
+      # Check if current row has signal == 1
+      if (self$data$signal1[i] == 1) {
+          # Find the index of the first previous occurrence of 1
+          first_previous_index <- NA
+          if (any(self$data$signal1[1:(i-1)] == 1)) {
+              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == 1))
+          }
+          # If a previous occurrence of 1 is found, update last_long_value
+          if (!is.na(first_previous_index)) {
+              last_long_value[i] <- self$data$Forecast[first_previous_index]
+          }
+      }
+      # Check if current row has signal1 == -1
+      if (self$data$signal1[i] == -1) {
+          # Find the index of the first previous occurrence of -1
+          first_previous_index <- NA
+          if (any(self$data$signal1[1:(i-1)] == -1)) {
+              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == -1))
+          }
+          # If a previous occurrence of -1 is found, update last_short_value
+          if (!is.na(first_previous_index)) {
+              last_short_value[i] <- self$data$Forecast[first_previous_index]
+          }
+      }
+  }
+
+  # Assign last_long_value and last_short_value to the data frame
+  self$data$last_long_value <- last_long_value
+  self$data$last_short_value <- last_short_value
+
+  # Replace NA or invalid values with 0 in the last_long_value and last_short_value columns
+  self$data$last_long_value <- replace(self$data$last_long_value, !is.finite(self$data$last_long_value), 0)
+  self$data$last_short_value <- replace(self$data$last_short_value, !is.finite(self$data$last_short_value), 0)
+
+  # Compare data$Forecast[i] with the first previous value and update data$s2
+  self$data$signal <- ifelse((self$data$Forecast > self$data$last_long_value) & (self$data$Forecast > self$data$Close), 1,
+                      ifelse((self$data$Forecast < self$data$last_short_value) & (self$data$Forecast < self$data$Close), -1, 0))
+
+  # Replacing 0s by previous signal value:
+  self$data$signal <- na.locf(ifelse(self$data$signal == 0, NA, self$data$signal), fromLast = FALSE, na.rm = FALSE)
+  self$data$signal <- replace(self$data$signal, is.na(self$data$signal), 0)
+
+  self$data$position <- lag(self$data$signal, default = 0)
+  stopImplicitCluster()
 },
 
-run_backtest = function(symbols, window_sizes, best_arima, p1s, d1s, q1s, from_date, to_date, output_df = TRUE) {
+run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1s, q1s, from_date, to_date, output_df = TRUE) {
   # Create an empty list to store results
   results <- list()
 
   # Loop through symbols, window size  and bands to create instances and estimate performance
   for (symbol in symbols) {
     for (window_size in window_sizes) {
-      for (p1 in p1s) {
-        for (d1 in d1s) {
-          for(q1 in q1s) {
+      for(window_type in window_types) {
+        for (p1 in p1s) {
+          for (d1 in d1s) {
+            for(q1 in q1s) {
 
            # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
             # Create an instance of MACD strategy
-            arima <- ARIMAbased$new(data, window_size, self$best_arima, p1, d1, q1)
+            arima <- ARIMAbased$new(data, window_size, window_type, self$best_arima, p1, d1, q1)
 
             # Store the results
-            results[[paste(symbol, window_size, p1, d1, q1, sep = "_")]] <- list(
+            results[[paste(symbol, window_size, window_type, p1, d1, q1, sep = "_")]] <- list(
             Symbol = symbol,
             Class = meta$assets[[symbol]]$class,
             Methodology = paste("ARIMAbased:", window_size, p1, d1, q1),
             Window_Size = window_size,
+            Window_Type = window_type,
             P1 = p1,
             D1 = d1,
             Q1 = q1,
             Performance = arima$estimate_performance()
-
-            )
+              )
+            }
           }
         }
       }
@@ -2669,6 +2772,7 @@ run_backtest = function(symbols, window_sizes, best_arima, p1s, d1s, q1s, from_d
       Class = item$Class,
       Methodology = item$Methodology,
       Window_Size = item$Window_Size,
+      Window_Type = item$Window_Type,
       P1 = item$P1,
       D1 = item$D1,
       Q1 = item$Q1,
@@ -2699,24 +2803,23 @@ run_backtest = function(symbols, window_sizes, best_arima, p1s, d1s, q1s, from_d
 )
 
 # Create instance of ARIMA
-arima <- ARIMAbased$new(ts, window_size = 60, best_arima = FALSE, p1 = 2, d1 = 1, q1 = 1)
-arima$estimate_performance()
-arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window = 252"), signal_flag = TRUE)
+arima_foreach <- ARIMAbased_foreach$new(ts, window_size = 60, window_type = "expanding", best_arima = FALSE, p1 = 2, d1 = 1, q1 = 1)
+arima_foreach$estimate_performance()
+arima_foreach$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = TRUE)
+arima_foreach$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = FALSE)
 
-# a <- arima$data %>% select(Date, Close, Forecast, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
-
-# Create instance of ARIMA (run backtest)
-res_arima <- arima$run_backtest(
+# Create instance of ARIMA (run backtest) OPTIMIZED
+res_arima_foreach  <- arima_foreach$run_backtest(
   symbols = c("BZ=F"),
   window_sizes = c(60, 90),
+  window_types = c("moving", "expanding"),
   best_arima = FALSE,
-  p1s = c(1,2),
+  p1s = 1,
   d1s = 1,
-  q1s = c(1,2),
+  q1s = 1,
   from_date = from_date,
   to_date = to_date,
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
-
-# Define Support Vector Algorithm (SVA) class 
+  
