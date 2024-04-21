@@ -52,7 +52,7 @@
         "description": "NASDAQ"
       },
 
-      "FTSE": {
+      "^FTSE": {
         "class": "Equities",
         "description": "Stock market index of 100 most highly cap on LSE"
       },

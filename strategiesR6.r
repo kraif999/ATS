@@ -60,7 +60,8 @@ download_xts_data = function() {
     tsRaw <- quantmod::getSymbols(self$symbol, from = self$from_date, to = self$to_date, period = "day", auto.assign = FALSE)
     ts <- na.omit(tsRaw)
     # UseMethod("mutate") : no applicable method for 'mutate' applied to an object of class "c('xts', 'zoo')"
-    ts$value <-  log(ts[,paste0(self$symbol, ".Close")]) - log(lag(ts[,paste0(self$symbol, ".Close")]))
+    #ts$value <-  log(ts[,paste0(self$symbol, ".Close")]) - log(lag(ts[,paste0(self$symbol, ".Close")]))
+    ts$value <- log(ts[, grep("\\.Close$", colnames(ts))]) - log(lag(ts[, grep("\\.Close$", colnames(ts))]))
     ts <- na.omit(ts)
     attr(ts, "na.action") <- NULL
 
@@ -145,6 +146,7 @@ from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 to_date <- Sys.Date()
 symbol <- "BZ=F" # oil
 capital <- 50000 # units of initial capital invested
+leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
 ######################################################
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -466,7 +468,7 @@ convert_to_tibble = function(ts) {
     ts_df <- data.frame(ts)
     ts_df <- ts_df %>%
         rename_with(~ sub(".*\\.", "", .), everything()) %>%
-          mutate(Date = as.Date(rownames(.))) %>%
+          mutate(Date = as.Date(as.character(rownames(.)))) %>%
             select(Date, everything()) %>%
                 na.omit() %>% 
                     as.tibble()
@@ -490,23 +492,23 @@ estimate_performance = function() {
 
   # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
   self$data$eqlActive[1] <- capital
-  self$data$nopActive[1] <- floor(capital / self$data$Close[1])
+  self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
   self$data$eqlPassive[1] <- capital
-  self$data$nopPassive[1] <- floor(capital / self$data$Close[1])   
+  self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))   
 
   for (i in 2:nrow(self$data)) {
 
     # Active
     pnlActive <- self$data$pnlActive[i]
     prev_nop_Active <- floor(self$data$nopActive[i - 1])
-    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / self$data$Close[i])
+    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
     self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
     self$data$nopActive[i] <- current_nop_Active
     
     # Passive
     pnlPassive <- self$data$pnlPassive[i]
     prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
-    current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / self$data$Close[i])
+    current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
     self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
     self$data$nopPassive[i] <- current_nop_Passive
   }
@@ -999,6 +1001,9 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
             )
+
+            print(paste0("Results are for ", "SMA1 ", "(", "symbol: ", symbol, ",", "class: ", meta$assets[[symbol]]$class, ",", "window_size: ", window_size, ",", "ma_type: ", ma_type, ")"))
+            
           }
         }
       }
@@ -1033,7 +1038,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
     }   else {
           return(results)
       }
-    }
+}
+
   )
 )
 
@@ -1041,11 +1047,13 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'EMA')
 sma1$estimate_performance()
 sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
+#a <- sma1$data %>% select(Date, Close, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
 
 # Instances of SMA1 strategy (run backtesting)
+leverage <- 1
 res_sma1 <- sma1$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes = seq(10, 20, by = 10), 
+  symbols = assets,
+  window_sizes = seq(10, 100, by = 10), 
   ma_type = c("EMA", "SMA"),
   from_date,
   to_date,
