@@ -2541,8 +2541,8 @@ res_random <- rand$run_backtest(
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Define ARIMA class
-ARIMAbased_foreach <- R6Class(
-  "ARIMAbased_foreach",
+ARIMAbased <- R6Class(
+  "ARIMAbased",
   inherit = Strategy,
   public = list(
     window_size = NULL, # for "moving" window_type it is window_size, for "expanding" window_type it is starting window_size only (as then it expands given iterations)
@@ -2564,8 +2564,7 @@ initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NU
 },
     
 generate_signals = function() {
-  num_cores <- parallel::detectCores() - 1 
-  registerDoParallel(cores = num_cores)
+  
   n <- nrow(self$data)
   # Preallocate vectors
   forecast_values <- numeric(n - self$window_size + 1)
@@ -2577,8 +2576,7 @@ generate_signals = function() {
     self$window_type,
     "moving" = {
       # Perform rolling forecasts
-      #for (i in 1:(n - self$window_size + 1)) {
-      foreach(i = 1:(n - self$window_size + 1)) %dopar% {
+      for (i in 1:(n - self$window_size + 1)) {
         # Extract current window of data
         window_data <- self$data$Close[i:(i + self$window_size - 1)]
         
@@ -2602,7 +2600,7 @@ generate_signals = function() {
           # Forecast (1 day ahead)
           forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
             data.frame %>% 
-              select(Forecast) %>% as.numeric
+            select(Forecast) %>% as.numeric
           
           # Store dates, forecast, and actual value
           forecast_values[i] <- forecast_result
@@ -2617,8 +2615,7 @@ generate_signals = function() {
 
     "expanding" = {
       # Perform expanding window forecasts
-      # for (i in self$window_size:n) {
-      foreach(i = self$window_size:n) %dopar% {
+      for (i in self$window_size:n) {
         # Extract current window of data
         window_data <- self$data$Close[1:i]
         
@@ -2642,7 +2639,7 @@ generate_signals = function() {
           # Forecast (1 day ahead)
           forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
             data.frame %>% 
-              select(Forecast) %>% as.numeric
+            select(Forecast) %>% as.numeric
           
           # Store dates, forecast, and actual value
           forecast_values[i] <- forecast_result
@@ -2724,7 +2721,6 @@ generate_signals = function() {
   self$data$signal <- replace(self$data$signal, is.na(self$data$signal), 0)
 
   self$data$position <- lag(self$data$signal, default = 0)
-  stopImplicitCluster()
 },
 
 run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1s, q1s, from_date, to_date, output_df = TRUE) {
@@ -2757,6 +2753,7 @@ run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1
             D1 = d1,
             Q1 = q1,
             Performance = arima$estimate_performance()
+
               )
             }
           }
@@ -2803,13 +2800,15 @@ run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1
 )
 
 # Create instance of ARIMA
-arima_foreach <- ARIMAbased_foreach$new(ts, window_size = 60, window_type = "expanding", best_arima = FALSE, p1 = 2, d1 = 1, q1 = 1)
-arima_foreach$estimate_performance()
-arima_foreach$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = TRUE)
-arima_foreach$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = FALSE)
+arima <- ARIMAbased$new(ts, window_size = 60, window_type = "expanding", best_arima = FALSE, p1 = 2, d1 = 1, q1 = 1)
+arima$estimate_performance()
+arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = TRUE)
+arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = FALSE)
 
-# Create instance of ARIMA (run backtest) OPTIMIZED
-res_arima_foreach  <- arima_foreach$run_backtest(
+# a <- arima$data %>% select(Date, Close, Forecast, signal1, last_long_value, last_short_value, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
+
+# Create instance of ARIMA (run backtest)
+res_arima <- arima$run_backtest(
   symbols = c("BZ=F"),
   window_sizes = c(60, 90),
   window_types = c("moving", "expanding"),
@@ -2822,4 +2821,3 @@ res_arima_foreach  <- arima_foreach$run_backtest(
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
   trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
-  
