@@ -2905,7 +2905,7 @@ res_arima <- arima$run_backtest(
   best_arima = FALSE,
   p1s = c(0,1,2),
   d1s = c(1,2),
-  q1s = c(0,1,2)
+  q1s = c(0,1,2),
   from_date = from_date,
   to_date = to_date,
   output_df = TRUE
