@@ -72,9 +72,9 @@
         "description": "Euronext 100 Index"
       },
 
-      "WIG20.WA": {
+      "EPOL": {
         "class": "Equities",
-        "description": "WIG20 WSE"
+        "description": "iShares MSCI Poland ETF"
       },
 
       "^N225": {

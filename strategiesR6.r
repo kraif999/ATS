@@ -471,7 +471,7 @@ convert_to_tibble = function(ts) {
           mutate(Date = as.Date(as.character(rownames(.)))) %>%
             select(Date, everything()) %>%
                 na.omit() %>% 
-                    as.tibble()
+                    as_tibble()
     return(ts_df)
 },
 
@@ -570,7 +570,7 @@ estimate_performance = function() {
   # print(df)
   # return(self$data)
 
-  print(self$data)
+  # print(self$data)
   return(df)
 },
 
@@ -873,6 +873,10 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
                 Realized_Vol = realized_vol,
                 Performance = garch_instance$estimate_performance() # Assuming you have an estimate_performance method
               )
+            print(paste0("Results for ", "GARCHbased ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "spec:", spec, ",", "window_size:", n_start, ",", "refit_freq:", refit, ",", "refit_window:", window, ",",
+              "dist_err:", dist_model, ",", "RV:" realized_vol, ")"))
+              
               }, error = function(e) {
                 cat("Error:", e$message, "occurred for", paste(symbol, n_start, refit, window, dist_model, realized_vol, sep = "_"), "\n")
                 }
@@ -940,12 +944,13 @@ garch_strategy$plot_equity_lines(paste(symbol, ":", "sGARCH-126-21-moving-snorm-
 # ggsave(filename = "garch.png", plot = last_plot(), dpi = 300, type = "cairo", bg = "white")
 
 # Instances of GARCH based strategy (run backtesting)
+leverage <- 1
 res_garch <- garch_strategy$run_backtest(
-  symbols = "BZ=F",
-  specifications = c("sGARCH"),
+  symbols = assets,
+  specifications = c("sGARCH", "eGARCH"),
   n_starts = c(126, 252),
   refits_every = 21,
-  refit_windows = "moving",
+  refit_windows = c("moving", "expanding"),
   distribution_models = "snorm",
   realized_vols = "close",
   output_df = TRUE
@@ -1077,7 +1082,7 @@ initialize = function(data, window_size1, window_size2, ma_type) {
       self$window_size1 <- window_size1
       self$window_size2 <- window_size2
       self$ma_type <- ma_type
-    },
+},
 
 generate_signals = function() {
       ma_func <- get(self$ma_type)
@@ -1117,6 +1122,10 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
             )
+
+            print(paste0("Results for ", "SMA2 ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "window_size1:", window_size1, ",", "window_size2:", window_size2, ",", "ma_type:", ma_type, ")"))
+
           }
         }
       }
@@ -1164,10 +1173,11 @@ sma2$estimate_performance()
 sma2$plot_equity_lines("SMA2", signal_flag = TRUE)
 
 # Instances of SMA2 strategy (run backtesting)
+leverage <- 1
 res_sma2 <- sma2$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes1 = seq(10, 20, by = 10), 
-  window_sizes2 = seq(100, 110, by = 10),
+  symbols = assets, 
+  window_sizes1 = seq(10, 50, by = 10), 
+  window_sizes2 = seq(55, 115, by = 10),
   ma_type = c("EMA", "SMA"),
   from_date,
   to_date,
@@ -1290,6 +1300,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
             )
+            print(paste0("Results for ", "SMA1M ", "(", "symbol: ", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+              "window_size:", window_size, ",", "ma_type:", ma_type, ")"))
           }
         }
       }
@@ -1324,7 +1336,8 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
     }   else {
           return(results)
       }
-    }
+}
+
     )
 )
 
@@ -1335,10 +1348,11 @@ sma1m$plot_equity_lines(paste(symbol, ":", "SMA1M, window_size = 50, ma_type = E
 View(sma1m$data %>% select(Date, Close, signal, pnlActive, pnlPassive, eqlActive, eqlPassive))
 
 # Instances of SMA1M strategy (run backtesting)
+leverage <- 1
 res_sma1m <- sma1m$run_backtest(
-  symbols = "USDPLN=X", 
+  symbols = assets, 
   window_sizes = seq(10, 100, by = 10), 
-  ma_type = c("EMA", "SMA", "HMA"),
+  ma_type = c("EMA", "SMA"),
   from_date,
   to_date,
   #output_df = FALSE
@@ -1361,7 +1375,7 @@ initialize = function(data, window_size1, window_size2, ma_type) {
       self$window_size1 <- window_size1
       self$window_size2 <- window_size2
       self$ma_type <- ma_type
-    },
+},
 
 generate_signals = function() {
       ma_func <- get(self$ma_type)
@@ -1455,6 +1469,9 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, from_da
               MA_Type = ma_type,
               Performance = sma_instance$estimate_performance()
             )
+              print(paste0("Results for ", "SMA2M ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "window_size1:", window_size1, ",", "window_size2:", window_size2, ",", "ma_type:", ma_type, ")"))
+
           }
         }
       }
@@ -1501,10 +1518,11 @@ sma2m$estimate_performance()
 sma2m$plot_equity_lines("SMA2M")
 
 # Instances of SMA2M strategy (run backtesting)
+leverage <- 1
 res_sma2m <- sma2m$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes1 = seq(10, 20, by = 10), 
-  window_sizes2 = seq(200, 210, by = 10),
+  symbols = assets, 
+  window_sizes1 = seq(10, 50, by = 10), 
+  window_sizes2 = seq(55, 115, by = 10),
   ma_type = c("SMA", "EMA"),
   from_date,
   to_date,
@@ -1571,6 +1589,10 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, from_date
               Sline = sline,
               Performance = macd_instance$estimate_performance()
             )
+
+              print(paste0("Results for ", "MACD ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "window_size1:", window_size1, ",", "window_size2:", window_size2, ",", "ma_type:", sline, ")"))
+
           }
         }
       }
@@ -1617,11 +1639,12 @@ macd$estimate_performance()
 macd$plot_equity_lines("MACD", signal_flag = FALSE)
 
 # Instances of MACD strategy (run backtesting)
+leverage <- 1
 res_macd <- macd$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes1 = seq(12, 13, by = 1), 
-  window_sizes2 = seq(26, 27, by = 1),
-  sline = seq(9, 10, by = 1),
+  symbols = assets, 
+  window_sizes1 = seq(9, 13, by = 1), 
+  window_sizes2 = seq(25, 30, by = 1),
+  sline = seq(7, 11, by = 1),
   from_date,
   to_date,
   #output_df = FALSE
@@ -1696,6 +1719,9 @@ run_backtest = function(symbols, window_sizes, from_date, to_date, output_df = T
               Window_Size = window_size,
               Performance = dc$estimate_performance()
             )
+
+            print(paste0("Results for ", "DonchianChannel ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "window_size:", window_size, ")"))
         }
       }
 
@@ -1739,9 +1765,10 @@ dc$plot_channels("window_size = 20")
 dc$plot_equity_lines("DC", signal_flag = TRUE)
 
 # Instances of DonchianChannel strategy (run_backtest)
+leverage <- 1
 res_dc <- dc$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes = seq(14, 20, by = 6), 
+  symbols = assets, 
+  window_sizes = seq(5, 25, by = 1), 
   from_date,
   to_date,
   #output_df = FALSE
@@ -1820,6 +1847,9 @@ run_backtest = function(symbols, window_sizes, thresholds_overbought, thresholds
             Threshold_overbought = threshold_overbought,
             Performance = rsi_instance$estimate_performance()
             )
+
+            print(paste0("Results for ", "RSI ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+            "window_size:", window_size, ",", "threshold_oversold:", threshold_oversold, ",", "threshold_overbought:", threshold_overbought, ")"))
           }
         }
     }
@@ -1867,10 +1897,10 @@ rsi$plot_equity_lines("RSI")
 
 # Instances of MACD strategy (run backtesting)
 res_rsi <- rsi$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes = seq(14, 20, by = 6), 
-  thresholds_oversold = seq(40, 50, by = 10),
-  thresholds_overbought = seq(60, 70, by = 10),
+  symbols = assets, 
+  window_sizes = seq(10, 30, by = 5), 
+  thresholds_oversold = seq(20, 40, by = 5),
+  thresholds_overbought = seq(50, 70, by = 5),
   from_date,
   to_date,
   #output_df = FALSE
@@ -1933,6 +1963,8 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, from_date, to_dat
           Window_Size2 = window_size2,
           Performance = tt$estimate_performance()
         )
+          print(paste0("Results for ", "TurtleTrading ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "window_size1:", window_size1, ",", "window_size2:", window_size2, ")"))
       }
     }
   }
@@ -1980,9 +2012,9 @@ tt$plot_equity_lines(paste(symbol, ":", "TurtleTrading, w1 = 20, w2 = 40"), sign
 
 # Instances of Turtle Trading strategy (run backtesting)
 res_tt <- tt$run_backtest(
-  symbols = "BZ=F", 
-  window_sizes1 = seq(20, 40, by = 5), 
-  window_sizes2 = seq(40, 60, by = 10),
+  symbols = assets, 
+  window_sizes1 = seq(10, 40, by = 5), 
+  window_sizes2 = seq(45, 75, by = 5),
   from_date,
   to_date,
   #output_df = FALSE
@@ -2060,6 +2092,10 @@ run_backtest = function(symbols, accels, accels_max, from_date, to_date, output_
               Accel_max = accel_max,
               Performance = sra$estimate_performance()
             )
+
+          print(paste0("Results for ", "StopAndReversal ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "accel:", accel, ",", "accel_max:", accel_max, ")"))
+
         }
       }
     }
@@ -2105,10 +2141,11 @@ sar$plot_sar("acceleration: 0.02, 0,2")
 sar$plot_equity_lines("acceleration: 0.02, 0.2")
 
 #  Instances of Stop and Reversal strategy (run backtest)
+leverage <- 1
 res_sar <- sar$run_backtest(
-  symbols = c("USDPLN=X", "GC=F"), # fx, gold
-  accels = seq(0.01, 0.03, by = 0.01),
-  accels_max = seq(0.1, 0.3, by = 0.1),
+  symbols = assets,
+  accels = seq(0.01, 0.1, by = 0.01),
+  accels_max = seq(0.15, 0.35, by = 0.05), # max acceleration ranges from 15% to 35%
   from_date,
   to_date,
   #output_df = FALSE
@@ -2173,6 +2210,8 @@ run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, outp
               Trend_strength = trend_strength,
               Performance = adx$estimate_performance()
             )
+          print(paste0("Results for ", "AverageDirectionalIndex ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "ndx:", ndx, ",", "trend_strength:", trend_strength, ")"))
         }
       }
     }
@@ -2217,10 +2256,11 @@ adx$estimate_performance()
 adx$plot_equity_lines("Average Directional Index, ndx = 14, trend_strength = 25", signal_flag = TRUE)
 
 # Create  an instance of the ADX class (run backtesting)
+leverage <- 1
 res_adx <- adx$run_backtest(
-  symbols = c("USDPLN=X", "BZ=F"),
-  ndxs = seq(12, 14, by = 2),
-  trend_strengths = seq(23, 25, by = 2),
+  symbols = assets,
+  ndxs = seq(5, 15, by = 1),
+  trend_strengths = seq(20, 40, by = 5),
   from_date,
   to_date,
   #output_df = FALSE
@@ -2284,6 +2324,9 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
               SD_Multiplier = sd_mult,
               Performance = bb$estimate_performance()
             )
+
+          print(paste0("Results for ", "BollingerBreakout: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "window_size:", window_size, ",", "sd_mult:", sd_mult, ")"))
         }
       }
     }
@@ -2328,10 +2371,11 @@ bb$estimate_performance()
 bb$plot_equity_lines("BB", signal_flag = TRUE)
 
 # Instances of Bollinger Breakout strategy (run backtesting)
+leverage <- 1
 res_bb <- bb$run_backtest(
-  symbols = c("BZ=F", "GC=F"), 
-  window_sizes = seq(20, 30, by = 10), 
-  sd_mults = seq(0.5, 1, by = 0.5),
+  symbols = assets, 
+  window_sizes = seq(5, 40, by = 5), 
+  sd_mults = seq(0.5, 2, by = 0.5),
   from_date,
   to_date,
   #output_df = FALSE
@@ -2393,6 +2437,9 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
               MA_type = ma_type,
               Performance = vmr$estimate_performance()
             )
+
+          print(paste0("Results for ", "VolatilityMeanReversion ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "window_size:", window_size, ",", "ma_type:", ma_type, ")"))
         }
       }
     }
@@ -2438,8 +2485,8 @@ vmr$plot_equity_lines("VolatilityMeanReversion")
 
 # Instances of Volatility Mean Reversion strategy (run backtesting)
 res_vmr <- vmr$run_backtest(
-  symbols = c("BZ=F", "GC=F"), 
-  window_sizes = seq(20, 30, by = 10), 
+  symbols = assets, 
+  window_sizes = seq(10, 50, by = 5), 
   ma_types = c("SMA", "EMA"),
   from_date,
   to_date,
@@ -2495,6 +2542,9 @@ run_backtest = function(symbols, probs, seed, from_date, to_date, output_df = TR
               Probability = prob,
               Performance = random$estimate_performance()
             )
+
+          print(paste0("Results for ", "Random ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "prob:", prob, ")"))
         }
     }
   
@@ -2538,9 +2588,9 @@ rand$plot_equity_lines("Random", signal_flag = TRUE)
 
 # Instances of Random strategy (run backtesting)
 res_random <- rand$run_backtest(
-  symbols = c("BZ=F", "GC=F"),
-  probs = seq(0.45, 0.55, by = 0.05),
-  seed = TRUE,
+  symbols = assets,
+  probs = seq(0.1, 0.9, by = 0.1),
+  seed = FALSE,
   from_date = from_date,
   to_date = to_date,
   #output_df = FALSE
@@ -2792,6 +2842,8 @@ run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1
       Q1 = q1,
       Performance = arima$estimate_performance()
     )
+    print(paste0("Results for ", "ARIMAbased ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+      "window_size:", window_size, ",", "window_type:", window_type, ",", "AR:", p1, ",", "I:", d1, ",", "q1:", q1, ")"))
   }
   
   # Stop the parallel backend
@@ -2845,14 +2897,15 @@ arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window
 
 # Create instance of ARIMA (run backtest)
 # DF
+leverage <- 1
 res_arima <- arima$run_backtest(
-  symbols = c("BZ=F"),
-  window_sizes = 69,
+  symbols = assets,
+  window_sizes = 63,
   window_types = c("moving", "expanding"),
   best_arima = FALSE,
-  p1s = 1,
-  d1s = 1,
-  q1s = 1,
+  p1s = c(0,1,2),
+  d1s = c(1,2),
+  q1s = c(0,1,2)
   from_date = from_date,
   to_date = to_date,
   output_df = TRUE
