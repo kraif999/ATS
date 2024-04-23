@@ -875,7 +875,7 @@ run_backtest = function(symbols, specifications = NULL, n_starts = NULL, refits_
               )
             print(paste0("Results for ", "GARCHbased ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
             "spec:", spec, ",", "window_size:", n_start, ",", "refit_freq:", refit, ",", "refit_window:", window, ",",
-              "dist_err:", dist_model, ",", "RV:" realized_vol, ")"))
+              "dist_err:", dist_model, ",", "RV:", realized_vol, ")"))
               
               }, error = function(e) {
                 cat("Error:", e$message, "occurred for", paste(symbol, n_start, refit, window, dist_model, realized_vol, sep = "_"), "\n")
