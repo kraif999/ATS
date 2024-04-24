@@ -2311,7 +2311,7 @@ run_backtest = function(symbols, window_sizes, sd_mults, from_date, to_date, out
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
-          # Create an instance of MACD strategy
+          # Create an instance of BB strategy
           bb <- BollingerBreakout$new(data, window_size, sd_mult)
           # bb$generate_signals()
 
@@ -2788,50 +2788,29 @@ generate_signals = function() {
   self$data$position <- lag(self$data$signal, default = 0)
 },
 
-run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1s, q1s, from_date, to_date, output_df = TRUE) {
-  
-  # Register parallel backend
-  num_cores <- parallel::detectCores() - 1  
-  registerDoParallel(cores = num_cores)
+# Choose ARIMA model by directly looping through different AR, I, MA parameters
+run_backtest1 = function(symbols, window_sizes, window_types, best_arima = FALSE, p1s, d1s, q1s, from_date, to_date, output_df = TRUE) {
   
   # Initialize an empty list to store results
   results <- list()
 
-  # Using foreach to replace nested loops
-  results <- foreach(
-    symbol = symbols,
-    .combine = 'list'
-  ) %:%
-  foreach(
-    window_size = window_sizes,
-    .combine = 'list'
-  ) %:%
-  foreach(
-    window_type = window_types,
-    .combine = 'list'
-  ) %:%
-  foreach(
-    p1 = p1s,
-    .combine = 'list'
-  ) %:%
-  foreach(
-    d1 = d1s,
-    .combine = 'list'
-  ) %:%
-  foreach(
-    q1 = q1s,
-    .combine = 'list'
-  ) %dopar% {
-    # Fetch data using DataFetcher for the current symbol and date range
-    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-    data <- data_fetcher$download_xts_data()
+  # Loop through symbols and parameters to create instances and estimate performance
+    for (symbol in symbols) {
+      for (window_size in window_sizes) {
+        for (window_type in window_types) {
+          for (p1 in p1s) {
+            for (d1 in d1s) {
+              for (q1 in q1s) {
     
-    # Create an instance of ARIMA strategy
-    arima <- ARIMAbased$new(data, window_size, window_type, best_arima, p1, d1, q1)
-    
-    # Store the results in a named list
-    list(
-      key = paste(symbol, window_size, window_type, p1, d1, q1, sep = "_"),
+  # Fetch data using DataFetcher for the current symbol and date range
+  data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+  data <- data_fetcher$download_xts_data()
+  
+  # Create an instance of ARIMA strategy
+  arima <- ARIMAbased$new(data, window_size, window_type, best_arima = FALSE, p1, d1, q1)
+  
+  # Store the results
+    results[[paste(symbol, window_size, window_type, p1, d1, q1, sep = "_")]] <- list(
       Symbol = symbol,
       Class = meta$assets[[symbol]]$class,
       Methodology = paste("ARIMAbased:", window_size, window_type, p1, d1, q1),
@@ -2842,86 +2821,151 @@ run_backtest = function(symbols, window_sizes, window_types, best_arima, p1s, d1
       Q1 = q1,
       Performance = arima$estimate_performance()
     )
-    print(paste0("Results for ", "ARIMAbased ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-      "window_size:", window_size, ",", "window_type:", window_type, ",", "AR:", p1, ",", "I:", d1, ",", "q1:", q1, ")"))
-  }
-  
-  # Stop the parallel backend
-  stopImplicitCluster()
-  
-  if (output_df) {
-    results_df <- map_dfr(results, ~{
-      item <- .x
-      if (is.list(item)) {
-        data_frame(
-          Symbol = item$Symbol,
-          Class = item$Class,
-          Methodology = item$Methodology,
-          Window_Size = item$Window_Size,
-          Window_Type = item$Window_Type,
-          P1 = item$P1,
-          D1 = item$D1,
-          Q1 = item$Q1,
-          Strategy = item$Performance$Strategy,
-          aR = item$Performance$aR,
-          aSD = item$Performance$aSD,
-          IR = item$Performance$IR,
-          MD = item$Performance$MD,
-          trades = item$Performance$trades,
-          avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
-          buys = item$Performance$buys,
-          sells = item$Performance$sells,
-          Buy_Success_Rate = item$Performance$Buy_Success_Rate,
-          Short_Success_Rate = item$Performance$Short_Success_Rate,
-          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
-          PortfolioValue = item$Performance$PortfolioEndValue
-        )
-      } else {
-        NULL
+
+  print(paste0("Results for ", "ARIMAbased ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+    "window_size:", window_size, ",", "window_type:", window_type, ",", "AR:", p1, ",", "I:", d1, ",", "q1:", q1, ")"))
+
+              }
+            }
+          }
+        }
       }
-    })
-    return(results_df)
-  } else {
-    return(results)
-  }
+    }
+
+  # Convert results to a data frame
+  results_df <- map_dfr(names(results), ~{
+    item <- results[[.x]]
+    data_frame(
+      Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
+      Window_Size = item$Window_Size,
+      Window_Type = item$Window_Type,
+      P1 = item$P1,
+      D1 = item$D1,
+      Q1 = item$Q1,
+      Strategy = item$Performance$Strategy,
+      aR = item$Performance$aR,
+      aSD = item$Performance$aSD,
+      IR = item$Performance$IR,
+      MD = item$Performance$MD,
+      trades = item$Performance$trades,
+      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+      buys = item$Performance$buys,
+      sells = item$Performance$sells,
+      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+      Short_Success_Rate = item$Performance$Short_Success_Rate,
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
+    )
+  })
+
+    if (output_df) {
+      return(results_df)
+    } else {
+      return(results)
+    }
+
+},
+
+# Choose best ARIMA model based on AIC/BIC criteria
+run_backtest2 = function(symbols, window_sizes, window_types, best_arima = TRUE, from_date, to_date, output_df = TRUE) {
+  
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols and parameters to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+      for (window_type in window_types) {
+
+          # Fetch data using DataFetcher for the current symbol and date range
+          data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+          data <- data_fetcher$download_xts_data()
+          
+          arima <- ARIMAbased$new(data, window_size, window_type, best_arima = TRUE)
+
+          # Store the results
+            results[[paste(symbol, window_size, window_type, sep = "_")]] <- list(
+              Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = paste("AutoARIMAbased:", window_size, window_type),
+              Window_Size = window_size,
+              Window_Type = window_type,
+              Performance = arima$estimate_performance()
+            )
+
+          print(paste0("Results for ", "AutoARIMA: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+          "window_size:", window_size, ",", "window_type:", window_type, ")"))
+        }
+      }
+    }
+  
+  # Convert results to a data frame
+  results_df <- map_dfr(names(results), ~{
+    item <- results[[.x]]
+    data_frame(
+      Symbol = item$Symbol,
+      Class = item$Class,
+      Methodology = item$Methodology,
+      Window_Size = item$Window_Size,
+      Window_Type = item$Window_Type,
+      Strategy = item$Performance$Strategy,
+      aR = item$Performance$aR,
+      aSD = item$Performance$aSD,
+      IR = item$Performance$IR,
+      MD = item$Performance$MD,
+      trades = item$Performance$trades,
+      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+      buys = item$Performance$buys,
+      sells = item$Performance$sells,
+      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+      Short_Success_Rate = item$Performance$Short_Success_Rate,
+      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+      PortfolioValue = item$Performance$PortfolioEndValue
+    )
+  })
+
+    if (output_df) {
+      return(results_df)
+    } else {
+      return(results)
+    }
 }
 
   )
 )
 
-# Create instance of ARIMA 
-arima <- ARIMAbased$new(ts, window_size = 69, window_type = "expanding", best_arima = FALSE, p1 = 1, d1 = 1, q1 = 1)
+# Create single instance of ARIMA 
+arima <- ARIMAbased$new(ts, window_size = 21, window_type = "expanding", best_arima = FALSE, p1 = 1, d1 = 1, q1 = 1)
 arima$estimate_performance()
 arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = TRUE)
-#a <- arima$data %>% select(Date, Close, Forecast, signal1, last_long_value, last_short_value, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
+#check_signals <- arima$data %>% select(Date, Close, Forecast, signal1, last_long_value, last_short_value, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
 
-# Create instance of ARIMA (run backtest)
-# DF
-leverage <- 1
-res_arima <- arima$run_backtest(
+# Create many instances of ARIMA (run backtest1) 2023-01-01 - 2024-04-24
+res_arima <- arima$run_backtest1(
   symbols = assets,
-  window_sizes = 63,
-  window_types = c("moving", "expanding"),
+  #symbols = "GC=F",
+  window_sizes = c(21, 126),
+  window_types = c("expanding", "moving"),
   best_arima = FALSE,
-  p1s = c(0,1,2),
+  p1s = c(0, 1, 2, 3),
   d1s = c(1,2),
-  q1s = c(0,1,2),
-  from_date = from_date,
+  q1s = c(1, 2, 3),
+  from_date = as.Date("2022-01-01", format = "%Y-%m-%d"),
   to_date = to_date,
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
-# LIST
-res_arima_ls <- arima$run_backtest(
-  symbols = c("BZ=F"),
-  window_sizes = 69,
-  window_types = c("moving", "expanding"),
-  best_arima = FALSE,
-  p1s = 1,
-  d1s = 1,
-  q1s = 1,
-  from_date = from_date,
+# Create many instances of ARIMA (run backtest1) 2023-01-01 - 2024-04-24
+res_arima_auto <- arima$run_backtest2(
+  symbols = assets,
+  window_sizes = 126,
+  window_types = c("expanding", "moving"),
+  best_arima = TRUE,
+  from_date = as.Date("2022-01-01", format = "%Y-%m-%d"),
   to_date = to_date,
-  output_df = FALSE
-) 
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+    trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
