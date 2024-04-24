@@ -620,6 +620,8 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
   }
 }
 
+# Money management rules (risk per trade, position sizing, diversification, profit taking, risk tolerance level) are to be added
+
   )
 )
 
@@ -2940,7 +2942,7 @@ run_backtest2 = function(symbols, window_sizes, window_types, best_arima = TRUE,
 arima <- ARIMAbased$new(ts, window_size = 21, window_type = "expanding", best_arima = FALSE, p1 = 1, d1 = 1, q1 = 1)
 arima$estimate_performance()
 arima$plot_equity_lines(paste(symbol, ":", "ARIMAbased, window_size = 60, window_type = expanding"), signal_flag = TRUE)
-#check_signals <- arima$data %>% select(Date, Close, Forecast, signal1, last_long_value, last_short_value, signal, position, pnlActive, value, nopActive, eqlActive) # too frequent signal generation (add dynamic threshold in signal generation)
+check_signals <- arima$data %>% select(Date, value)
 
 # Create many instances of ARIMA (run backtest1) 2023-01-01 - 2024-04-24
 res_arima <- arima$run_backtest1(
@@ -2961,7 +2963,7 @@ res_arima <- arima$run_backtest1(
 # Create many instances of ARIMA (run backtest1) 2023-01-01 - 2024-04-24
 res_arima_auto <- arima$run_backtest2(
   symbols = assets,
-  window_sizes = 126,
+  window_sizes = c(21, 63, 126),
   window_types = c("expanding", "moving"),
   best_arima = TRUE,
   from_date = as.Date("2022-01-01", format = "%Y-%m-%d"),
@@ -2969,3 +2971,4 @@ res_arima_auto <- arima$run_backtest2(
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
+ 
