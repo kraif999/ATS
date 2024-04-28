@@ -473,6 +473,11 @@ convert_to_tibble = function(ts) {
                 na.omit() %>% 
                     as_tibble()
     return(ts_df)
+
+    # ts_df <- data.frame(Date = index(ts), coredata(ts)) %>%
+    #   rename_with(~ sub(".*\\.", "", .), everything()) %>%
+    #     na.omit() %>%
+    #       as_tibble()
 },
 
 # Performance estimation for Active and Passive strategies (annualized return, standard deviation, Information ratio, maximum drawdown, trades count, success prediction rate)
@@ -2984,154 +2989,140 @@ initialize = function(data, threshold) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$threshold <- threshold
-    },
+},
 
-# Signal generation
+# Signal generation, algorithm that
+# Opens the position when markets are overshoot (done)
+# Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit (to be done)
 generate_signals = function() {
-      
-      # Introduce highest highs, lowest lows; and highest and lowest close
-      self$data$lowest_close <- NA
-      self$data$lowest_low <- NA
-      self$data$highest_close <- NA
-      self$data$highest_high <- NA
-    
-      # Introduce directional changes
-      self$data$UE <- NA
-      self$data$UE[1] <- TRUE
-      self$data$DE <- NA
-      self$data$DE[1] <- FALSE
-      self$data$Run <- NA
-      self$data$Run[1] <- "Upward"
-      self$data$Upward_Overshoot <- NA
-      self$data$Downward_Overshoot <- NA
-    
-      # Start and end of change directional events
-      self$data$UE_start <- self$data$Low[1]
-      self$data$UE_end <- NA
-      self$data$DE_start <- NA
-      self$data$DE_end <- NA
-    
-      # Loop through each row of the self$data
-      for (t in 2:nrow(self$data)) {
-      
-          # Update the lowest and highest prices up to time t
-          self$data$lowest_close[t] <- min(self$data$Close[1:t])
-          self$data$lowest_low[t] <- min(self$data$Low[1:t])
-          self$data$highest_close[t] <- max(self$data$Close[1:t])
-          self$data$highest_high[t] <- max(self$data$High[1:t])
-        
-          # Check for Upturn Event (UE) or Downturn Event (DE) based on thresholds
-          if (!is.na(self$data$highest_high[t - 1]) && self$data$Close[t] <= self$data$highest_high[t - 1] * (1 - self$threshold)) {
-            self$data$DE[t] <- TRUE
-          } else {
-            self$data$DE[t] <- FALSE
-          }
-        
-          if (!is.na(self$data$lowest_low[t-1]) && self$data$Close[t] >= self$data$lowest_low[t-1] * (1 + self$threshold)) {
-            self$data$UE[t] <- TRUE
-          } else {
-            self$data$UE[t] <- FALSE
-          }
-        
-          # Identify runs based on consecutive events
-          if (self$data$UE[t] & !self$data$DE[t]) {
-            self$data$Run[t] <- "Upward"
-            self$data$UE_start[t] <- self$data$Low[t] # Start point for UE
-            self$data$UE_end[t] <- self$data$Close[t] # End point for UE
-          } else if (self$data$DE[t] & !self$data$UE[t]) {
-            self$data$Run[t] <- "Downward"
-            self$data$DE_start[t] <- self$data$High[t] # Start point for DE
-            self$data$DE_end[t] <- self$data$Close[t] # End point for DE
-          } else {
-            self$data$Run[t] <- "No events"
-          }
-        
-          # Check for Upward Overshoot
-          if (self$data$Run[t] == "Upward") {
-            previous_de_index <- max(which(self$data$Run == "Upward" & 1:(t-1))) # Find the index of the most recent Downturn event before t
-            if (!is.na(previous_de_index)) {
-              self$data$Upward_Overshoot[t] <- self$data$Close[t] > self$data$UE_start[previous_de_index] # Check if the Close price exceeds the UE_start after the previous DE
-            } else {
-              self$data$Upward_Overshoot[t] <- NA # If there is no previous DE, set to NA
-            }
-          } else {
-            self$data$Upward_Overshoot[t] <- NA # If it's not an Upward event, set to NA
-          }
-        
-          # Check for Downward Overshoot
-          if (self$data$Run[t] == "Downward") {
-            previous_ue_index <- max(which(self$data$Run == "Downward" & 1:(t-1))) # Find the index of the most recent Upward event before t
-            if (!is.na(previous_ue_index)) {
-              self$data$Downward_Overshoot[t] <- self$data$Close[t] < self$data$DE_start[previous_ue_index] # Check if the Close price falls below the DE_start after the previous UE
-            } else {
-              self$data$Downward_Overshoot[t] <- NA # If there is no previous UE, set to NA
-            }
-          } else {
-            self$data$Downward_Overshoot[t] <- NA # If it's not a Downturn event, set to NA
-          }
-        }
-    
-        # Generate signals based on overshoot events
-        # self$data <- self$data %>%
-        #   mutate(signal = coalesce(ifelse(lag(Upward_Overshoot, default = FALSE), 1, NA),
-        #                             ifelse(lag(Downward_Overshoot, default = FALSE), -1, NA),
-        #                               NA))
 
-        # Generate signals based on overshoot events (no lag)
-        # self$data <- self$data %>%
-        #   mutate(signal = coalesce(ifelse(Upward_Overshoot, 1, NA),
-        #                             ifelse(Downward_Overshoot, -1, NA),
-        #                               NA))
+    self$data <- self$data %>%
+    mutate(
+      # Initialize columns with NA
+      p = (High + Low) / 2, # outlier is present, disturbing entire lowest series
+      lowest_close = Close,
+      lowest_low = Low,
+      highest_close = Close,
+      highest_high = High,
+      Event = NA,
+      Event = replace(Event, 1, 1),
+      Run = NA,
+      Run = replace(Run, 1, "Upward"),
+      UE_start = NA,
+      UE_end = NA,
+      DE_start = NA,
+      DE_end = NA,
+      OS = NA,
+      signal = NA
+    )
 
-        # Generate signals based on overshoot events (version 3)
-        self$data$signal <- case_when(
-          lag(self$data$Upward_Overshoot, default = FALSE) ~ 1,
-          lag(self$data$Downward_Overshoot, default = FALSE) ~ -1,
-          TRUE ~ 0
-          #TRUE ~ NA
-          
-        )
-        # Generate signals based on overshoot events
-        # self$data$signal <- ifelse(lag(self$data$Upward_Overshoot, default = FALSE), 1, ifelse(lag(self$data$Downward_Overshoot, default = FALSE), -1, NA))
-        # self$data$signal <- ifelse(is.na(self$data$signal), 0, self$data$signal)
-        # self$data$signal <- na.locf(self$data$signal, fromLast = FALSE)
-        self$data$position <- lag(self$data$signal, default = 0)
-        self$data <- self$data %>%
-          #select(Date, Open, High, Low, Close, highest_high, lowest_low, value, signal, position, UE, DE, Run, Upward_Overshoot, Downward_Overshoot)
-          select(Date, Open, High, Low, Close, value, signal, position)
+  # Loop through each row of the self$data
+  for (t in 2:nrow(self$data)) {
+    # Update the lowest and highest prices up to time t
+    self$data$lowest_close[t] <- min(self$data$Close[1:t])
+    self$data$lowest_low[t] <- min(self$data$Low[1:t])
+    self$data$highest_close[t] <- max(self$data$Close[1:t])
+    self$data$highest_high[t] <- max(self$data$High[1:t])
+
+    # Check if directional change: DE or UE
+    if (self$data$Close[t] <= self$data$highest_high[t] * (1 - self$threshold) & self$data$Close[t] > self$data$highest_high[t] * (1 - self$threshold - 0.005)) {
+      self$data$Event[t] <- -1
+      if (self$data$Event[t] == -1) {
+        self$data$DE_start[t] <- self$data$highest_high[t]
+        self$data$DE_end[t] <- self$data$Close[t]
+      }
+    } else if (self$data$Close[t] >= self$data$lowest_close[t] * (1 + self$threshold) & self$data$Close[t] < self$data$lowest_close[t] * (1 + self$threshold + 0.005)) {
+      self$data$Event[t] <- 1
+      if (self$data$Event[t] == 1) {
+        self$data$UE_start[t] <- self$data$lowest_close[t]
+        self$data$UE_end[t] <- self$data$Close[t]
+      }
+    } else {
+      self$data$Event[t] <- NA
+    }
+  }
+
+  self$data <- self$data %>%
+    mutate(
+      Run = ifelse(Event == 1, "Upward", ifelse(Event == -1, "Downward", NA)),
+      Directional_Change = c(TRUE, diff(Event) != 0),
+      Directional_Change = replace_na(Directional_Change, FALSE)
+    )
+
+  # Find indices of Upturn and Downturn events
+  upturn_indices <- which(self$data$Event == 1) # Indices of Upturn events
+  downturn_indices <- which(self$data$Event == -1) # Indices of Downturn events
+
+  # Iterate through each pair of Upturn and Downturn events
+  for (i in 1:min(length(upturn_indices), length(downturn_indices))) {
+    # Starting index of the current Upturn
+    upturn_start <- upturn_indices[i]
+    # Ending index of the next Downturn
+    downturn_end <- downturn_indices[which(downturn_indices > upturn_start)][1]
+    
+    # Mark the period between as UOS
+    if (!is.na(downturn_end)) {
+      self$data$OS[(upturn_start + 1):(downturn_end - 1)] <- "UOS"
+    } else {
+      self$data$OS[(upturn_start + 1):nrow(self$data)] <- "UOS"  # Mark until the end if no Downturn found
+      break  # Exit loop if no more Downturn events
+    }
+    
+    # Starting index of the current Downturn
+    downturn_start <- downturn_indices[i]
+    # Ending index of the next Upturn
+    upturn_end <- upturn_indices[which(upturn_indices > downturn_start)][1]
+    
+    # Mark the period between as DOS
+    if (!is.na(upturn_end)) {
+      self$data$OS[(downturn_start + 1):(upturn_end - 1)] <- "DOS"
+    } else {
+      self$data$OS[(downturn_start + 1):nrow(self$data)] <- "DOS"  # Mark until the end if no Upturn found
+      break  # Exit loop if no more Upturn events
+    }
+  }
+
+  # Signal generation
+  self$data <- self$data %>% 
+    mutate(
+      signal = if_else(OS == "UOS", -1, if_else(OS == "DOS", 1, signal)),
+      signal = replace_na(signal, 0),
+      position = lag(signal, default = 0),
+      OS = replace_na(OS, "0"),
+      Event = replace_na(Event, 0)
+    ) %>%
+    select(Date, Open, High, Low, Close, Volume, Adjusted, value, OS, Event, signal, position)
 },
     
-# Plot directional changes
-plot_events = function() {
-      # Create the plot
-      p <- ggplot(self$data, aes(x = Date, y = Close)) +
-        geom_vline(data = self$data[self$data$Upward_Overshoot, ], aes(xintercept = Date), linetype = "dashed", color = "blue") +  # Add vertical lines for UE
-        geom_vline(data = self$data[self$data$Downward_Overshoot, ], aes(xintercept = Date), linetype = "dashed", color = "red") +  # Add vertical lines for DE
-        geom_line() +  # Plot close price
-        labs(title = "Close Price with UE and DE", x = "Date", y = "Close Price", color = "Event") +
-        theme_minimal()
-      
-      return(p)
+plot_overshoots = function() {
 
+  p <- ggplot(self$data, aes(x = Date, y = Close)) +
+    geom_line() +  # Plot close price
+    geom_vline(data = self$data[self$data$OS == "UOS", ], aes(xintercept = as.numeric(Date), color = "UOS"), linetype = "dashed") +  # Add vertical lines for UOS
+    geom_vline(data = self$data[self$data$OS == "DOS", ], aes(xintercept = as.numeric(Date), color = "DOS"), linetype = "dashed") +  # Add vertical lines for DOS
+    labs(title = "Close Price with Overshoot", x = "Date", y = "Close Price") +
+    theme_minimal() +
+    scale_color_manual(name = "Overshoot", values = c("UOS" = "blue", "DOS" = "red"), labels = c("UOS" = "Upward OS", "DOS" = "Downward OS"))
+
+    print(p)
 },
 
 run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRUE) {
-  # Create an empty list to store results
-  results <- list()
+      # Create an empty list to store results
+      results <- list()
 
-  tryCatch({
-  # Loop through symbols, window size  and bands to create instances and estimate performance
-  for (symbol in symbols) {
-    for (threshold in thresholds) {
-
-           # Fetch data using DataFetcher for the current symbol and date range
+      tryCatch({
+        # Loop through symbols, window size  and bands to create instances and estimate performance
+        for (symbol in symbols) {
+          for (threshold in thresholds) {
+            # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
-          # Create an instance of BB strategy
-          event <- EventBased$new(data, threshold)
+            # Create an instance of BB strategy
+            event <- EventBased$new(data, threshold)
 
-          # Store the results
+            # Store the results
             results[[paste(symbol, threshold, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
@@ -3140,55 +3131,55 @@ run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRU
               Performance = event$estimate_performance()
             )
 
-          print(paste0("Results for ", "EventBased: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-            "threshold:", threshold, ")"))
+            print(paste0("Results for ", "EventBased: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+              "threshold:", threshold, ")"))
+          }
+        }
+      }, error = function(e) {
+        # Handle errors
+        print(paste("Error in iteration", i, ":", e$message))
+      })
 
+      # Convert results to a data frame
+      results_df <- map_dfr(names(results), ~{
+        item <- results[[.x]]
+        data_frame(
+          Symbol = item$Symbol,
+          Class = item$Class,
+          Methodology = item$Methodology,
+          Threshold = item$Threshold,
+          Strategy = item$Performance$Strategy,
+          aR = item$Performance$aR,
+          aSD = item$Performance$aSD,
+          IR = item$Performance$IR,
+          MD = item$Performance$MD,
+          trades = item$Performance$trades,
+          avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+          buys = item$Performance$buys,
+          sells = item$Performance$sells,
+          Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+          Short_Success_Rate = item$Performance$Short_Success_Rate,
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+          PortfolioValue = item$Performance$PortfolioEndValue
+        )
+      })
+
+      if (output_df) {
+        return(results_df)
+      } else {
+        return(results)
       }
-    }
-  }, error = function(e) {
-          # Handle errors
-          print(paste("Error in iteration", i, ":", e$message))
-    })
-
-  # Convert results to a data frame
-  results_df <- map_dfr(names(results), ~{
-    item <- results[[.x]]
-    data_frame(
-      Symbol = item$Symbol,
-      Class = item$Class,
-      Methodology = item$Methodology,
-      Threshold = item$Threshold,
-      Strategy = item$Performance$Strategy,
-      aR = item$Performance$aR,
-      aSD = item$Performance$aSD,
-      IR = item$Performance$IR,
-      MD = item$Performance$MD,
-      trades = item$Performance$trades,
-      avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
-      buys = item$Performance$buys,
-      sells = item$Performance$sells,
-      Buy_Success_Rate = item$Performance$Buy_Success_Rate,
-      Short_Success_Rate = item$Performance$Short_Success_Rate,
-      Combined_Success_Rate = item$Performance$Combined_Success_Rate,
-      PortfolioValue = item$Performance$PortfolioEndValue
-    )
-  })
-
-    if (output_df) {
-      return(results_df)
-    } else {
-      return(results)
-    }
 }
-
+  
   )
 )
 
 # Instances of EventBased strategy
 leverage <- 1
-event <- EventBased$new(ts, threshold = 0.02)
+event <- EventBased$new(ts, threshold = 0.01)
 event$estimate_performance()
 event$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+event$generate_signals()
 fx <- event$data
 
 # Instances of EventBased strategy (run backtesting)
@@ -3201,6 +3192,16 @@ res_event <- event$run_backtest(
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
+
+# Instances of EventBased strategy (run backtesting) (saved in List)
+res_event_lst <- event$run_backtest(
+  symbols = fxs, 
+  thresholds = seq(0.01, 0.03, by = 0.005), # from 1% to 3% threshold range considered
+  from_date,
+  to_date,
+  output_df = FALSE
+)
+
 
 # Download data from Yahoo (instances of DataFetcher class)
 symbol <- "EURUSD=X"
