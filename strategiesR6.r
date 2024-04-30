@@ -478,6 +478,7 @@ convert_to_tibble = function(ts) {
     #   rename_with(~ sub(".*\\.", "", .), everything()) %>%
     #     na.omit() %>%
     #       as_tibble()
+    # return(ts_df)
 },
 
 # Performance estimation for Active and Passive strategies (annualized return, standard deviation, Information ratio, maximum drawdown, trades count, success prediction rate)
@@ -2984,14 +2985,18 @@ EventBased <- R6Class(
   inherit = Strategy,
   public = list(
     threshold = NULL,
+    extremes = NULL,
+    window_size = NULL,
 
-initialize = function(data, threshold) {
+initialize = function(data, threshold, extremes, window_size) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$threshold <- threshold
+      self$extremes <- extremes
+      self$window_size <- window_size # optional (for extremes = "local")
 },
 
-# Signal generation, algorithm that
+# Signal generation, algorithm that:
 # Opens the position when markets are overshoot (done)
 # Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit (to be done)
 generate_signals = function() {
@@ -3018,11 +3023,21 @@ generate_signals = function() {
 
   # Loop through each row of the self$data
   for (t in 2:nrow(self$data)) {
-    # Update the lowest and highest prices up to time t
-    self$data$lowest_close[t] <- min(self$data$Close[1:t])
-    self$data$lowest_low[t] <- min(self$data$Low[1:t])
-    self$data$highest_close[t] <- max(self$data$Close[1:t])
-    self$data$highest_high[t] <- max(self$data$High[1:t])
+    # Update the lowest and highest prices up to time t (depends on frequency chosen)
+    if (self$extremes == "local") {
+      window_start <- max(1, t - self$window_size)  # Start of the 20-day window
+      self$data$lowest_close[t] <- min(self$data$Close[window_start:t])
+      self$data$lowest_low[t] <- min(self$data$Low[window_start:t])
+      self$data$highest_close[t] <- max(self$data$Close[window_start:t])
+      self$data$highest_high[t] <- max(self$data$High[window_start:t])
+    } else if (self$extremes == "global") {
+      self$data$lowest_close[t] <- min(self$data$Close[1:t])
+      self$data$lowest_low[t] <- min(self$data$Low[1:t])
+      self$data$highest_close[t] <- max(self$data$Close[1:t])
+      self$data$highest_high[t] <- max(self$data$High[1:t])
+    } else {
+      stop("Invalid extremes specified.")
+    }
 
     # Check if directional change: DE or UE
     if (self$data$Close[t] <= self$data$highest_high[t] * (1 - self$threshold) & self$data$Close[t] > self$data$highest_high[t] * (1 - self$threshold - 0.005)) {
@@ -3049,9 +3064,9 @@ generate_signals = function() {
       Directional_Change = replace_na(Directional_Change, FALSE)
     )
 
-  # Find indices of Upturn and Downturn events
-  upturn_indices <- which(self$data$Event == 1) # Indices of Upturn events
-  downturn_indices <- which(self$data$Event == -1) # Indices of Downturn events
+    # Find indices of Upturn and Downturn events
+    upturn_indices <- which(self$data$Event == 1) # Indices of Upturn events
+    downturn_indices <- which(self$data$Event == -1) # Indices of Downturn events
 
   # Iterate through each pair of Upturn and Downturn events
   for (i in 1:min(length(upturn_indices), length(downturn_indices))) {
@@ -3091,23 +3106,24 @@ generate_signals = function() {
       OS = replace_na(OS, "0"),
       Event = replace_na(Event, 0)
     ) %>%
-    select(Date, Open, High, Low, Close, Volume, Adjusted, value, OS, Event, signal, position)
+    select(Date, Open, High, Low, Close, lowest_low, highest_high, Volume, Adjusted, value, OS, Event, signal, position)
 },
     
-plot_overshoots = function() {
+plot_overshoots = function(symbol, extremes) {
 
   p <- ggplot(self$data, aes(x = Date, y = Close)) +
-    geom_line() +  # Plot close price
     geom_vline(data = self$data[self$data$OS == "UOS", ], aes(xintercept = as.numeric(Date), color = "UOS"), linetype = "dashed") +  # Add vertical lines for UOS
     geom_vline(data = self$data[self$data$OS == "DOS", ], aes(xintercept = as.numeric(Date), color = "DOS"), linetype = "dashed") +  # Add vertical lines for DOS
-    labs(title = "Close Price with Overshoot", x = "Date", y = "Close Price") +
+    geom_line() +  # Plot close price
+    labs(title = paste("Close Price with Overshoot for", symbol, "(", extremes, ")"), x = "Date", y = "Close Price") +
     theme_minimal() +
     scale_color_manual(name = "Overshoot", values = c("UOS" = "blue", "DOS" = "red"), labels = c("UOS" = "Upward OS", "DOS" = "Downward OS"))
 
     print(p)
 },
 
-run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRUE) {
+# global:
+run_backtest1 = function(extremes, symbols, thresholds, from_date, to_date, output_df = TRUE) {
       # Create an empty list to store results
       results <- list()
 
@@ -3120,7 +3136,7 @@ run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRU
             data <- data_fetcher$download_xts_data()
           
             # Create an instance of BB strategy
-            event <- EventBased$new(data, threshold)
+            event <- EventBased$new(data, threshold, extremes, NA)
 
             # Store the results
             results[[paste(symbol, threshold, sep = "_")]] <- list(
@@ -3169,6 +3185,74 @@ run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRU
       } else {
         return(results)
       }
+},
+
+# local:
+run_backtest2 = function(symbols, thresholds, window_sizes, from_date, to_date, output_df = TRUE) {
+    # Create an empty list to store results
+    results <- list()
+
+    tryCatch({
+        # Loop through symbols, thresholds, and window sizes to create instances and estimate performance
+        for (symbol in symbols) {
+            for (threshold in thresholds) {
+                for (window_size in window_sizes) {
+                    # Fetch data using DataFetcher for the current symbol and date range
+                    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+                    data <- data_fetcher$download_xts_data()
+                
+                    # Create an instance of the EventBased strategy
+                    event <- EventBased$new(data, threshold, extremes = "local", window_size)
+                    
+                    # Store the results
+                    results[[paste(symbol, threshold, window_size, sep = "_")]] <- list(
+                        Symbol = symbol,
+                        Class = meta$assets[[symbol]]$class,
+                        Methodology = paste("EventBased:", threshold, window_size),
+                        Threshold = threshold,
+                        Window_Size = window_size,
+                        Performance = event$estimate_performance()
+                    )
+                    
+                    print(paste0("Results for EventBased (daily): (symbol:", symbol, ", class:", meta$assets[[symbol]]$class, ", threshold:", threshold, ", window_size:", window_size, ")"))
+                }
+            }
+        }
+    }, error = function(e) {
+        # Handle errors
+        print(paste("Error:", e$message))
+    })
+
+    # Convert results to a data frame
+    results_df <- purrr::map_dfr(names(results), ~{
+        item <- results[[.x]]
+        tibble::tibble(
+            Symbol = item$Symbol,
+            Class = item$Class,
+            Methodology = item$Methodology,
+            Threshold = item$Threshold,
+            Window_Size = item$Window_Size,
+            Strategy = item$Performance$Strategy,
+            aR = item$Performance$aR,
+            aSD = item$Performance$aSD,
+            IR = item$Performance$IR,
+            MD = item$Performance$MD,
+            trades = item$Performance$trades,
+            avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+            buys = item$Performance$buys,
+            sells = item$Performance$sells,
+            Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+            Short_Success_Rate = item$Performance$Short_Success_Rate,
+            Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+            PortfolioValue = item$Performance$PortfolioEndValue
+        )
+    })
+
+    if (output_df) {
+        return(results_df)
+    } else {
+        return(results)
+    }
 }
   
   )
@@ -3176,15 +3260,20 @@ run_backtest = function(symbols, thresholds, from_date, to_date, output_df = TRU
 
 # Instances of EventBased strategy
 leverage <- 1
-event <- EventBased$new(ts, threshold = 0.01)
+event <- EventBased$new(ts, threshold = 0.01, extremes = "local", window_size = 126)
+event <- EventBased$new(ts, threshold = 0.01, extremes = "global", window_size = 126)
 event$estimate_performance()
 event$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+#####
+event$plot_overshoots(symbol, "local")
 event$generate_signals()
 fx <- event$data
 
-# Instances of EventBased strategy (run backtesting)
 fxs <- names(Filter(function(x) x$class == "FX", meta$assets))
-res_event <- event$run_backtest(
+
+# Instances of EventBased strategy (run backtesting)
+res_event1 <- event$run_backtest1(
+  extremes = "global",
   symbols = fxs, 
   thresholds = seq(0.01, 0.03, by = 0.005), # from 1% to 3% threshold range considered
   from_date,
@@ -3194,16 +3283,14 @@ res_event <- event$run_backtest(
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
 # Instances of EventBased strategy (run backtesting) (saved in List)
-res_event_lst <- event$run_backtest(
-  symbols = fxs, 
+res_event2 <- event$run_backtest2(
+  #symbols = fxs, 
+  symbols = "EURUSD=X", 
   thresholds = seq(0.01, 0.03, by = 0.005), # from 1% to 3% threshold range considered
+  window_sizes = c(21, 126, 252),
   from_date,
   to_date,
-  output_df = FALSE
-)
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+    trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
-
-# Download data from Yahoo (instances of DataFetcher class)
-symbol <- "EURUSD=X"
-data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-ts <- data_fetcher$download_xts_data()
