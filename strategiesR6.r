@@ -521,8 +521,8 @@ estimate_performance = function() {
 
   self$data <- self$data %>%
     mutate(r_eqlActive = quantmod::Delt(eqlActive),
-            r_eqlPassive = quantmod::Delt(eqlPassive)) %>%
-              na.omit
+            r_eqlPassive = quantmod::Delt(eqlPassive))
+            #%>% na.omit()
 
   # Performance metrics for active strategy
   aR_active <- round(as.numeric(Return.annualized(as.numeric(self$data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
@@ -3294,3 +3294,258 @@ res_event2 <- event$run_backtest2(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
+# Define AlphaEngine (intrinsic time approach: currently for mean reverted ts: FX, etc.)
+AlphaEngine <- R6Class(
+  "AlphaEngine",
+  inherit = Strategy,
+  public = list(
+    threshold_up = NULL,
+    threshold_down = NULL,
+    #extremes = NULL,
+    #window_size = NULL,
+
+initialize = function(data, threshold_up, threshold_down) {
+      super$initialize(data)
+      self$data <- super$convert_to_tibble(self$data)
+      self$threshold_up <- threshold_up
+      self$threshold_down <- threshold_down
+      #self$extremes <- extremes
+      #self$window_size <- window_size # optional (for extremes = "local")
+},
+
+# Signal generation, algorithm that:
+# Opens the position when markets are overshoot (DONE)
+# Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit (TBD)
+generate_signals = function() {
+
+  self$data <- self$data %>%
+  mutate(mid = (High + Low) / 2)
+
+  detect_events <- function(data, threshold_up, threshold_down) {
+  # Initialize event vector
+  events <- rep(0, nrow(data))
+  
+  # Initialize highest high and lowest low
+  highest_high <- 0
+  lowest_low <- 0
+  
+  # Initialize variables to track the previous event type and its index
+  prev_event <- 0  # 0: No event, 1: Upturn event, -1: Downturn event
+  prev_event_index <- 1  # Index of the previous event
+  
+  event_flag <- 1  # 1: Event start, -1: Event end
+  events[1] <- 1  # Set the first value to 1 as the starting point
+
+  # Initialize column for combined overshoot events
+  data$OS <- ""
+  
+  # Loop through each row of the data
+  for (i in 1:nrow(data)) {
+    # Check if event flag is 1
+    if (event_flag == 1) {
+      # Check condition for Event = 1 (Upturn)
+      if (data$High[i] > highest_high) {
+        highest_high <- data$High[i]
+      }
+      if (data$mid[i] <= highest_high * (1 - threshold_down)) {
+        events[i] <- -1
+        event_flag <- -1
+        lowest_low <- data$Low[i]
+        highest_high <- data$High[i]  # Reset highest_high
+        lowest_low <- Inf  # Reset lowest_low to infinity
+        
+        # Check for upward overshoot event
+        if (prev_event == 1) {
+          data$OS[prev_event_index:i] <- "UOS"  # Mark the period as upward overshoot
+        }
+        
+        prev_event <- -1  # Set previous event type to Downturn
+        prev_event_index <- i + 1  # Update index for the next event
+      }
+    } else {
+      # Check condition for Event = -1 (Downturn)
+      if (data$Low[i] < lowest_low) {
+        lowest_low <- data$Low[i]
+      }
+      if (data$mid[i] >= lowest_low * (1 + threshold_up)) {
+        events[i] <- 1
+        event_flag <- 1
+        highest_high <- data$High[i]
+        lowest_low <- data$Low[i]  # Reset lowest_low
+        
+        # Check for downward overshoot event
+        if (prev_event == -1) {
+          data$OS[prev_event_index:i] <- "DOS"  # Mark the period as downward overshoot
+        }
+        
+        prev_event <- 1  # Set previous event type to Upturn
+        prev_event_index <- i + 1  # Update index for the next event
+      }
+    }
+  }
+    
+  # Create a dataframe with events column
+  result <- data.frame(data, events = events)
+  result$dc <- ifelse(c(FALSE, diff(na.locf(ifelse(result$events == 0, NA, result$events)))) != 0, TRUE, FALSE)
+
+  return(result)
+
+  }
+
+  self$data <- detect_events(self$data, self$threshold_up, self$threshold_down)
+
+  # Signal generation (to be enhanced)
+  self$data <- self$data %>% 
+    mutate(
+      signal = 0, # initialize signal
+      #signal = if_else(OS == "UOS", -1, if_else(OS == "DOS", 1, signal)),
+      signal = if_else(OS == "UOS", 1, if_else(OS == "DOS", -1, signal)),
+      signal = replace_na(signal, 0),
+      position = lag(signal, default = 0)
+      #OS = replace_na(OS, "0"),
+      #Event = replace_na(Event, 0)
+    ) %>%
+    select(Date, Open, High, Low, Close, events, dc, OS, signal, position)
+
+},
+    
+# Plot directional changes and market overshoots: 
+plot_events = function(symbol) {
+
+    p <- ggplot(self$data, aes(x = Date, y = Close, color = OS)) +
+    geom_point(data = self$data[self$data$dc == TRUE,], aes(shape = "dc"), color = "black", size = 2) +  # Black triangles for dc
+    geom_point(data = self$data, aes(shape = ifelse(dc, NA, "Close")), size = 1, alpha = 0.6) +  # Regular points with decreased size and some transparency
+    scale_color_manual(values = c("black", "red", "green"),
+                        labels = c("Regular", "Downward Overshoot", "Upward Overshoot")) +
+    scale_shape_manual(values = c("dc" = 17, "Close" = 16), 
+                        labels = c("Close", "Directional Change")) +
+    labs(title = paste("Market overshoots and directional changes for", symbol),
+        x = "Date", y = "Close Price") +  # Adding axis labels
+
+    theme_minimal() +
+    theme(legend.position = "bottom",  # Moving legend to bottom
+            axis.text.x = element_text(angle = 45, hjust = 1),  # Rotating x-axis labels for better readability
+            plot.title = element_text(size = 14, face = "bold"),  # Increasing title font size and making it bold
+            axis.title = element_text(size = 12),  # Increasing axis label font size
+            legend.text = element_text(size = 10),  # Adjusting legend text size
+            legend.title = element_text(size = 12, face = "bold"))  # Adjusting legend title size and making it bold
+
+    print(p)
+
+},
+
+# Plot Close price given intrinsic time
+plot_dc = function(symbol) {
+
+    self$data <- self$data %>% 
+    filter(events == 1 | events == -1)
+
+    ggplot(self$data, aes(x = Date, y = Close)) +
+    geom_line() +  # Plot close price
+    geom_vline(data = subset(self$data, events == 1), aes(xintercept = as.numeric(Date)), color = "blue", linetype = "dashed") +  # Add vertical lines for UE
+    geom_vline(data = subset(self$data, events == -1), aes(xintercept = as.numeric(Date)), color = "red", linetype = "dashed") +  # Add vertical lines for DE
+    labs(title = paste("Close Price filtered by Directional Changes for", symbol), x = "Date", y = "Close Price") +
+    theme_minimal()
+
+},
+
+run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_date, output_df = TRUE) {
+      # Create an empty list to store results
+      results <- list()
+
+      tryCatch({
+        # Loop through symbols, window size  and bands to create instances and estimate performance
+        for (symbol in symbols) {
+          for (threshold_up in threshold_ups) {
+            for (threshold_down in threshold_downs) {
+            # Fetch data using DataFetcher for the current symbol and date range
+            data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+            data <- data_fetcher$download_xts_data()
+          
+            # Create an instance of Alpha strategy 
+            alpha <- AlphaEngine$new(data, threshold_up, threshold_down)
+
+            # Store the results
+            results[[paste(symbol, threshold_up, threshold_down, sep = "_")]] <- list(
+              Symbol = symbol,
+              Class = meta$assets[[symbol]]$class,
+              Methodology = paste("AlphaEngine:", threshold_up, threshold_down),
+              Threshold_Up = threshold_up,
+              Threshold_Down = threshold_down,
+              Performance = alpha$estimate_performance()
+            )
+
+            print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+              "threshold_up:", threshold_up, ",", "threshold_down:", threshold_down, ")"))
+
+            }
+          }
+        }
+      }, error = function(e) {
+        # Handle errors
+        print(paste("Error in iteration", i, ":", e$message))
+      })
+
+      # Convert results to a data frame
+      results_df <- map_dfr(names(results), ~{
+        item <- results[[.x]]
+        data_frame(
+          Symbol = item$Symbol,
+          Class = item$Class,
+          Methodology = item$Methodology,
+          Threshold_Up = item$Threshold_Up,
+          Threshold_Down = item$Threshold_Down,
+          Strategy = item$Performance$Strategy,
+          aR = item$Performance$aR,
+          aSD = item$Performance$aSD,
+          IR = item$Performance$IR,
+          MD = item$Performance$MD,
+          trades = item$Performance$trades,
+          avg_no_monthly_trades = item$Performance$avg_no_monthly_trades,
+          buys = item$Performance$buys,
+          sells = item$Performance$sells,
+          Buy_Success_Rate = item$Performance$Buy_Success_Rate,
+          Short_Success_Rate = item$Performance$Short_Success_Rate,
+          Combined_Success_Rate = item$Performance$Combined_Success_Rate,
+          PortfolioValue = item$Performance$PortfolioEndValue
+        )
+      })
+
+      if (output_df) {
+        return(results_df)
+      } else {
+        return(results)
+      }
+}
+  
+  )
+)
+
+# Instances of AlphaEngine strategy
+leverage <- 1
+alpha <- AlphaEngine$new(ts, threshold_up = 0.01, threshold_down = 0.01)
+alpha$estimate_performance()
+alpha$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha$plot_events(symbol)
+alpha$plot_dc(symbol)
+
+# Instances of AlphaEngine strategy (run backtesting) (saved in List)
+fxs <- names(Filter(function(x) x$class == "FX", meta$assets))
+res_alpha <- alpha$run_backtest(
+  symbols = fxs,  
+  threshold_ups = c(0.01, 0.02),
+  threshold_downs = c(0.01, 0.02),
+  from_date,
+  to_date,
+  output_df = FALSE
+)
+
+res_alpha <- alpha$run_backtest(
+  symbols = fxs,  
+  threshold_ups = c(0.01, 0.02),
+  threshold_downs = c(0.01, 0.02),
+  from_date,
+  to_date,
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+    trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
