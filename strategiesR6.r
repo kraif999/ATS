@@ -3422,7 +3422,7 @@ generate_signals = function() {
         position = lag(signal, default = 0),
         OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
     ) %>% 
-        select(Date, High, Low, Close, mid, change_value, OS, dc, L, signal, OSS, position, row_number)
+        select(Date, High, Low, Close, mid, change_value, OS, dc, events, L, signal, OSS, position, row_number)
 
     entries <- self$data %>% 
             filter(signal == 1 | signal == -1) %>%
@@ -3496,7 +3496,7 @@ generate_signals = function() {
         signal = if_else(signal != signalE & signalE != 0, signalE, signal),
         position = lag(signal, default = 0)
     ) %>% 
-        select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, signal, signalOS, signalE, L, position, in_entries, out_exits, Exit, OS_length)
+        select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events, signal, signalOS, signalE, L, position, in_entries, out_exits, Exit, OS_length)
         #select(Date, Close, mid, signal, position)
 
 },
@@ -3961,7 +3961,7 @@ ts <- data_fetcher$download_xts_data()
 data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005) # signal_generation by default is based on threshold
 #alpha1$generate_signals()
 alpha1$estimate_performance()
 alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
