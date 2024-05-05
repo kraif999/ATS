@@ -147,6 +147,7 @@ to_date <- Sys.Date()
 symbol <- "BZ=F" # oil
 capital <- 50000 # units of initial capital invested
 leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
+# Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
 ######################################################
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -3294,118 +3295,209 @@ res_event2 <- event$run_backtest2(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
-# Define AlphaEngine (intrinsic time approach: currently for mean reverted ts: FX, etc.)
+# Define AlphaEngine (based on intrinsic time approach)
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
   public = list(
-    threshold_up = NULL,
-    threshold_down = NULL,
-    #extremes = NULL,
-    #window_size = NULL,
+    threshold = NULL,
+    profit_taking = NULL,
+    signal_generation = NULL,
 
-initialize = function(data, threshold_up, threshold_down) {
+initialize = function(data, threshold, profit_taking, signal_generation = "TH") {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
-      self$threshold_up <- threshold_up
-      self$threshold_down <- threshold_down
-      #self$extremes <- extremes
-      #self$window_size <- window_size # optional (for extremes = "local")
+      self$threshold <- threshold
+      self$profit_taking <- profit_taking
+      self$signal_generation <- signal_generation
 },
 
 # Signal generation, algorithm that:
-# Opens the position when markets are overshoot (DONE)
-# Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit (TBD)
+# Opens the position when markets are overshoot
+# Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit
+
 generate_signals = function() {
 
-  self$data <- self$data %>%
-  mutate(mid = (High + Low) / 2)
+    cat("Threshold value:", self$threshold, "\n")  # Print the threshold value
 
-  detect_events <- function(data, threshold_up, threshold_down) {
-  # Initialize event vector
-  events <- rep(0, nrow(data))
-  
-  # Initialize highest high and lowest low
-  highest_high <- 0
-  lowest_low <- 0
-  
-  # Initialize variables to track the previous event type and its index
-  prev_event <- 0  # 0: No event, 1: Upturn event, -1: Downturn event
-  prev_event_index <- 1  # Index of the previous event
-  
-  event_flag <- 1  # 1: Event start, -1: Event end
-  events[1] <- 1  # Set the first value to 1 as the starting point
+    # Mid data
+    self$data <- self$data %>%
+        mutate(
+            mid = (High + Low) / 2
+        )
 
-  # Initialize column for combined overshoot events
-  data$OS <- ""
-  
-  # Loop through each row of the data
-  for (i in 1:nrow(data)) {
-    # Check if event flag is 1
-    if (event_flag == 1) {
-      # Check condition for Event = 1 (Upturn)
-      if (data$High[i] > highest_high) {
-        highest_high <- data$High[i]
-      }
-      if (data$mid[i] <= highest_high * (1 - threshold_down)) {
-        events[i] <- -1
-        event_flag <- -1
-        lowest_low <- data$Low[i]
-        highest_high <- data$High[i]  # Reset highest_high
-        lowest_low <- Inf  # Reset lowest_low to infinity
-        
-        # Check for upward overshoot event
-        if (prev_event == 1) {
-          data$OS[prev_event_index:i] <- "UOS"  # Mark the period as upward overshoot
-        }
-        
-        prev_event <- -1  # Set previous event type to Downturn
-        prev_event_index <- i + 1  # Update index for the next event
-      }
-    } else {
-      # Check condition for Event = -1 (Downturn)
-      if (data$Low[i] < lowest_low) {
-        lowest_low <- data$Low[i]
-      }
-      if (data$mid[i] >= lowest_low * (1 + threshold_up)) {
-        events[i] <- 1
-        event_flag <- 1
-        highest_high <- data$High[i]
-        lowest_low <- data$Low[i]  # Reset lowest_low
-        
-        # Check for downward overshoot event
-        if (prev_event == -1) {
-          data$OS[prev_event_index:i] <- "DOS"  # Mark the period as downward overshoot
-        }
-        
-        prev_event <- 1  # Set previous event type to Upturn
-        prev_event_index <- i + 1  # Update index for the next event
-      }
+    # STEP1 : DETECT DIRECTIONAL CHANGES
+    self$data <- private$identify_events(data = self$data, threshold = self$threshold)
+
+    # STEP2 : INTRODUCE PROBABILITY INDICATOR FOR POSITION SIZING
+
+    # Function to compute transition probabilities and surprises
+
+    self$data$surprise <- NA_real_
+    self$data$H1 <- NA_real_
+    self$data$H2 <- NA_real_
+
+    # Loop over rows to compute probability and surprise for each row
+    for (i in 1:nrow(self$data)) {
+
+        data <- slice(self$data, 1:i)  # Subset data up to current row
+        probs_surprises <- private$estimate_prob_surprise(data)  # Compute probabilities and surprises
+        entropies <- private$estimate_entropies(data)
+
+        self$data$surprise[i] <- sum(probs_surprises$surprise) # surprise of the transition
+        self$data$H1[i] <- entropies$H1
+        self$data$H2[i] <- entropies$H2
     }
-  }
-    
-  # Create a dataframe with events column
-  result <- data.frame(data, events = events)
-  result$dc <- ifelse(c(FALSE, diff(na.locf(ifelse(result$events == 0, NA, result$events)))) != 0, TRUE, FALSE)
 
-  return(result)
+    # Initialize K with 1
+    self$data$K <- 1
 
-  }
+    # Initialize a vector to store unique combinations
+    unique_combinations <- c(paste(self$data$events[1], self$data$j[1]))
+    self$data$j <- lag(self$data$events, default = 0)
 
-  self$data <- detect_events(self$data, self$threshold_up, self$threshold_down)
+    # Iterate over rows and update K when a new combination is identified
+    for (i in 2:nrow(self$data)) {
+    current_combination <- paste(self$data$dc[i], self$data$j[i])
+    if (!(current_combination %in% unique_combinations)) {
+        unique_combinations <- c(unique_combinations, current_combination)
+    }
+    self$data$K[i] <- min(length(unique_combinations), 4)
+    if (length(unique_combinations) > 4) {
+        self$data$K[i:nrow(self$data)] <- 4
+        break
+    }
+    }
 
-  # Signal generation (to be enhanced)
-  self$data <- self$data %>% 
+    # estimate L
+    self$data <- self$data %>%
     mutate(
-      signal = 0, # initialize signal
-      #signal = if_else(OS == "UOS", -1, if_else(OS == "DOS", 1, signal)),
-      signal = if_else(OS == "UOS", 1, if_else(OS == "DOS", -1, signal)),
-      signal = replace_na(signal, 0),
-      position = lag(signal, default = 0)
-      #OS = replace_na(OS, "0"),
-      #Event = replace_na(Event, 0)
-    ) %>%
-    select(Date, Open, High, Low, Close, events, dc, OS, signal, position)
+        surprise = replace_na(surprise, 0),
+        d = (surprise - K * H1) / sqrt(K * H2),
+        L = 1 - pnorm(d)
+    )
+
+   # STEP3 : GENERATE ENTRY SIGNALS (BASED ON THRESHOLD)
+
+    colnames(self$data)
+
+    # Identify threshold value (which is used to compare current mid price)
+
+    # Initialize an empty vector to store mid prices for the change_value
+    self$data$change_value <- NA
+
+    # Initialize variables
+    prev_dc_index <- NULL
+    prev_mid <- NULL
+
+    # Loop through each row
+    for (i in 1:nrow(self$data)) {
+    # Check if dc is TRUE
+    if (self$data$dc[i]) {
+        # If this is the first dc or if it's not consecutive with the previous one
+        if (is.null(prev_dc_index) || i != prev_dc_index + 1) {
+        prev_dc_index <- i  # Update prev_dc_index
+        prev_mid <- self$data$mid[i]  # Record the mid price
+        }
+    }
+    # Assign the previous mid price to the change_value column
+    self$data$change_value[i] <- prev_mid
+    
+    # Check if the price further changes by the threshold and update prev_mid accordingly
+    #if (!is.na(prev_mid) && abs(self$data$mid[i] - prev_mid) > 0.005 * prev_mid) {
+    if (!is.na(prev_mid) && abs(self$data$mid[i] - prev_mid) > self$profit_taking * prev_mid) {
+        prev_mid <- self$data$mid[i]  # Update prev_mid
+    }
+    }
+
+    self$profit_taking <- 0.005 # assymetric
+    self$data <- self$data %>%
+    mutate(
+        row_number = row_number(),
+        signal = case_when(
+        OS == "UOS" & mid >= change_value * (1 + self$profit_taking) ~ -1,
+        OS == "DOS" & mid <= change_value * (1 - self$profit_taking) ~ 1,
+        TRUE ~ 0
+        ),
+        position = lag(signal, default = 0),
+        OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
+    ) %>% 
+        select(Date, High, Low, Close, mid, change_value, OS, dc, L, signal, OSS, position, row_number)
+
+    entries <- self$data %>% 
+            filter(signal == 1 | signal == -1) %>%
+                mutate(
+                    change = c(2, abs(diff(signal))), default = 0,
+                    Exit = case_when(
+                        signal == -1 ~ mid * (1 - self$profit_taking),
+                        signal == 1 ~ mid * (1 + self$profit_taking),
+                        TRUE ~ 0
+                        )
+                    )
+
+    self$data <- self$data %>%
+    mutate(in_entries = row_number() %in% entries$row_number,
+    signal = ifelse(in_entries, signal, 0),
+    position = lag(signal, default = 0)
+    ) %>% 
+        left_join(entries %>% select(row_number, Exit), by = c("row_number" = "row_number"))
+
+
+   # STEP3 : GENERATE ENTRY SIGNALS (BASED ON AVERAGE LENGTH OF OVERSHOOTS : overshoot duration)
+
+    # Calculate sequence lengths for UOS and DOS
+    sequence_lengths <- private$calculate_sequence_lengths(self$data)
+
+    avgOS <- data.frame(avgUOS = floor(mean(sequence_lengths$uos_lengths)), avgDOS = floor(mean(sequence_lengths$dos_lengths)))
+
+    # Usage:
+    self$data <- private$calculate_OS_length(self$data)
+    self$data <- self$data %>%
+        mutate(
+            ExitOS = case_when(
+            signalOS == -1 ~ mid * (1 - self$profit_taking),
+            signalOS == 1 ~ mid * (1 + self$profit_taking),
+            TRUE ~ 0
+            )
+        )
+
+    # Updating signal and Exits value given signal based method
+
+    self$data <- self$data %>%
+      mutate(
+        signal = case_when(
+          self$signal_generation == "OS" ~ signalOS,
+          TRUE ~ signal  # No change for other cases
+        ),
+        Exit = case_when(
+          self$signal_generation == "OS" ~ ExitOS,
+          TRUE ~ Exit  # No change for other cases
+        )
+      )
+
+    # STEP4 : EXIT SIGNALS GENERATION (CASCADE AND DE-CASCADE POSITIONS)
+
+    self$data <- private$generateExitSignals(self$data)
+
+    exits <- self$data %>% 
+            filter(signalE == 1 | signalE == -1) %>%
+                mutate(
+                    change = c(2, abs(diff(signalE))),
+                        ) %>% 
+                            filter(change == 2)
+
+
+    self$data <- self$data %>%
+    mutate(
+        out_exits = row_number() %in% exits$row_number,
+        signal = if_else(in_entries, signal, 0),
+        signalE = ifelse(signalE != 0, signalE, 0),
+        signalE = if_else(out_exits, signalE, 0),
+        signal = if_else(signal != signalE & signalE != 0, signalE, signal),
+        position = lag(signal, default = 0)
+    ) %>% 
+        select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, signal, signalOS, signalE, L, position, in_entries, out_exits, Exit, OS_length)
+        #select(Date, Close, mid, signal, position)
 
 },
     
@@ -3421,6 +3513,8 @@ plot_events = function(symbol) {
                         labels = c("Close", "Directional Change")) +
     labs(title = paste("Market overshoots and directional changes for", symbol),
         x = "Date", y = "Close Price") +  # Adding axis labels
+    
+    scale_x_date(date_labels = "%b-%Y", date_breaks = "2 years") +
 
     theme_minimal() +
     theme(legend.position = "bottom",  # Moving legend to bottom
@@ -3434,7 +3528,7 @@ plot_events = function(symbol) {
 
 },
 
-# Plot Close price given intrinsic time
+# Plot Close price given intrinsic time (event based price)
 plot_dc = function(symbol) {
 
     self$data <- self$data %>% 
@@ -3449,35 +3543,39 @@ plot_dc = function(symbol) {
 
 },
 
-run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_date, output_df = TRUE) {
+run_backtest = function(symbols, thresholds, profit_takings, signal_generations, from_date, to_date, output_df = TRUE) {
       # Create an empty list to store results
       results <- list()
 
       tryCatch({
         # Loop through symbols, window size  and bands to create instances and estimate performance
         for (symbol in symbols) {
-          for (threshold_up in threshold_ups) {
-            for (threshold_down in threshold_downs) {
+          for (threshold in thresholds) {
+            for (profit_taking in profit_takings) {
+              for (signal_generation in signal_generations) {
+
             # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
             # Create an instance of Alpha strategy 
-            alpha <- AlphaEngine$new(data, threshold_up, threshold_down)
+            alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation)
 
             # Store the results
-            results[[paste(symbol, threshold_up, threshold_down, sep = "_")]] <- list(
+            results[[paste(symbol, threshold, profit_taking, signal_generation, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = paste("AlphaEngine:", threshold_up, threshold_down),
-              Threshold_Up = threshold_up,
-              Threshold_Down = threshold_down,
+              Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation),
+              Threshold = threshold,
+              ProfitTaking = profit_taking,
+              Signal_generation  = signal_generation,
               Performance = alpha$estimate_performance()
             )
 
             print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-              "threshold_up:", threshold_up, ",", "threshold_down:", threshold_down, ")"))
-
+              "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", signal_generation, ")"))
+              
+              }
             }
           }
         }
@@ -3493,8 +3591,9 @@ run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_d
           Symbol = item$Symbol,
           Class = item$Class,
           Methodology = item$Methodology,
-          Threshold_Up = item$Threshold_Up,
-          Threshold_Down = item$Threshold_Down,
+          Threshold = item$Threshold,
+          ProfitTaking = item$ProfitTaking,
+          Signal_generation = item$Signal_generation,
           Strategy = item$Performance$Strategy,
           aR = item$Performance$aR,
           aSD = item$Performance$aSD,
@@ -3518,32 +3617,366 @@ run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_d
       }
 }
   
+  ),
+
+  private = list(
+
+identify_events = function(data, threshold) {
+
+  # Initialize event vector
+  events <- numeric(nrow(data))
+  
+  # Initialize highest high and lowest low
+  highest_high <- 0
+  lowest_low <- Inf
+  
+  # Initialize event flag
+  event_flag <- 1  # 1: Event start, -1: Event end
+  events[1] <- 1  # Set the first value to 1 as the starting point
+  
+  # Initialize column for combined overshoot events
+  data$OS <- ""
+  
+  # Loop through each row of the data
+  for (i in 1:nrow(data)) {
+    # Check if event flag is 1
+    if (event_flag == 1) {
+      # Check condition for Event = 1 (Upturn)
+      if (data$High[i] > highest_high) {
+        highest_high <- data$High[i]
+      }
+      if (data$mid[i] <= highest_high * (1 - threshold)) {
+        events[i] <- -1
+        event_flag <- -1
+        lowest_low <- data$Low[i]
+        highest_high <- data$High[i]  # Reset highest_high
+        lowest_low <- Inf  # Reset lowest_low to infinity
+      }
+    } else {
+      # Check condition for Event = -1 (Downturn)
+      if (data$Low[i] < lowest_low) {
+        lowest_low <- data$Low[i]
+      }
+      if (data$mid[i] >= lowest_low * (1 + threshold)) {
+        events[i] <- 1
+        event_flag <- 1
+        highest_high <- data$High[i]
+        lowest_low <- data$Low[i]  # Reset lowest_low
+      }
+    }
+  }
+  
+  # Initialize current state
+  current_state <- NA
+  
+  # Assign OS values
+  for (i in seq_along(events)) {
+    if (events[i] == 1) {
+      current_state <- "UOS"
+    } else if (events[i] == -1) {
+      current_state <- "DOS"
+    }
+    if (!is.na(current_state)) {
+      data$OS[i] <- current_state
+    }
+    if (is.na(data$OS[i]) && !is.na(current_state) && i > 1) {
+      data$OS[i] <- data$OS[i - 1]
+    }
+  }
+  
+  # Lag OS column
+  data$OS <- lag(data$OS)
+  
+  # Return dataframe with events column
+  result <- data.frame(data, events = events)
+  result$dc <- ifelse(c(FALSE, diff(na.locf(ifelse(result$events == 0, NA, result$events)))) != 0, TRUE, FALSE)
+  result$OS[1] <- "" # no overshoots since it is the first value
+  result$dc[1] <- TRUE # default
+  
+  return(result)
+
+},
+
+estimate_prob_surprise = function(data) {
+  # Step 1: Identify transitions in the price trajectory
+  transitions <- data %>%
+    mutate(state_i = ifelse(dc, "change", "overshoot"),
+           state_j = lead(state_i)) %>%
+    filter(!is.na(state_j)) %>%
+    select(state_i, state_j)
+  
+  if (nrow(transitions) == 0) {
+    return(tibble(probability = NA_real_, surprise = NA_real_))
+  }
+  
+  # Step 2: Calculate transition probabilities
+  transition_probs <- transitions %>%
+    group_by(state_i, state_j) %>%
+    summarise(count = n(), .groups = "keep") %>%
+    ungroup() %>%
+    mutate(probability = count / sum(count))
+  
+  # Step 3: Compute surprise for each transition
+  transition_probs <- transition_probs %>%
+    mutate(surprise = -log(probability))
+  
+  return(transition_probs)
+},
+
+estimate_entropies = function(data) {
+  # Identify transitions
+  entropy_transitions <- data %>%
+    mutate(state_i = lag(dc),
+           state_j = dc) %>%
+    filter(!is.na(state_i)) %>%
+    select(state_i, state_j)
+  
+  # Calculate transition probabilities for H(1)
+  entropy_transition_probs <- entropy_transitions %>%
+    group_by(state_i, state_j) %>%
+    summarise(count = n(), .groups = "keep") %>%
+    ungroup() %>%
+    mutate(probability = count / sum(count))
+  
+  # Compute entropy rate H(1)
+  H1 <- -sum(entropy_transition_probs$probability * log(entropy_transition_probs$probability))
+  
+  # Identify pairs of consecutive transitions for H(2)
+  pairs <- entropy_transitions %>%
+    mutate(state_i_2 = lag(state_i)) %>%
+    filter(!is.na(state_i_2)) %>%
+    select(state_i_2, state_i, state_j)
+  
+  # Calculate joint probabilities for each pair of consecutive transitions
+  joint_probs <- pairs %>%
+    group_by(state_i_2, state_i, state_j) %>%
+    summarise(count = n(), .groups = "keep") %>%
+    ungroup() %>%
+    mutate(probability = count / sum(count))
+  
+  # Compute the entropy rate H(2)
+  H2 <- -sum(joint_probs$probability * log(joint_probs$probability))
+  
+  # Create dataframe with entropies
+  entropy_df <- data.frame(H1 = H1,
+                           H2 = H2)
+  
+  return(entropy_df)
+},
+
+calculate_sequence_lengths = function(h) {
+  uos_lengths <- numeric()  # Initialize vector to store UOS sequence lengths
+  dos_lengths <- numeric()  # Initialize vector to store DOS sequence lengths
+  current_sequence <- NULL  # Initialize variable to store current sequence
+  
+  for (event in h$OS) {
+    if (is.null(current_sequence)) {
+      current_sequence <- event  # Initialize current sequence if it's NULL
+    } else if (current_sequence != event) {
+      if (current_sequence == "UOS") {
+        uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+      } else if (current_sequence == "DOS") {
+        dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+      }
+      current_sequence <- event  # Reset current sequence to new event
+    } else {
+      current_sequence <- c(current_sequence, event)  # Add event to current sequence
+    }
+  }
+  
+  # Add length of the last sequence
+  if (!is.null(current_sequence)) {
+    if (current_sequence == "UOS") {
+      uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+    } else if (current_sequence == "DOS") {
+      dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+    }
+  }
+  
+  return(list(uos_lengths = uos_lengths, dos_lengths = dos_lengths))
+},
+
+calculate_OS_length = function(data) {
+  # Initialize an empty vector to store OS lengths
+  data$OS_length <- 0
+  
+  # Initialize variables to keep track of previous signal
+  prev_signal <- NULL
+  prev_os_length <- 0
+  
+  # Loop through each row
+  for (i in 1:nrow(data)) {
+    # Check if the signal changes from the previous row
+    if (!is.null(prev_signal) && data$OS[i] != prev_signal) {
+      # Reset OS length when the signal changes
+      prev_os_length <- 0
+    }
+    
+    # Increment OS length if the signal is UOS or DOS
+    if (data$OS[i] == "UOS" || data$OS[i] == "DOS") {
+      prev_os_length <- prev_os_length + 1
+    } else {
+      prev_os_length <- 0
+    }
+    
+    # Update OS_length column
+    data$OS_length[i] <- prev_os_length
+    
+    # Update previous signal for the next iteration
+    prev_signal <- data$OS[i]
+  }
+  
+  # Calculate signalOS based on OS_length and average UOS/DOS lengths
+  data <- data %>% mutate(
+    signalOS = ifelse(OS == "UOS" & OS_length >= avgOS$avgUOS, -1, 
+                      ifelse(OS == "DOS" & OS_length >= avgOS$avgDOS, 1, 0))
   )
+  
+  return(data)
+},
+
+generateExitSignals = function(data) {
+  # Initialize exit signals column
+  data$signalE <- 0
+  
+  # Initialize exit_value_downward and exit_value_upward
+  exit_value_downward <- NA
+  exit_value_upward <- NA
+  
+  # Initialize flags for current run direction
+  current_run <- "upward"
+  
+  # Modifications for further calculations
+  data$signal[data$signal == 0] <- NA
+  data <- data %>% mutate(signal = na.locf(signal, na.rm = FALSE))
+  data$signal <- na.locf(data$signal, na.rm = FALSE, fromLast = TRUE)
+  data$Exit <- na.locf(data$Exit, na.rm = FALSE, fromLast = FALSE)
+  data$Exit <- na.locf(data$Exit, na.rm = FALSE, fromLast = TRUE)
+  
+  # Loop through each row
+  for (i in 1:nrow(data)) {
+    
+    # Check if Exit is not NA
+    if (!is.na(data$Exit[i])) {
+      
+      # Set exit value for the respective directional run
+      if (data$signal[i] == -1) {
+        exit_value_downward <- data$Exit[i]  # Set exit value for downward run
+        current_run <- "upward"  # Update current run direction
+      } else if (data$signal[i] == 1) {
+        exit_value_upward <- data$Exit[i]  # Set exit value for upward run
+        current_run <- "downward"  # Update current run direction
+      }
+      
+      # Check for exit condition during downward run
+      if (current_run == "downward" && !is.na(exit_value_downward) && data$mid[i] < exit_value_downward) {
+        data$signalE[i] <- 1  # Close sell signal with buy signal during downward run
+        cat("Exit condition met for downward run at row:", i, "\n")
+      }
+      
+      # Check for exit condition during upward run
+      if (current_run == "upward" && !is.na(exit_value_upward) && data$mid[i] > exit_value_upward) {
+        data$signalE[i] <- -1  # Close buy signal with sell signal during upward run
+        #cat("Exit condition met for upward run at row:", i, "\n")
+      }
+    } 
+  }
+  
+  # Reset exit values and current run direction after loop
+  exit_value_downward <- NA
+  exit_value_upward <- NA
+  current_run <- "upward"
+  
+  return(data)
+}
+
+    )
 )
 
 # Instances of AlphaEngine strategy
 leverage <- 1
-alpha <- AlphaEngine$new(ts, threshold_up = 0.01, threshold_down = 0.01)
-alpha$estimate_performance()
-alpha$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
-alpha$plot_events(symbol)
-alpha$plot_dc(symbol)
+symbol <- "MXN=X"
+from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 
-# Instances of AlphaEngine strategy (run backtesting) (saved in List)
 fxs <- names(Filter(function(x) x$class == "FX", meta$assets))
-res_alpha <- alpha$run_backtest(
-  symbols = fxs,  
-  threshold_ups = c(0.01, 0.02),
-  threshold_downs = c(0.01, 0.02),
-  from_date,
-  to_date,
-  output_df = FALSE
-)
 
-res_alpha <- alpha$run_backtest(
-  symbols = fxs,  
-  threshold_ups = c(0.01, 0.02),
-  threshold_downs = c(0.01, 0.02),
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
+# Exchange rate evolution  over time
+data_fetcher$plot_close_or_rets(type = "close")
+data_fetcher$plot_close_or_rets(type = "rets")
+data_fetcher$plot_close_or_rets(type = "rets_hist")
+data_fetcher$compute_NA_close_price_ratio()
+
+# Instance of AlphaEngine class given threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+#alpha1$generate_signals()
+alpha1$estimate_performance()
+alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_events(symbol)
+alpha1$plot_dc(symbol)
+#a <- alpha1$data # check how the final data looks like
+
+################################################################################
+# PICK UP ONLY LEAST VOLATILE CURRENCIES
+################################################################################
+
+# Take least volatile currencies
+
+# Downlaod all FX data
+data_fetcher_mult <- DataFetcher$new(fxs, from_date, to_date, type = "Close")
+df_fx <- data_fetcher_mult$convert_xts_to_wide_df()
+
+# Compute standard deviations (volatility proxy) for each column except the first one (Date)
+lapply(df_fx[-1, ], sd)
+vol_df <- data.frame(FX = names(df_fx)[-1],
+                        SD = unlist(lapply(df_fx[-1, -1], sd)))
+
+# Rank the columns based on their standard deviation
+vol_df <- vol_df[order(vol_df$SD), , drop = FALSE]
+
+print(vol_df) 
+
+# TOP5 most mean reverting ones (in descending order) are:
+# EUR=X (USD/EUR)
+# AUDUSD=X (AUD/USD))
+# EURUSD=X (EUR/USD)
+# CAD=X (USD/CAD)
+# GBPUSD=X (GBP/USD)
+
+##############################
+# Test strategy
+##############################
+symbol <- "GBPUSD=X"
+#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
+##############################
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
+# Exchange rate evolution  over time
+data_fetcher$plot_close_or_rets(type = "close")
+
+# Instance of AlphaEngine class given threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+#alpha1$generate_signals()
+alpha1$estimate_performance()
+alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_events(symbol)
+alpha1$plot_dc(symbol)
+
+##############################
+# Run backtest:
+ ##############################
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+res_alpha <- alpha1$run_backtest(
+  symbols = symbol,  
+  thresholds = c(0.01, 0.02),
+  profit_takings = c(0.005, 0.001),
+  signal_generations = c("TH", "OS"),
   from_date,
   to_date,
   output_df = TRUE

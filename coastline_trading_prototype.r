@@ -943,7 +943,7 @@ prot <- prot %>%
 
 View(prot) # final table with signals
 
-# Define AlphaEngine (intrinsic time approach)
+# Define AlphaEngine (based on intrinsic time approach)
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
@@ -1191,35 +1191,39 @@ plot_dc = function(symbol) {
 
 },
 
-run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_date, output_df = TRUE) {
+run_backtest = function(symbols, thresholds, profit_takings, signal_generations, from_date, to_date, output_df = TRUE) {
       # Create an empty list to store results
       results <- list()
 
       tryCatch({
         # Loop through symbols, window size  and bands to create instances and estimate performance
         for (symbol in symbols) {
-          for (threshold_up in threshold_ups) {
-            for (threshold_down in threshold_downs) {
+          for (threshold in thresholds) {
+            for (profit_taking in profit_takings) {
+              for (signal_generation in signal_generations) {
+
             # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
             # Create an instance of Alpha strategy 
-            alpha <- AlphaEngine$new(data, threshold_up, threshold_down)
+            alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation)
 
             # Store the results
-            results[[paste(symbol, threshold_up, threshold_down, sep = "_")]] <- list(
+            results[[paste(symbol, threshold, profit_taking, signal_generation, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = paste("AlphaEngine:", threshold_up, threshold_down),
-              Threshold_Up = threshold_up,
-              Threshold_Down = threshold_down,
+              Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation),
+              Threshold = threshold,
+              ProfitTaking = profit_taking,
+              Signal_generation  = signal_generation,
               Performance = alpha$estimate_performance()
             )
 
             print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-              "threshold_up:", threshold_up, ",", "threshold_down:", threshold_down, ")"))
-
+              "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", signal_generation, ")"))
+              
+              }
             }
           }
         }
@@ -1235,8 +1239,9 @@ run_backtest = function(symbols, threshold_ups, threshold_downs, from_date, to_d
           Symbol = item$Symbol,
           Class = item$Class,
           Methodology = item$Methodology,
-          Threshold_Up = item$Threshold_Up,
-          Threshold_Down = item$Threshold_Down,
+          Threshold = item$Threshold,
+          ProfitTaking = item$ProfitTaking,
+          Signal_generation = item$Signal_generation,
           Strategy = item$Performance$Strategy,
           aR = item$Performance$aR,
           aSD = item$Performance$aSD,
@@ -1520,7 +1525,7 @@ generateExitSignals = function(data) {
       # Check for exit condition during upward run
       if (current_run == "upward" && !is.na(exit_value_upward) && data$mid[i] > exit_value_upward) {
         data$signalE[i] <- -1  # Close buy signal with sell signal during upward run
-        cat("Exit condition met for upward run at row:", i, "\n")
+        #cat("Exit condition met for upward run at row:", i, "\n")
       }
     } 
   }
@@ -1538,8 +1543,90 @@ generateExitSignals = function(data) {
 
 # Instances of AlphaEngine strategy
 leverage <- 1
-from_date <- as.Date("2020-10-14", format = "%Y-%m-%d")
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
-alpha1$generate_signals()
+symbol <- "MXN=X"
+from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 
+fxs <- names(Filter(function(x) x$class == "FX", meta$assets))
+
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
+# Exchange rate evolution  over time
+data_fetcher$plot_close_or_rets(type = "close")
+data_fetcher$plot_close_or_rets(type = "rets")
+data_fetcher$plot_close_or_rets(type = "rets_hist")
+data_fetcher$compute_NA_close_price_ratio()
+
+# Instance of AlphaEngine class given threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+#alpha1$generate_signals()
 alpha1$estimate_performance()
+alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_events(symbol)
+alpha1$plot_dc(symbol)
+#a <- alpha1$data # check how the final data looks like
+
+################################################################################
+# PICK UP ONLY LEAST VOLATILE CURRENCIES
+################################################################################
+
+# Take least volatile currencies
+
+# Downlaod all FX data
+data_fetcher_mult <- DataFetcher$new(fxs, from_date, to_date, type = "Close")
+df_fx <- data_fetcher_mult$convert_xts_to_wide_df()
+
+# Compute standard deviations (volatility proxy) for each column except the first one (Date)
+lapply(df_fx[-1, ], sd)
+vol_df <- data.frame(FX = names(df_fx)[-1],
+                        SD = unlist(lapply(df_fx[-1, -1], sd)))
+
+# Rank the columns based on their standard deviation
+vol_df <- vol_df[order(vol_df$SD), , drop = FALSE]
+
+print(vol_df) 
+
+# TOP5 most mean reverting ones (in descending order) are:
+# EUR=X (USD/EUR)
+# AUDUSD=X (AUD/USD))
+# EURUSD=X (EUR/USD)
+# CAD=X (USD/CAD)
+# GBPUSD=X (GBP/USD)
+
+##############################
+# Test strategy
+##############################
+symbol <- "GBPUSD=X"
+#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
+##############################
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
+# Exchange rate evolution  over time
+data_fetcher$plot_close_or_rets(type = "close")
+
+# Instance of AlphaEngine class given threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+#alpha1$generate_signals()
+alpha1$estimate_performance()
+alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_events(symbol)
+alpha1$plot_dc(symbol)
+
+##############################
+# Run backtest:
+ ##############################
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+res_alpha <- alpha1$run_backtest(
+  symbols = symbol,  
+  thresholds = c(0.01, 0.02),
+  profit_takings = c(0.005, 0.001),
+  signal_generations = c("TH", "OS"),
+  from_date,
+  to_date,
+  output_df = TRUE
+) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+    trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
