@@ -1148,6 +1148,8 @@ generate_signals = function() {
 # Plot directional changes and market overshoots: 
 plot_events = function(symbol) {
 
+    #data <- na.omit(self$data)
+
     p <- ggplot(self$data, aes(x = Date, y = Close, color = OS)) +
     geom_point(data = self$data[self$data$dc == TRUE,], aes(shape = "dc"), color = "black", size = 2) +  # Black triangles for dc
     geom_point(data = self$data, aes(shape = ifelse(dc, NA, "Close")), size = 1, alpha = 0.6) +  # Regular points with decreased size and some transparency
@@ -1652,8 +1654,12 @@ print(vol_df)
 # Test strategy
 ##############################
 symbol <- "GBPUSD=X"
+symbol <- "NZDJPY=X"
 #from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
+#from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
+#to_date <- Sys.Date()
+from_date <- as.Date("2006-01-01", format = "%Y-%m-%d")
+to_date <- as.Date("2015-01-01", format = "%Y-%m-%d")
 ##############################
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -1663,15 +1669,17 @@ ts <- data_fetcher$download_xts_data()
 data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
+# alpha1 <-  AlphaEngine$new(ts, threshold = 2.525729 * 0.01, profit_taking = 0.005, signal_generation = "TH")
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH")
+
 #alpha1$generate_signals()
 alpha1$estimate_performance()
 alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
-#a <- alpha1$data
+a <- alpha1$data
 
 ##############################
 # Run backtest:
@@ -1679,7 +1687,7 @@ alpha1$plotSignals()
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # signal_generation by default is based on threshold
 res_alpha <- alpha1$run_backtest(
   symbols = symbol,  
-  thresholds = c(0.01, 0.02),
+  thresholds = c(0.01, 0.02, 0.01 * 2.525729),
   profit_takings = c(0.005, 0.001),
   signal_generations = c("TH", "OS"),
   from_date,
