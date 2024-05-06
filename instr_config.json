@@ -42,6 +42,26 @@
         "description": "USD/MXN"
       },
 
+      "NZDJPY=X": {
+        "class": "FX",
+        "description": "NZD/JPY"
+      },
+
+      "AUDNZD=X": {
+        "class": "FX",
+        "description": "AUD/NZD"
+      },
+
+      "NZDCAD=X": {
+        "class": "FX",
+        "description": "NZD/CAD"
+      },
+
+      "EURNZD=X": {
+        "class": "FX",
+        "description": "EUR/NZD"
+      },
+
       "^GSPC": {
         "class": "Equities",
         "description": "S&P 500 Index"

@@ -740,7 +740,29 @@ prot2 <- prot2 %>%
     select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, 
         signal, signalOS, signalE, signalE_closes_row, L, position, in_entries, out_exits, Exit, OS_length)
 
-View(prot) # final table with signals
+
+prot3 <- prot2 %>%
+  mutate(
+    out_exits = row_number() %in% exits$row_number,
+    signal = if_else(in_entries, signal, 0),
+    signalE = ifelse(signalE != 0, signalE, 0),
+    signalE = if_else(out_exits, signalE, 0),
+    signal = if_else(signal != signalE & signalE != 0, signalE, signal),
+    position = lag(signal, default = 0),
+    nop_sizing = case_when(
+      L < 0.1 ~ 0.1,
+      L < 0.4 ~ 0.5,
+      TRUE ~ 1
+    )
+  ) %>% 
+  mutate(
+    L = replace_na(L, 1)
+  ) %>% 
+  select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, 
+         signal, signalOS, signalE, signalE_closes_row, L, nop_sizing, position, in_entries, out_exits, Exit, OS_length)
+
+
+View(prot3) # final table with signals
 
 plotSignals <- function(data) {
   ggplot(data, aes(x = Date, y = Close)) +

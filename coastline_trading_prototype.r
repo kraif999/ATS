@@ -943,21 +943,28 @@ prot <- prot %>%
 
 View(prot) # final table with signals
 
+
+################################################################################
 # Define AlphaEngine (based on intrinsic time approach)
+################################################################################
+
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
   public = list(
+
     threshold = NULL,
     profit_taking = NULL,
     signal_generation = NULL,
+    position_sizing = NULL,
 
-initialize = function(data, threshold, profit_taking, signal_generation = "TH") {
+initialize = function(data, threshold, profit_taking, signal_generation = "TH", position_sizing = FALSE) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$threshold <- threshold
       self$profit_taking <- profit_taking
       self$signal_generation <- signal_generation
+      self$position_sizing <- position_sizing
 },
 
 generate_signals = function() {
@@ -1131,17 +1138,41 @@ generate_signals = function() {
                         ) %>% 
                             filter(change == 2)
 
+    # self$data <- self$data %>%
+    # mutate(
+    #     out_exits = row_number() %in% exits$row_number,
+    #     signal = if_else(in_entries, signal, 0),
+    #     signalE = ifelse(signalE != 0, signalE, 0),
+    #     signalE = if_else(out_exits, signalE, 0),
+    #     signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
+    #      #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
+    #     position = lag(signal, default = 0)
+    # ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
+    #     signal, signalOS, signalE, signalE_closes_row, L, position, in_entries, out_exits, Exit, OS_length)
+
     self$data <- self$data %>%
-    mutate(
+      mutate(
         out_exits = row_number() %in% exits$row_number,
         signal = if_else(in_entries, signal, 0),
         signalE = ifelse(signalE != 0, signalE, 0),
         signalE = if_else(out_exits, signalE, 0),
-        signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
-         #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
-        position = lag(signal, default = 0)
-    ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
-        signal, signalOS, signalE, signalE_closes_row, L, position, in_entries, out_exits, Exit, OS_length)
+        signal = if_else(signal != signalE & signalE != 0, signalE, signal),
+        position = lag(signal, default = 0),
+        nop_sizing = case_when(
+          L < 0.1 ~ 0.1,
+          L < 0.4 ~ 0.5,
+          TRUE ~ 1
+      )
+  ) %>% 
+    mutate(
+      L = replace_na(L, 1)
+  ) %>% 
+      select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
+         signal, signalOS, signalE, signalE_closes_row, L, nop_sizing, position, in_entries, out_exits, Exit, OS_length)
+
+  if (!self$position_sizing) {
+    self$data <- subset(self$data, select = -nop_sizing)
+  }
 
 },
     
@@ -1202,7 +1233,7 @@ plotSignals = function(data) {
     theme_minimal()
 },
 
-run_backtest = function(symbols, thresholds, profit_takings, signal_generations, from_date, to_date, output_df = TRUE) {
+run_backtest = function(symbols, thresholds, profit_takings, signal_generations, position_sizings, from_date, to_date, output_df = TRUE) {
       # Create an empty list to store results
       results <- list()
 
@@ -1212,28 +1243,31 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
           for (threshold in thresholds) {
             for (profit_taking in profit_takings) {
               for (signal_generation in signal_generations) {
+                for (position_sizing in position_sizings) {
 
             # Fetch data using DataFetcher for the current symbol and date range
             data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
             data <- data_fetcher$download_xts_data()
           
             # Create an instance of Alpha strategy 
-            alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation)
+            alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation, position_sizing)
 
             # Store the results
-            results[[paste(symbol, threshold, profit_taking, signal_generation, sep = "_")]] <- list(
+            results[[paste(symbol, threshold, profit_taking, signal_generation, position_sizing, sep = "_")]] <- list(
               Symbol = symbol,
               Class = meta$assets[[symbol]]$class,
-              Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation),
+              Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation, position_sizing),
               Threshold = threshold,
               ProfitTaking = profit_taking,
               Signal_generation  = signal_generation,
+              Position_sizing = position_sizing,
               Performance = alpha$estimate_performance()
             )
 
             print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-              "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", signal_generation, ")"))
-              
+              "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", signal_generation, ",", "position sizing:", position_sizing, ")"))
+                
+                }
               }
             }
           }
@@ -1253,6 +1287,7 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
           Threshold = item$Threshold,
           ProfitTaking = item$ProfitTaking,
           Signal_generation = item$Signal_generation,
+          Position_sizing = item$Position_sizing,
           Strategy = item$Performance$Strategy,
           aR = item$Performance$aR,
           aSD = item$Performance$aSD,
@@ -1594,7 +1629,7 @@ generateExitSignals = function(df, signal_generation = "TH") {
 )
 
 ################################################################################
-# IMPLEMENTATION
+# IMPLEMENTATION (class instances)
 ################################################################################
 
 # Instances of AlphaEngine strategy
@@ -1670,8 +1705,9 @@ data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
 # alpha1 <-  AlphaEngine$new(ts, threshold = 2.525729 * 0.01, profit_taking = 0.005, signal_generation = "TH")
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
+# alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH")
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE) # AR: 15%
 
 #alpha1$generate_signals()
 alpha1$estimate_performance()
@@ -1684,12 +1720,13 @@ a <- alpha1$data
 ##############################
 # Run backtest:
  ##############################
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # signal_generation by default is based on threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE) # signal_generation by default is based on threshold
 res_alpha <- alpha1$run_backtest(
   symbols = symbol,  
-  thresholds = c(0.01, 0.02, 0.01 * 2.525729),
+  thresholds = c(0.01),
   profit_takings = c(0.005, 0.001),
   signal_generations = c("TH", "OS"),
+  position_sizings = c(FALSE, TRUE),
   from_date,
   to_date,
   output_df = TRUE
