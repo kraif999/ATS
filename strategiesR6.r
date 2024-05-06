@@ -520,6 +520,28 @@ estimate_performance = function() {
     self$data$nopPassive[i] <- current_nop_Passive
   }
 
+  # for (i in 2:nrow(self$data)) {
+  #   # Active
+  #   pnlActive <- self$data$pnlActive[i]
+  #   prev_nop_Active <- floor(self$data$nopActive[i - 1])
+  #   current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
+  #   self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
+    
+  #   # Check if "L" (probability indicator for position sizing) column exists
+  #   if ("L" %in% names(self$data)) {
+  #     # Calculate nopActive if "L" column exists
+  #     self$data$nopActive[i] <- ifelse(self$data$L[i], current_nop_Active * nop_sizing, self$data$nopActive[i])
+  #   } 
+    
+  #   # Passive
+  #   pnlPassive <- self$data$pnlPassive[i]
+  #   prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
+  #   current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
+  #   self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+  #   self$data$nopPassive[i] <- current_nop_Passive
+  # }
+
+
   self$data <- self$data %>%
     mutate(r_eqlActive = quantmod::Delt(eqlActive),
             r_eqlPassive = quantmod::Delt(eqlPassive))
@@ -3295,7 +3317,9 @@ res_event2 <- event$run_backtest2(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
+######################################################
 # Define AlphaEngine (based on intrinsic time approach)
+######################################################
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
@@ -3311,10 +3335,6 @@ initialize = function(data, threshold, profit_taking, signal_generation = "TH") 
       self$profit_taking <- profit_taking
       self$signal_generation <- signal_generation
 },
-
-# Signal generation, algorithm that:
-# Opens the position when markets are overshoot
-# Manages the position by cascading or de-cascading during the evolution of the long coastline of prices until it closes in a profit
 
 generate_signals = function() {
 
@@ -3377,9 +3397,7 @@ generate_signals = function() {
         L = 1 - pnorm(d)
     )
 
-   # STEP3 : GENERATE ENTRY SIGNALS (BASED ON THRESHOLD)
-
-    colnames(self$data)
+    # STEP3 : GENERATE ENTRY SIGNALS (BASED ON THRESHOLD)
 
     # Identify threshold value (which is used to compare current mid price)
 
@@ -3404,13 +3422,16 @@ generate_signals = function() {
     self$data$change_value[i] <- prev_mid
     
     # Check if the price further changes by the threshold and update prev_mid accordingly
-    #if (!is.na(prev_mid) && abs(self$data$mid[i] - prev_mid) > 0.005 * prev_mid) {
-    if (!is.na(prev_mid) && abs(self$data$mid[i] - prev_mid) > self$profit_taking * prev_mid) {
-        prev_mid <- self$data$mid[i]  # Update prev_mid
+    if (!is.na(prev_mid) && !is.na(self$data$OS[i])) {
+      if (self$data$OS[i] == "UOS" && self$data$mid[i] > prev_mid * (1 + self$profit_taking)) {
+        prev_mid <- self$data$mid[i]  # Update prev_mid for UOS
+      } else if (self$data$OS[i] == "DOS" && self$data$mid[i] < prev_mid * (1 - self$profit_taking)) {
+        prev_mid <- self$data$mid[i]  # Update prev_mid for DOS
+      }
     }
-    }
+  }
 
-    self$profit_taking <- 0.005 # assymetric
+    #self$profit_taking <- 0.005 # assymetric
     self$data <- self$data %>%
     mutate(
         row_number = row_number(),
@@ -3443,7 +3464,7 @@ generate_signals = function() {
         left_join(entries %>% select(row_number, Exit), by = c("row_number" = "row_number"))
 
 
-   # STEP3 : GENERATE ENTRY SIGNALS (BASED ON AVERAGE LENGTH OF OVERSHOOTS : overshoot duration)
+    # STEP3 : GENERATE ENTRY SIGNALS (BASED ON AVERAGE LENGTH OF OVERSHOOTS : overshoot duration)
 
     # Calculate sequence lengths for UOS and DOS
     sequence_lengths <- private$calculate_sequence_lengths(self$data)
@@ -3477,7 +3498,7 @@ generate_signals = function() {
 
     # STEP4 : EXIT SIGNALS GENERATION (CASCADE AND DE-CASCADE POSITIONS)
 
-    self$data <- private$generateExitSignals(self$data)
+    self$data <- private$generateExitSignals(self$data, self$signal_generation)
 
     exits <- self$data %>% 
             filter(signalE == 1 | signalE == -1) %>%
@@ -3486,18 +3507,17 @@ generate_signals = function() {
                         ) %>% 
                             filter(change == 2)
 
-
     self$data <- self$data %>%
     mutate(
         out_exits = row_number() %in% exits$row_number,
         signal = if_else(in_entries, signal, 0),
         signalE = ifelse(signalE != 0, signalE, 0),
         signalE = if_else(out_exits, signalE, 0),
-        signal = if_else(signal != signalE & signalE != 0, signalE, signal),
+        signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
+         #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
         position = lag(signal, default = 0)
-    ) %>% 
-        select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events, signal, signalOS, signalE, L, position, in_entries, out_exits, Exit, OS_length)
-        #select(Date, Close, mid, signal, position)
+    ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
+        signal, signalOS, signalE, signalE_closes_row, L, position, in_entries, out_exits, Exit, OS_length)
 
 },
     
@@ -3541,6 +3561,19 @@ plot_dc = function(symbol) {
     labs(title = paste("Close Price filtered by Directional Changes for", symbol), x = "Date", y = "Close Price") +
     theme_minimal()
 
+},
+
+plotSignals = function(data) {
+  ggplot(self$data, aes(x = Date, y = Close)) +
+    geom_line() +
+    geom_point(data = subset(self$data, signal == 1), aes(color = "Buy", shape = "Buy"), size = 1.5) +
+    geom_point(data = subset(self$data, signal == -1), aes(color = "Sell", shape = "Sell"), size = 1.5) +
+    geom_point(data = subset(self$data, signalE == 1), aes(color = "Exit Buy", shape = "Exit Buy"), size = 1.5) +
+    geom_point(data = subset(self$data, signalE == -1), aes(color = "Exit Sell", shape = "Exit Sell"), size = 1.5) +
+    scale_shape_manual(values = c("Buy" = 1, "Sell" = 2, "Exit Buy" = 1, "Exit Sell" = 2)) +
+    scale_color_manual(values = c("Buy" = "green", "Sell" = "red", "Exit Buy" = "darkgreen", "Exit Sell" = "darkred")) +
+    labs(title = "Close Price") +
+    theme_minimal()
 },
 
 run_backtest = function(symbols, thresholds, profit_takings, signal_generations, from_date, to_date, output_df = TRUE) {
@@ -3622,8 +3655,12 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
   private = list(
 
 identify_events = function(data, threshold) {
-
   # Initialize event vector
+  data <- data %>%
+    mutate(
+        mid = (High + Open) / 2
+    )
+
   events <- numeric(nrow(data))
   
   # Initialize highest high and lowest low
@@ -3637,6 +3674,10 @@ identify_events = function(data, threshold) {
   # Initialize column for combined overshoot events
   data$OS <- ""
   
+  # Initialize columns for highest_high and lowest_low
+  data$highest_high <- NA
+  data$lowest_low <- NA
+  
   # Loop through each row of the data
   for (i in 1:nrow(data)) {
     # Check if event flag is 1
@@ -3648,7 +3689,7 @@ identify_events = function(data, threshold) {
       if (data$mid[i] <= highest_high * (1 - threshold)) {
         events[i] <- -1
         event_flag <- -1
-        lowest_low <- data$Low[i]
+        #lowest_low <- data$Low[i]
         highest_high <- data$High[i]  # Reset highest_high
         lowest_low <- Inf  # Reset lowest_low to infinity
       }
@@ -3660,10 +3701,15 @@ identify_events = function(data, threshold) {
       if (data$mid[i] >= lowest_low * (1 + threshold)) {
         events[i] <- 1
         event_flag <- 1
-        highest_high <- data$High[i]
+        #highest_high <- data$High[i]
         lowest_low <- data$Low[i]  # Reset lowest_low
+        highest_high <- Inf
       }
     }
+    
+    # Update highest_high and lowest_low in the dataframe
+    data$highest_high[i] <- highest_high
+    data$lowest_low[i] <- lowest_low
   }
   
   # Initialize current state
@@ -3689,12 +3735,15 @@ identify_events = function(data, threshold) {
   
   # Return dataframe with events column
   result <- data.frame(data, events = events)
+  
+  # Calculate dc column
   result$dc <- ifelse(c(FALSE, diff(na.locf(ifelse(result$events == 0, NA, result$events)))) != 0, TRUE, FALSE)
+  
+  # Set default values
   result$OS[1] <- "" # no overshoots since it is the first value
   result$dc[1] <- TRUE # default
   
   return(result)
-
 },
 
 estimate_prob_surprise = function(data) {
@@ -3767,29 +3816,35 @@ estimate_entropies = function(data) {
 calculate_sequence_lengths = function(h) {
   uos_lengths <- numeric()  # Initialize vector to store UOS sequence lengths
   dos_lengths <- numeric()  # Initialize vector to store DOS sequence lengths
-  current_sequence <- NULL  # Initialize variable to store current sequence
+  #current_sequence <- NULL  # Initialize variable to store current sequence
+  current_sequence <- ""
   
   for (event in h$OS) {
     if (is.null(current_sequence)) {
       current_sequence <- event  # Initialize current sequence if it's NULL
     } else if (current_sequence != event) {
       if (current_sequence == "UOS") {
-        uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+        #uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+        uos_lengths <- c(uos_lengths, nchar(current_sequence))
       } else if (current_sequence == "DOS") {
-        dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+        #dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+        dos_lengths <- c(dos_lengths, nchar(current_sequence))  # Store length of DOS sequence
       }
       current_sequence <- event  # Reset current sequence to new event
     } else {
-      current_sequence <- c(current_sequence, event)  # Add event to current sequence
+      #current_sequence <- c(current_sequence, event)  # Add event to current sequence
+      current_sequence <- paste(current_sequence, event, sep = "")
     }
   }
   
   # Add length of the last sequence
   if (!is.null(current_sequence)) {
     if (current_sequence == "UOS") {
-      uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+      #uos_lengths <- c(uos_lengths, length(current_sequence))  # Store length of UOS sequence
+      uos_lengths <- c(uos_lengths, nchar(current_sequence))  # Store length of UOS sequence
     } else if (current_sequence == "DOS") {
-      dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+      #dos_lengths <- c(dos_lengths, length(current_sequence))  # Store length of DOS sequence
+      dos_lengths <- c(dos_lengths, nchar(current_sequence))  # Store length of DOS sequence
     }
   }
   
@@ -3835,63 +3890,86 @@ calculate_OS_length = function(data) {
   return(data)
 },
 
-generateExitSignals = function(data) {
-  # Initialize exit signals column
-  data$signalE <- 0
-  
-  # Initialize exit_value_downward and exit_value_upward
-  exit_value_downward <- NA
-  exit_value_upward <- NA
-  
-  # Initialize flags for current run direction
-  current_run <- "upward"
-  
-  # Modifications for further calculations
-  data$signal[data$signal == 0] <- NA
-  data <- data %>% mutate(signal = na.locf(signal, na.rm = FALSE))
-  data$signal <- na.locf(data$signal, na.rm = FALSE, fromLast = TRUE)
-  data$Exit <- na.locf(data$Exit, na.rm = FALSE, fromLast = FALSE)
-  data$Exit <- na.locf(data$Exit, na.rm = FALSE, fromLast = TRUE)
-  
-  # Loop through each row
-  for (i in 1:nrow(data)) {
+generateExitSignals = function(df, signal_generation = "TH") {
     
-    # Check if Exit is not NA
-    if (!is.na(data$Exit[i])) {
-      
-      # Set exit value for the respective directional run
-      if (data$signal[i] == -1) {
-        exit_value_downward <- data$Exit[i]  # Set exit value for downward run
-        current_run <- "upward"  # Update current run direction
-      } else if (data$signal[i] == 1) {
-        exit_value_upward <- data$Exit[i]  # Set exit value for upward run
-        current_run <- "downward"  # Update current run direction
+  df <- df %>%
+    mutate(Exit = case_when(
+      signal_generation == 'OS' ~ ExitOS,
+      TRUE ~ Exit
+    ))
+  
+  sell_exit_price <- c()
+  buy_exit_price <- c()
+  
+  # Initialize signalE column with NA
+  df$signalE <- NA
+  
+  # Initialize metrics to count removals
+  sell_exit_removals <- 0
+  buy_exit_removals <- 0
+  
+  # Initialize columns to store which row signalE closes and where exit prices are saved
+  df$signalE_closes_row <- NA
+  sell_exit_rows <- list()
+  buy_exit_rows <- list()
+  
+  # Iterate over each row of the dataframe
+  for (i in 1:nrow(df)) {
+    if (!is.na(df$Exit[i]) && df$signal[i] == 1) {
+      sell_exit_price <- c(sell_exit_price, df$Exit[i])
+      sell_exit_rows <- c(sell_exit_rows, i)
+    } else if (!is.na(df$Exit[i]) && df$signal[i] == -1) {
+      buy_exit_price <- c(buy_exit_price, df$Exit[i])
+      buy_exit_rows <- c(buy_exit_rows, i)
+    }
+    
+    if (df$events[i] == 1) {
+      if (any(df$Close[i] > sell_exit_price)) {
+        first_index <- which.max(df$Close[i] > sell_exit_price)  # Get the index of the first TRUE value
+        df$signalE[i] <- -1  # Set signalE = -1
+        df$signalE_closes_row[i] <- sell_exit_rows[first_index]  # Store the index of the row where exit condition is met
+        sell_exit_price <- sell_exit_price[-first_index]  # Remove the exit price at the first_index
+        sell_exit_rows <- sell_exit_rows[-first_index]  # Remove the corresponding row index
+        sell_exit_removals <- sell_exit_removals + 1  # Increment removal count
       }
-      
-      # Check for exit condition during downward run
-      if (current_run == "downward" && !is.na(exit_value_downward) && data$mid[i] < exit_value_downward) {
-        data$signalE[i] <- 1  # Close sell signal with buy signal during downward run
-        cat("Exit condition met for downward run at row:", i, "\n")
+    } else if (df$events[i] == -1) {
+      if (any(df$Close[i] < buy_exit_price)) {
+        first_index <- which.max(df$Close[i] < buy_exit_price)  # Get the index of the first TRUE value
+        df$signalE[i] <- 1  # Set signalE = 1
+        df$signalE_closes_row[i] <- buy_exit_rows[first_index]  # Store the index of the row where exit condition is met
+        buy_exit_price <- buy_exit_price[-first_index]  # Remove the exit price at the first_index
+        buy_exit_rows <- buy_exit_rows[-first_index]  # Remove the corresponding row index
+        buy_exit_removals <- buy_exit_removals + 1  # Increment removal count
       }
-      
-      # Check for exit condition during upward run
-      if (current_run == "upward" && !is.na(exit_value_upward) && data$mid[i] > exit_value_upward) {
-        data$signalE[i] <- -1  # Close buy signal with sell signal during upward run
-        #cat("Exit condition met for upward run at row:", i, "\n")
-      }
-    } 
+    }
   }
   
-  # Reset exit values and current run direction after loop
-  exit_value_downward <- NA
-  exit_value_upward <- NA
-  current_run <- "upward"
+  # Replace NA values in signalE with 0
+  df$signalE[is.na(df$signalE)] <- 0
   
-  return(data)
+  # Calculate the ratio of removed entry signals to the total number of entry signals for sell exits
+  total_sell_entry_signals <- sum(df$signal == 1)
+  ratio_removed_to_total_sell <- sell_exit_removals / total_sell_entry_signals
+  
+  # Print the ratio for sell exits
+  cat("Ratio of removed sell entry signals to total:", ratio_removed_to_total_sell, "\n")
+  
+  # Calculate the ratio of removed entry signals to the total number of entry signals for buy exits
+  total_buy_entry_signals <- sum(df$signal == -1)
+  ratio_removed_to_total_buy <- buy_exit_removals / total_buy_entry_signals
+  
+  # Print the ratio for buy exits
+  cat("Ratio of removed buy entry signals to total:", ratio_removed_to_total_buy, "\n")
+  
+  return(df)
 }
 
     )
 )
+
+################################################################################
+# IMPLEMENTATION
+################################################################################
 
 # Instances of AlphaEngine strategy
 leverage <- 1
@@ -3961,17 +4039,20 @@ ts <- data_fetcher$download_xts_data()
 data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005) # signal_generation by default is based on threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH")
 #alpha1$generate_signals()
 alpha1$estimate_performance()
-alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
+alpha1$plotSignals()
+#a <- alpha1$data
 
 ##############################
 # Run backtest:
  ##############################
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # signal_generation by default is based on threshold
 res_alpha <- alpha1$run_backtest(
   symbols = symbol,  
   thresholds = c(0.01, 0.02),
