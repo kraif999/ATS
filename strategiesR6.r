@@ -522,6 +522,7 @@ estimate_performance = function() {
 
   # Check if "L" column (probability indicator) exists
   has_L <- "nop_sizing" %in% names(self$data)
+  has_Vol <- "vol_nop_sizing" %in% names(self$data)
 
   for (i in 2:nrow(self$data)) {
     # Active
@@ -535,6 +536,12 @@ estimate_performance = function() {
       self$data$nopActive[i] <- ifelse(
         self$data$L[i], 
         current_nop_Active * self$data$nop_sizing[i], 
+        current_nop_Active
+      )
+    } else if (has_Vol) {
+      self$data$nopActive[i] <- ifelse(
+        self$data$L[i], 
+        current_nop_Active * self$data$vol_nop_sizing[i], 
         current_nop_Active
       )
     } else {
@@ -3559,9 +3566,9 @@ generate_signals = function() {
     }
 
 
-#   if (!self$position_sizing) {
-#     self$data <- subset(self$data, select = -nop_sizing)
-#   }
+  #   if (!self$position_sizing) {
+  #     self$data <- subset(self$data, select = -nop_sizing)
+  #   }
 
 },
     

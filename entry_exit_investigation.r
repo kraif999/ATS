@@ -779,3 +779,26 @@ plotSignals <- function(data) {
 
 # Example usage:
 plotSignals(prot2)
+
+##################### position sizing given volatility (standard deviation as proxy) ########################
+colnames(prot3)
+prot3 %>% head
+
+sd(prot3$Close)
+
+prot4 <- prot3 %>%
+  mutate(
+    rollSD = rollapply(Close, width = 21 * 3, FUN = sd, fill = NA, align = "right"),
+    rollSD75  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.75, na.rm = TRUE), align = "right", fill = NA),
+    rollSD95  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.95, na.rm = TRUE), align = "right", fill = NA),
+    rollSD999  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.999, na.rm = TRUE), align = "right", fill = NA),
+    vol_nop_sizing = case_when(
+        rollSD >= rollSD75 ~ 0.5,
+        rollSD >= rollSD95 ~ 0.2,
+        TRUE ~ 1
+    )
+  )
+
+table(prot4$vol_nop_sizing) / (240+688)
+
+View(prot4)
