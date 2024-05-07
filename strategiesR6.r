@@ -3327,9 +3327,6 @@ res_event2 <- event$run_backtest2(
 ######################################################
 # Define AlphaEngine (based on intrinsic time approach)
 ######################################################
-################################################################################
-# Define AlphaEngine (based on intrinsic time approach)
-################################################################################
 
 AlphaEngine <- R6Class(
   "AlphaEngine",
@@ -4119,9 +4116,9 @@ a <- alpha1$data
  ##############################
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE) # signal_generation by default is based on threshold
 res_alpha <- alpha1$run_backtest(
-  symbols = symbol,  
-  thresholds = c(0.01),
-  profit_takings = c(0.005, 0.001),
+  symbols = fxs,  
+  thresholds = c(0.005, 0.01, 0.015, 0.02, 0.01 * 2.525729),
+  profit_takings = c(0.0001, 0.001, 0.01),
   signal_generations = c("TH", "OS"),
   position_sizings = FALSE,
   from_date,
