@@ -3365,7 +3365,9 @@ generate_signals = function() {
 
     # STEP2 : INTRODUCE PROBABILITY INDICATOR FOR POSITION SIZING
 
-    # Function to compute transition probabilities and surprises
+    # Function to compute transition probabilities and surprises (only for position_sizing)
+
+    if(self$position_sizing) {
 
     self$data$surprise <- NA_real_
     self$data$H1 <- NA_real_
@@ -3400,7 +3402,7 @@ generate_signals = function() {
     if (length(unique_combinations) > 4) {
         self$data$K[i:nrow(self$data)] <- 4
         break
-    }
+        }
     }
 
     # estimate L
@@ -3410,6 +3412,8 @@ generate_signals = function() {
         d = (surprise - K * H1) / sqrt(K * H2),
         L = 1 - pnorm(d)
     )
+
+    }
 
     # STEP3 : GENERATE ENTRY SIGNALS (BASED ON THRESHOLD)
 
@@ -3456,8 +3460,8 @@ generate_signals = function() {
         ),
         position = lag(signal, default = 0),
         OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
-    ) %>% 
-        select(Date, High, Low, Close, mid, change_value, OS, dc, events, L, signal, OSS, position, row_number)
+    ) #%>% 
+        #select(Date, High, Low, Close, mid, change_value, OS, dc, events, L, signal, OSS, position, row_number)
 
     entries <- self$data %>% 
             filter(signal == 1 | signal == -1) %>%
@@ -3521,17 +3525,7 @@ generate_signals = function() {
                         ) %>% 
                             filter(change == 2)
 
-    # self$data <- self$data %>%
-    # mutate(
-    #     out_exits = row_number() %in% exits$row_number,
-    #     signal = if_else(in_entries, signal, 0),
-    #     signalE = ifelse(signalE != 0, signalE, 0),
-    #     signalE = if_else(out_exits, signalE, 0),
-    #     signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
-    #      #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
-    #     position = lag(signal, default = 0)
-    # ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
-    #     signal, signalOS, signalE, signalE_closes_row, L, position, in_entries, out_exits, Exit, OS_length)
+    if(self$position_sizing) {
 
     self$data <- self$data %>%
       mutate(
@@ -3552,10 +3546,25 @@ generate_signals = function() {
   ) %>% 
       select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
          signal, signalOS, signalE, signalE_closes_row, L, nop_sizing, position, in_entries, out_exits, Exit, OS_length)
+    } else {
 
-  if (!self$position_sizing) {
-    self$data <- subset(self$data, select = -nop_sizing)
-  }
+    self$data <- self$data %>%
+    mutate(
+        out_exits = row_number() %in% exits$row_number,
+        signal = if_else(in_entries, signal, 0),
+        signalE = ifelse(signalE != 0, signalE, 0),
+        signalE = if_else(out_exits, signalE, 0),
+        signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
+         #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
+        position = lag(signal, default = 0)
+    ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
+        signal, signalOS, signalE, signalE_closes_row, position, in_entries, out_exits, Exit, OS_length)
+    }
+
+
+#   if (!self$position_sizing) {
+#     self$data <- subset(self$data, select = -nop_sizing)
+#   }
 
 },
     
@@ -4019,7 +4028,10 @@ generateExitSignals = function(df, signal_generation = "TH") {
 leverage <- 1
 symbol <- "MXN=X"
 from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+to_date <- Sys.Date()
 
+# Asset meta data (asset, symbol, class, description)
+meta <- jsonlite::fromJSON("instr_config.json")
 fxs <- names(Filter(function(x) x$class == "FX", meta$assets))
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -4079,6 +4091,7 @@ symbol <- "NZDJPY=X"
 from_date <- as.Date("2006-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2015-01-01", format = "%Y-%m-%d")
 ##############################
+
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher$download_xts_data()
@@ -4088,13 +4101,14 @@ data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
 # alpha1 <-  AlphaEngine$new(ts, threshold = 2.525729 * 0.01, profit_taking = 0.005, signal_generation = "TH")
-#alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
+# alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH")
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = TRUE) # AR: 15%
 
 #alpha1$generate_signals()
 alpha1$estimate_performance()
-p <- alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
+alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
@@ -4109,7 +4123,7 @@ res_alpha <- alpha1$run_backtest(
   thresholds = c(0.01),
   profit_takings = c(0.005, 0.001),
   signal_generations = c("TH", "OS"),
-  position_sizings = c(FALSE, TRUE),
+  position_sizings = FALSE,
   from_date,
   to_date,
   output_df = TRUE
