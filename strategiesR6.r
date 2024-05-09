@@ -503,23 +503,6 @@ estimate_performance = function() {
   self$data$eqlPassive[1] <- capital
   self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))   
 
-  # for (i in 2:nrow(self$data)) {
-
-  #   # Active
-  #   pnlActive <- self$data$pnlActive[i]
-  #   prev_nop_Active <- floor(self$data$nopActive[i - 1])
-  #   current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
-  #   self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
-  #   self$data$nopActive[i] <- current_nop_Active
-    
-  #   # Passive
-  #   pnlPassive <- self$data$pnlPassive[i]
-  #   prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
-  #   current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
-  #   self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
-  #   self$data$nopPassive[i] <- current_nop_Passive
-  # }
-
   # Check if "L" column (probability indicator) exists
   has_L <- "nop_sizing" %in% names(self$data)
   has_Vol <- "vol_nop_sizing" %in% names(self$data)
@@ -540,7 +523,8 @@ estimate_performance = function() {
       )
     } else if (has_Vol) {
       self$data$nopActive[i] <- ifelse(
-        self$data$L[i], 
+        #self$data$L[i], 
+        self$data$vol_nop_sizing[i], 
         current_nop_Active * self$data$vol_nop_sizing[i], 
         current_nop_Active
       )

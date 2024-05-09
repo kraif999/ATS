@@ -802,3 +802,1218 @@ prot4 <- prot3 %>%
 table(prot4$vol_nop_sizing) / (240+688)
 
 View(prot4)
+
+###################################################
+# FX BUCKET (POSITION SIZING GIVEN CORRELATION STRUCTURE)
+# method to construct a portfolio (FX components only, new method in Alpha class)
+# plot rolling correlations (new method in Alpha class)
+# estimate performance (new method in Strategy class)
+###################################################
+
+# Take 3 currencies pairs:
+symbol1 <- "GBPUSD=X"
+symbol2 <- "NZDJPY=X"
+symbol3 <- "CAD=X"
+from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
+to_date <- Sys.Date()
+
+# Download data
+data_fetcher1 <- DataFetcher$new(symbol1, from_date, to_date)
+ts1 <- data_fetcher1$download_xts_data()
+
+data_fetcher2 <- DataFetcher$new(symbol2, from_date, to_date)
+ts2 <- data_fetcher2$download_xts_data()
+
+data_fetcher3 <- DataFetcher$new(symbol3, from_date, to_date)
+ts3 <- data_fetcher3$download_xts_data()
+
+# check performance
+a1$estimate_performance()
+a2$estimate_performance()
+a3$estimate_performance()
+
+a1 <-  AlphaEngine$new(ts1, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+a1 <- a1$generate_signals()
+a2 <- AlphaEngine$new(ts2, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+a2 <- a2$generate_signals()
+a3 <- AlphaEngine$new(ts3, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+a3 <- a3$generate_signals()
+
+colnames(a1)
+
+# List of data frames
+data_list <- list(a1, a2, a3)
+
+# Add capital, number of positions
+
+# Estimate volatility: rollling standard deviation
+estimate_vol <- function(data) {
+  data <- data %>%
+    mutate(
+      rollSD = rollapply(mid, width = 21 * 3, FUN = sd, fill = NA, align = "right"),
+      rollSD_q = as.vector(rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.75, na.rm = TRUE), align = "right", fill = NA)),
+      vol_nop_sizing = case_when(
+        rollSD >= rollSD_q & is.na(Exit) ~ 0.5,
+        TRUE ~ 1
+      )
+    )
+  
+  return(data)
+}
+
+# Loop through each data frame and apply the estimate_vol function
+for (i in seq_along(data_list)) {
+  data_list[[i]] <- estimate_vol(data_list[[i]])
+}
+
+select_cols <- function(data) {
+  data <- data %>%
+    # mutate(
+    #   capital = 0,
+    #   capital = ifelse(row_number() == 1, 50000 / length(data_list), capital),
+    #   nop = 0,
+    #   nop = ifelse(row_number() == 1, capital[1] / Close[1], nop),
+    #   sizing = 0,
+    #   pnl = 0,
+    #   eql = 0
+    # ) %>%
+    select(Date, Close, value, signal, position, rollSD, rollSD_q)
+    return(data)
+}
+
+data_list <- lapply(data_list, select_cols)
+
+# Unpack the modified data frames back to individual objects if needed
+a <- data_list[[1]]
+colnames(a) 
+# a2 <- data_list[[2]]
+# a3 <- data_list[[3]]
+
+# colnames(a1)[-1] <- map(colnames(a1)[-1], ~ paste(symbol1, .x, sep = "_"))
+# colnames(a2)[-1] <- map(colnames(a2)[-1], ~ paste(symbol2, .x, sep = "_"))
+# colnames(a3)[-1] <- map(colnames(a3)[-1], ~ paste(symbol3, .x, sep = "_"))
+
+# Define symbols
+symbol_list <- list(symbol1, symbol2, symbol3)
+# Apply the column renaming operation to each data frame in the list
+
+data_list <- lapply(seq_along(data_list), function(i) {
+  symbol <- symbol_list[[i]]
+  colnames(data_list[[i]])[-1] <- paste(symbol, colnames(data_list[[i]])[-1], sep = "_")
+  return(data_list[[i]])
+})
+
+a1 <- data_list[[1]]
+View(a1)
+
+#merged_df <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), list(a1, a2, a3))
+merged_df <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+colnames(merged_df)
+# Example close columns
+close_columns <- c("GBPUSD=X_Close", "NZDJPY=X_Close", "CAD=X_Close")
+
+# Create all possible unique combinations of close columns
+column_combinations <- combn(close_columns, 2)
+
+column_combinations_df <- as.data.frame(t(column_combinations))
+
+# Add a column indicating the pair number
+column_combinations_df$Pair <- paste0("Pair", seq_len(ncol(column_combinations)))
+
+# Print the combinations
+print(column_combinations_df)
+column_combinations_df$V1
+
+# Assuming merged_df is your merged data frame containing all necessary data
+
+# Define a function to compute rolling correlations for a pair of columns
+compute_rolling_correlation <- function(data, pair, cor_window) {
+  # Extract column names from the pair
+  col1 <- as.character(pair[1])
+  col2 <- as.character(pair[2])
+  
+  # Compute rolling correlation for the pair
+  data <- data %>%
+    mutate(!!paste0("Cor_", col1, ";", col2) := rollapply(data[, c(col1, col2)], 
+                                                      width = cor_window, 
+                                                      FUN = function(x) cor(x, use = "pairwise.complete.obs")[col1, col2], 
+                                                      by.column = FALSE, 
+                                                      align = "right", 
+                                                      fill = NA)
+    )
+  
+  # Return the updated data frame
+  return(data[ncol(data)])
+}
+
+# Compute rolling correlations for each pair and bind them to the original data frame
+res_cor <- bind_cols(merged_df, lapply(1:nrow(column_combinations_df), function(i) {
+  # Get the pair
+  pair <- column_combinations_df[i, 1:2]
+  
+  # Compute rolling correlations for the pair
+  compute_rolling_correlation(merged_df, pair, 365/2)
+}))
+
+# Plot
+cor_columns <- c("Cor_GBPUSD=X_Close;NZDJPY=X_Close", 
+                 "Cor_GBPUSD=X_Close;CAD=X_Close", 
+                 "Cor_NZDJPY=X_Close;CAD=X_Close")
+
+# Subset the data frame to include only the date and rolling correlation columns
+cor_data <- res_cor[, c("Date", cor_columns)]
+
+# Melt the data frame to long format for easier plotting
+cor_data_long <- tidyr::gather(cor_data, Pair, Rolling_Correlation, -Date)
+
+# Plot rolling correlations using ggplot
+ggplot(cor_data_long, aes(x = Date, y = Rolling_Correlation, color = Pair)) +
+  geom_line() +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +  # Add dashed horizontal line at y = 0.5
+  geom_hline(yintercept = -0.5, linetype = "dashed") +  # Add dashed horizontal line at y = 0.5
+  labs(title = "Rolling Correlations",
+       x = "Date",
+       y = "Rolling Correlation") +
+  theme_minimal()
+
+# Now, `rolling_correlations` contains a list of rolling correlations for each pair
+# Each element of the list corresponds to one pair, and it contains the rolling correlations over time
+
+b <- compute_rolling_correlation(merged_df, pair)
+
+b[ncol(b)] %>% head
+
+plot(b$`Cor_GBPUSD=X_Close;NZDJPY=X_Close`, type = 'l')
+plot(a1$`GBPUSD=X_rollSD`, type = 'l')
+plot(res_cor$`NZDJPY=X_rollSD`, type = 'l')
+plot(res_cor$`Cor_NZDJPY=X_Close;CAD=X_Close`)
+
+pair <- column_combinations_df[1, 1:2]
+
+c <- merged_df[, c(col1$V1, col2$V2)]
+
+d <- cor(c, use = "pairwise.complete.obs")[col1$V1, col2$V2]
+
+d[col1$V1, col2$V2]
+
+merged_df[, "GBPUSD=X_Close"]
+merged_df[, col1$V1]
+
+######################################## 
+# Add CAPITAL, number of positions, sizing, pnl, eql
+########################################
+
+View(res_cor)
+
+p <- plot(res_cor$`Cor_NZDJPY=X_Close;CAD=X_Close`)
+
+###############################################
+# Capital allocation given rolling correlations
+###############################################
+
+# Extract correlation values and symbols from column names
+correlation_cols <- c("Date", grep("^Cor_", colnames(res_cor), value = TRUE))
+symbols <- gsub("^Cor_", "", correlation_cols[-1])
+
+rm(DecisionCor)
+# Initialize an empty data frame to store correlation decisions
+DecisionCor <- data.frame(
+  Date = as.Date(character()),
+  Symbol1 = character(),
+  Symbol2 = character(),
+  cor_value = numeric(),
+  cor_type = character(),
+  signalCor = character(),
+  iteration = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Initialize iteration counter
+iteration_i <- 0
+
+res_cor <- res_cor %>%
+    na.omit()
+
+# Run the loop over rows of res_cor
+for (i in 2:nrow(res_cor)) {  # Start from the second row since we need to compare with the previous row
+  iteration_i <- iteration_i + 1
+  
+  # Check correlations between different pairs of symbols
+  correlations <- sapply(correlation_cols, function(col) res_cor[i, col])
+
+  # Identify the pair with the highest and lowest correlation
+  highest_cor <- max(abs(correlations[-1]))
+  lowest_cor <- min(abs(correlations[-1]))
+  
+  # Record pairs and correlations in the DecisionCor data frame
+  highest_cor_pair <- symbols[which.max(correlations[-1])]
+  lowest_cor_pair <- symbols[which.min(correlations[-1])]
+  
+  # Add cor_value, cor_type, and iteration columns to DecisionCor
+  DecisionCor <- rbind(DecisionCor, data.frame(
+    Date = as.Date(correlations[1]),
+    Symbol1 = strsplit(highest_cor_pair, ";")[[1]][1],
+    Symbol2 = strsplit(highest_cor_pair, ";")[[1]][2],
+    cor_value = highest_cor,
+    #cor_type = ifelse(abs(highest_cor) >= 0.8, "highest", ifelse(abs(highest_cor) < 0.5, "lowest", 0)),
+    cor_type = "highest",
+    signalCor = ifelse(abs(highest_cor) >= 0.8, -1, ifelse(abs(highest_cor) < 0.5, 1, 0)),
+    iteration = iteration_i
+  ))
+  DecisionCor <- rbind(DecisionCor, data.frame(
+    Date = as.Date(correlations[1]),
+    Symbol1 = strsplit(lowest_cor_pair, ";")[[1]][1],
+    Symbol2 = strsplit(lowest_cor_pair, ";")[[1]][2],
+    cor_value = lowest_cor,
+    #cor_type = ifelse(abs(lowest_cor) >= 0.8, "highest", ifelse(abs(lowest_cor) < 0.5, "lowest", 0)),
+    cor_type = "lowest",
+    signalCor = ifelse(abs(lowest_cor) >= 0.8, -1, ifelse(abs(lowest_cor) < 0.5, 1, 0)),
+    iteration = iteration_i
+  ))
+}
+
+# Generate signals based on recorded pairs and correlations
+for (i in 1:nrow(DecisionCor)) {
+  symbol1 <- DecisionCor[i, "Symbol1"]
+  symbol2 <- DecisionCor[i, "Symbol2"]
+  signal <- as.numeric(DecisionCor[i, "signalCor"])
+  
+  # Generate signals for Symbol1
+  res_cor[[paste0(symbol1, "_signal")]] <- ifelse(res_cor[[paste0("Cor_", symbol1)]] == DecisionCor$cor_value[i], signal, 0)
+  # Generate signals for Symbol2
+  res_cor[[paste0(symbol2, "_signal")]] <- ifelse(res_cor[[paste0("Cor_", symbol2)]] == DecisionCor$cor_value[i], signal, 0)
+}
+
+strsplit("GBPUSD=X_Close;CAD=X_Close" , ";")[[1]][1]
+
+#########################
+# split res_cor into 
+#########################
+# Strategy class
+#########################
+
+# Split res_cor into data frames based on symbol_list
+symbol_dataframes <- lapply(symbol_list, function(symbol) {
+  # Filter columns related to the current symbol
+  symbol_columns <- grep(paste0("^", symbol), names(res_cor), value = TRUE)
+  symbol_df <- res_cor %>%
+    select(Date, all_of(symbol_columns)) %>%
+    rename_with(~ gsub(paste0("^", symbol), "", .x), contains(symbol)) %>%
+    rename_all(~ gsub("^_", "", .))  # Remove underscore from the beginning of column names
+  
+  # Rename the Date column to avoid conflicts
+  colnames(symbol_df)[1] <- "Date"
+  
+  return(symbol_df)
+})
+
+# Rename list elements with symbol names
+names(symbol_dataframes) <- symbol_list
+
+# Print the first few rows of each data frame in the list
+lapply(symbol_dataframes, head) # ok
+
+######### process the data and plot equity lines  #########
+
+# Function to perform the required calculations
+process_data <- function(df) {
+  # Calculate pnlActive and pnlPassive
+  df <- df %>% 
+    mutate(
+      pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+      pnlPassive = c(0, diff(Close)),
+      nopActive = 0,
+      nopPassive = 0,
+      eqlActive = 0,
+      eqlPassive = 0
+    )
+
+  # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+  df$eqlActive[1] <- capital
+  df$nopActive[1] <- floor(capital / (df$Close[1] / leverage))
+  df$eqlPassive[1] <- capital
+  df$nopPassive[1] <- floor(capital / (df$Close[1] / leverage))   
+
+  # Check if "L" column (probability indicator) exists
+  has_L <- "nop_sizing" %in% names(df)
+  has_Vol <- "vol_nop_sizing" %in% names(df)
+
+  for (i in 2:nrow(df)) {
+    # Active
+    pnlActive <- df$pnlActive[i]
+    prev_nop_Active <- floor(df$nopActive[i - 1])
+    current_nop_Active <- floor((df$eqlActive[i - 1]) / (df$Close[i] / leverage))
+    df$eqlActive[i] <- df$eqlActive[i - 1] + prev_nop_Active * pnlActive
+
+    # Calculate nopActive based on the presence of the "L" column
+    if (has_L) {
+      df$nopActive[i] <- ifelse(
+        df$L[i], 
+        current_nop_Active * df$nop_sizing[i], 
+        current_nop_Active
+      )
+    } else if (has_Vol) {
+      df$nopActive[i] <- ifelse(
+        df$L[i], 
+        current_nop_Active * df$vol_nop_sizing[i], 
+        current_nop_Active
+      )
+    } else {
+      df$nopActive[i] <- current_nop_Active
+    }
+
+    # Passive
+    pnlPassive <- df$pnlPassive[i]
+    prev_nop_Passive <- floor(df$nopPassive[i - 1])
+    current_nop_Passive <- floor((df$eqlPassive[i - 1]) / (df$Close[i] / leverage))
+    df$eqlPassive[i] <- df$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+    df$nopPassive[i] <- current_nop_Passive
+  }
+
+  df <- df %>%
+    mutate(r_eqlActive = quantmod::Delt(eqlActive),
+           r_eqlPassive = quantmod::Delt(eqlPassive))
+  return(df)
+}
+
+# Apply the function to each data frame in the list
+processed_data <- lapply(symbol_dataframes, process_data)
+
+# Print the first few rows of each processed data frame
+lapply(processed_data, head)
+
+# Estimate performance
+# Initialize an empty list to store the results
+results_list <- list()
+
+# Define a function to compute performance metrics for each currency pair
+estimate_performance <- function(data) {
+
+ # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_active <- sum(diff(data$signal) != 0)
+  buy_active <- sum(data$signal == 1)
+  short_active <- sum(data$signal == -1)
+
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_passive <- 1
+  buy_passive <- 1
+  short_passive <- 0
+  
+  # Calculate success rates
+  buy_success_rate_active <- sum(data$position > 0 & data$value > 0) / nrow(data)
+  buy_success_rate_passive <- sum(data$value > 0) / nrow(data)
+  short_success_rate_active <- sum(data$position < 0 & data$value < 0) / nrow(data)
+  short_success_rate_passive <- 0
+  combined_rate_active <- (sum(data$position > 0 & data$value > 0) + sum(data$position < 0 & data$value < 0)) / nrow(data)
+  combined_rate_passive <- (sum(data$value > 0)) / nrow(data)
+  
+  # Unique months
+  unique_months <- length(unique(format(data$Date, "%Y-%m")))
+  
+  # Create performance dataframe
+  df <- data.frame(
+    Strategy = c("Active", "Passive"),
+    aR = c(aR_active, aR_passive),
+    aSD = c(aSD_active, aSD_passive),
+    IR = c(IR_active, IR_passive),
+    MD = c(MD_active, MD_passive),
+    trades = c(trades_active, trades_passive),
+    avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
+    buys = c(buy_active, buy_passive),
+    sells = c(short_active, short_passive),
+    Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+    Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+    Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+    PortfolioEndValue = round(c(data[nrow(data),]$eqlActive, data[nrow(data),]$eqlPassive), 0)
+  )
+  
+  return(df)
+}
+
+for (pair in symbol_list) {
+  data <- processed_data[[pair]]  # Assuming data for each currency pair is available in the environment
+  results_list[[pair]] <- estimate_performance(data)
+}
+
+# View the results
+results_list
+
+# Define symbols
+symbol_list <- names(processed_data)
+
+# Apply the column renaming operation to each data frame in the list
+data_list <- lapply(seq_along(processed_data), function(i) {
+  symbol <- symbol_list[i]
+  colnames(processed_data[[i]])[-1] <- paste(symbol, colnames(processed_data[[i]])[-1], sep = "_")
+  return(processed_data[[i]])
+})
+
+# Merge the modified data frames
+p <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+# Print the merged data frame
+p %>% head
+
+# Mutate to add a new column summing all columns containing "eqlActive" but not "r_eqlActive"
+p <- p %>%
+  mutate(
+    AlleqlActive = rowSums(select(., contains("eqlActive"), -contains("r_eqlActive")), na.rm = TRUE),
+    AlleqlPassive = rowSums(select(., contains("eqlPassive"), -contains("r_eqlPassive")), na.rm = TRUE)
+  )
+
+colnames(p)
+
+
+################ Plot all individual equity lines ################
+# Filter columns containing "eqlActive"
+eqlActive_columns <- p %>% select(grep("eqlActive", colnames(p), value = TRUE)) %>%
+                      select(-contains("r_eqlActive")) %>%
+                        select(-contains("AlleqlActive"))
+
+# Add Date column
+eqlActive_columns$Date <- p$Date
+
+# Melt the data frame to long format for easier plotting
+eqlActive_melted <- melt(eqlActive_columns, id.vars = "Date")
+
+# Plot using ggplot
+ggplot(data = eqlActive_melted, aes(x = Date, y = value, color = variable)) +
+  geom_line() +
+  labs(
+
+    title = "AlphaEngine performance of FX portfolio",
+    x = "Date",
+    y = "eqlActive Values", 
+    color = "eqlActive Columns") +
+  
+  theme_minimal()
+
+# Plot using ggplot
+ggplot(p, aes(x = Date)) +
+  geom_line(aes(y = AlleqlActive), color = "red") +
+  geom_line(aes(y = AlleqlPassive), color = "green") +
+  labs(x = "Date", y = "Value") +
+  scale_color_identity(name = "Legend", labels = c("Active", "Passive"), guide = "legend") +
+  theme_minimal()
+
+# compute performance of the overall portfolio
+
+# individual:
+
+for (pair in symbol_list) {
+  data <- processed_data[[pair]]  # Assuming data for each currency pair is available in the environment
+  results_list[[pair]] <- estimate_performance(data)
+}
+
+results_list
+
+# bucket:
+
+estimate_performance_bucket <- function(data) {
+
+  data <- data %>%
+    mutate(
+        r_AlleqlActive = as.numeric(quantmod::Delt(AlleqlActive)),
+        r_AlleqlPassive = as.numeric(quantmod::Delt(AlleqlPassive))
+        )
+  # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Create performance dataframe
+  df <- data.frame(
+    Strategy = c("Active", "Passive"),
+    aR = c(aR_active, aR_passive),
+    aSD = c(aSD_active, aSD_passive),
+    IR = c(IR_active, IR_passive),
+    MD = c(MD_active, MD_passive),
+    PortfolioEndValue = c(round(data[nrow(data), ]$AlleqlActive, 0), round(data[nrow(data), ]$AlleqlPassive, 0))
+  )
+  
+  return(df)
+}
+
+estimate_performance_bucket(p)
+
+# clean up the prototype, create methods in Strategy class and AlphaEngine (public and private)
+# Update README file, add description of classes structure and update README description
+# Pull to main branch Alpha (TBD)
+
+################################## clean and add to AlphaEngine class ##################################
+
+# Parameters: sd_quantile, sd_window, cor_window
+estimate_rolling_correlations <- function(symbol_list, from_date, to_date) {
+
+  data_list <- list()
+  
+  # Fetch data and create AlphaEngine instances for each symbol
+  for (i in seq_along(symbol_list)) {
+    symbol <- symbol_list[i]
+    # Download data
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    ts <- data_fetcher$download_xts_data()
+    
+    # Create AlphaEngine instance
+    alpha_engine <- AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, 
+                                     signal_generation = "TH", position_sizing = FALSE, 
+                                     vol_position_sizing = FALSE)
+    
+    # Generate signals
+    alpha <- alpha_engine$generate_signals()
+
+    # Add to data list with automatic numbering
+    data_list[[i]] <- alpha
+  }
+    
+    # Estimate rolling standard deviation as volatility proxy
+    estimate_vol <- function(data) {
+    data <- data %>%
+        mutate(
+        rollSD = rollapply(mid, width = 21 * 3, FUN = sd, fill = NA, align = "right"),
+        rollSD_q = as.vector(rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.75, na.rm = TRUE), align = "right", fill = NA)),
+        vol_nop_sizing = case_when(
+            rollSD >= rollSD_q & is.na(Exit) ~ 0.5,
+            TRUE ~ 1
+        )
+        )
+    
+    return(data)
+    }
+
+    # Loop through each data frame and apply the estimate_vol function
+    for (i in seq_along(data_list)) {
+    data_list[[i]] <- estimate_vol(data_list[[i]])
+    }
+
+    select_cols <- function(data) {
+    data <- data %>%
+        select(Date, Close, value, signal, position, vol_nop_sizing, rollSD, rollSD_q)
+        return(data)
+    }
+
+    data_list <- lapply(data_list, select_cols)
+
+    data_list <- lapply(
+        seq_along(data_list), function(i) {
+        symbol <- symbol_list[[i]]
+        colnames(data_list[[i]])[-1] <- paste(symbol, colnames(data_list[[i]])[-1], sep = "_")
+        return(data_list[[i]])
+    })
+
+    merged_df <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+    close_columns <- c(paste0(symbol_list, "_Close"))
+
+    # Create all possible unique combinations of close columns
+    column_combinations <- combn(close_columns, 2)
+
+    column_combinations_df <- as.data.frame(t(column_combinations))
+
+    # Add a column indicating the pair number
+    column_combinations_df$Pair <- paste0("Pair", seq_len(ncol(column_combinations)))
+
+    # Define a function to compute rolling correlations for a pair of columns
+    compute_rolling_correlation <- function(data, pair, cor_window) {
+    # Extract column names from the pair
+    col1 <- as.character(pair[1])
+    col2 <- as.character(pair[2])
+    
+    # Compute rolling correlation for the pair
+    data <- data %>%
+        mutate(!!paste0("Cor_", col1, ";", col2) := rollapply(data[, c(col1, col2)], 
+                                                        width = cor_window, 
+                                                        FUN = function(x) cor(x, use = "pairwise.complete.obs")[col1, col2], 
+                                                        by.column = FALSE, 
+                                                        align = "right", 
+                                                        fill = NA)
+        )
+    
+    # Return the updated data frame
+    return(data[ncol(data)])
+    }
+
+    # Compute rolling correlations for each pair and bind them to the original data frame
+    res_cor <- bind_cols(
+        merged_df, 
+        lapply(1:nrow(column_combinations_df), function(i) {
+        # Get the pair
+        pair <- column_combinations_df[i, 1:2]
+        
+        # Compute rolling correlations for the pair
+        compute_rolling_correlation(merged_df, pair, 365/2)
+
+            }
+        )
+    )
+
+    # Remove Invalid numbers, NaN, NAs
+    res_cor <- res_cor[complete.cases(res_cor), ]
+    return(res_cor)
+}
+
+# Function definition with plot_flag parameter
+plot_rolling_correlations <- function(data, plot_flag = TRUE) {
+
+  cor_columns <- colnames(data)[grep("Cor_", colnames(data))]
+  
+  cor_data <- data[, c("Date", cor_columns)]
+  
+  cor_data_long <- tidyr::gather(cor_data, Pair, Rolling_Correlation, -Date)
+  
+  if (plot_flag) {
+    # Plot rolling correlations using ggplot
+    ggplot(cor_data_long, aes(x = Date, y = Rolling_Correlation, color = Pair)) +
+      geom_line() +
+      geom_hline(yintercept = 0.5, linetype = "dashed") +  
+      geom_hline(yintercept = -0.5, linetype = "dashed") +  
+      labs(title = "Rolling Correlations",
+           x = "Date",
+           y = "Rolling Correlation") +
+      theme_minimal()
+  }
+}
+
+cp <- estimate_rolling_correlations(symbol_list, from_date, to_date) # res_cor
+plot_rolling_correlations(cp)
+
+# Estimate performance
+
+split_data <- function(cp, symbol_list) {
+
+  symbol_dataframes <- lapply(symbol_list, function(symbol) {
+    # Filter columns related to the current symbol
+    symbol_columns <- grep(paste0("^", symbol), names(cp), value = TRUE)
+    symbol_df <- cp %>%
+      select(Date, all_of(symbol_columns)) %>%
+      rename_with(~ gsub(paste0("^", symbol), "", .x), contains(symbol)) %>%
+      rename_all(~ gsub("^_", "", .))  # Remove underscore from the beginning of column names
+    
+    # Rename the Date column to avoid conflicts
+    colnames(symbol_df)[1] <- "Date"
+    
+    return(symbol_df)
+  })
+  
+  # Rename list elements with symbol names
+  names(symbol_dataframes) <- symbol_list
+  
+  return(symbol_dataframes)
+}
+
+# Usage
+symbol_dataframes <- split_data(cp, symbol_list)
+
+# Function to perform the required calculations
+process_data <- function(df) {
+  # Calculate pnlActive and pnlPassive
+  df <- df %>% 
+    mutate(
+      pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+      pnlPassive = c(0, diff(Close)),
+      nopActive = 0,
+      nopPassive = 0,
+      eqlActive = 0,
+      eqlPassive = 0
+    )
+
+  # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+  df$eqlActive[1] <- capital
+  df$nopActive[1] <- floor(capital / (df$Close[1] / leverage))
+  df$eqlPassive[1] <- capital
+  df$nopPassive[1] <- floor(capital / (df$Close[1] / leverage))   
+
+  # Check if "L" column (probability indicator) exists
+  has_L <- "nop_sizing" %in% names(df)
+  has_Vol <- "vol_nop_sizing" %in% names(df)
+
+  for (i in 2:nrow(df)) {
+    # Active
+    pnlActive <- df$pnlActive[i]
+    prev_nop_Active <- floor(df$nopActive[i - 1])
+    current_nop_Active <- floor((df$eqlActive[i - 1]) / (df$Close[i] / leverage))
+    df$eqlActive[i] <- df$eqlActive[i - 1] + prev_nop_Active * pnlActive
+
+    # Calculate nopActive based on the presence of the "L" column
+    if (has_L) {
+      df$nopActive[i] <- ifelse(
+        df$L[i], 
+        current_nop_Active * df$nop_sizing[i], 
+        current_nop_Active
+      )
+    } else if (has_Vol) {
+      df$nopActive[i] <- ifelse(
+        df$vol_nop_sizing[i], 
+        current_nop_Active * df$vol_nop_sizing[i], 
+        current_nop_Active
+      )
+    } else {
+      df$nopActive[i] <- current_nop_Active
+    }
+
+    # Passive
+    pnlPassive <- df$pnlPassive[i]
+    prev_nop_Passive <- floor(df$nopPassive[i - 1])
+    current_nop_Passive <- floor((df$eqlPassive[i - 1]) / (df$Close[i] / leverage))
+    df$eqlPassive[i] <- df$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+    df$nopPassive[i] <- current_nop_Passive
+  }
+
+  df <- df %>%
+    mutate(r_eqlActive = quantmod::Delt(eqlActive),
+           r_eqlPassive = quantmod::Delt(eqlPassive))
+  return(df)
+}
+
+# Apply the function to each data frame in the list
+processed_data <- lapply(symbol_dataframes, process_data)
+
+################################
+# INDIVIDUAL PERFORMANCE
+################################
+
+# Initialize an empty list to store the results
+results_list <- list()
+
+# Define a function to compute performance metrics for each currency pair
+compute_performance_metrics <- function(data) {
+
+ # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_active <- sum(diff(data$signal) != 0)
+  buy_active <- sum(data$signal == 1)
+  short_active <- sum(data$signal == -1)
+
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_passive <- 1
+  buy_passive <- 1
+  short_passive <- 0
+  
+  # Calculate success rates
+  buy_success_rate_active <- sum(data$position > 0 & data$value > 0) / nrow(data)
+  buy_success_rate_passive <- sum(data$value > 0) / nrow(data)
+  short_success_rate_active <- sum(data$position < 0 & data$value < 0) / nrow(data)
+  short_success_rate_passive <- 0
+  combined_rate_active <- (sum(data$position > 0 & data$value > 0) + sum(data$position < 0 & data$value < 0)) / nrow(data)
+  combined_rate_passive <- (sum(data$value > 0)) / nrow(data)
+  
+  # Unique months
+  unique_months <- length(unique(format(data$Date, "%Y-%m")))
+  
+  # Create performance dataframe
+  df <- data.frame(
+    Strategy = c("Active", "Passive"),
+    aR = c(aR_active, aR_passive),
+    aSD = c(aSD_active, aSD_passive),
+    IR = c(IR_active, IR_passive),
+    MD = c(MD_active, MD_passive),
+    trades = c(trades_active, trades_passive),
+    avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
+    buys = c(buy_active, buy_passive),
+    sells = c(short_active, short_passive),
+    Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+    Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+    Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+    PortfolioEndValue = round(c(data[nrow(data),]$eqlActive, data[nrow(data),]$eqlPassive), 0)
+  )
+  
+  return(df)
+}
+
+for (pair in symbol_list) {
+  data <- processed_data[[pair]]  # Assuming data for each currency pair is available in the environment
+  results_list[[pair]] <- compute_performance_metrics(data)
+}
+
+# View the results
+results_list
+
+################################
+# PORTFOLIO PERFORMANCE
+################################
+
+# Apply the column renaming operation to each data frame in the list
+data_list <- lapply(seq_along(processed_data), function(i) {
+  symbol <- symbol_list[i]
+  colnames(processed_data[[i]])[-1] <- paste(symbol, colnames(processed_data[[i]])[-1], sep = "_")
+  return(processed_data[[i]])
+})
+
+# Merge the modified data frames
+p <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+# Mutate to add a new column summing all columns containing "eqlActive" but not "r_eqlActive"
+p <- p %>%
+  mutate(
+    AlleqlActive = rowSums(select(., contains("eqlActive"), -contains("r_eqlActive")), na.rm = TRUE),
+    AlleqlPassive = rowSums(select(., contains("eqlPassive"), -contains("r_eqlPassive")), na.rm = TRUE)
+  )
+
+estimate_performance_bucket <- function(data) {
+
+  data <- data %>%
+    mutate(
+        r_AlleqlActive = as.numeric(quantmod::Delt(AlleqlActive)),
+        r_AlleqlPassive = as.numeric(quantmod::Delt(AlleqlPassive))
+        )
+  # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Create performance dataframe
+  df <- data.frame(
+    Strategy = c("Active", "Passive"),
+    aR = c(aR_active, aR_passive),
+    aSD = c(aSD_active, aSD_passive),
+    IR = c(IR_active, IR_passive),
+    MD = c(MD_active, MD_passive),
+    PortfolioEndValue = c(round(data[nrow(data), ]$AlleqlActive, 0), round(data[nrow(data), ]$AlleqlPassive, 0))
+  )
+  
+  return(df)
+}
+
+estimate_performance_bucket(p)
+
+################################
+# VISUALIZATION
+################################
+
+plot_portfolio_components <- function(df, type) {
+  columns <- NULL
+  title <- NULL
+  ylabel <- NULL
+  color_label <- NULL
+  
+  switch(type,
+         "IND" = {
+           columns <- df %>% 
+             select(contains("eqlActive")) %>% 
+             select(-contains("r_eqlActive")) %>%
+             select(-contains("AlleqlActive"))
+           title <- "AlphaEngine performance of FX components"
+           ylabel <- "eqlActive Values"
+           color_label <- "eqlActive Columns"
+         },
+         "PORT" = {
+           columns <- df %>% select(contains("AlleqlActive"), contains("AlleqlPassive"))
+           title <- "AlphaEngine performance of FX portfolio"
+           ylabel <- "Portfolio Value"
+           color_label <- "AlleqlActive Columns"
+         },
+         stop("Invalid type. Choose either 'IND' for individual currencies or 'PORT' for portfolio")
+  )
+  
+  # Add Date column
+  columns$Date <- df$Date
+  
+  # Melt the data frame to long format for easier plotting
+  melted <- melt(columns, id.vars = "Date")
+  
+  # Plot
+  ggplot(data = melted, aes(x = Date, y = value, color = variable)) +
+    geom_line() +
+    labs(
+      title = title,
+      x = "Date",
+      y = ylabel,
+      color = color_label
+    ) +
+    theme_minimal()
+}
+
+plot_portfolio_components(p, "IND")  # Plot individual currencies
+plot_portfolio_components(p, "PORT")  # Plot portfolio
+
+# Filter columns containing "eqlActive"
+
+# eqlActive_columns <- p %>% select(grep("eqlActive", colnames(p), value = TRUE)) %>%
+#                       select(-contains("r_eqlActive")) %>%
+#                         select(-contains("AlleqlActive"))
+
+# AlleqlActive_columns <- p %>% 
+#     select(contains("AlleqlActive"), contains("AlleqlPassive"))
+
+
+# # Add Date column
+# eqlActive_columns$Date <- p$Date
+# AlleqlActive_columns$Date <- p$Date
+
+# # Melt the data frame to long format for easier plotting
+# eqlActive_melted <- melt(eqlActive_columns, id.vars = "Date")
+# AlleqlActive_melted <- melt(AlleqlActive_columns, id.vars = "Date")
+
+# # Plot individual currencies 
+# ggplot(data = eqlActive_melted, aes(x = Date, y = value, color = variable)) +
+#   geom_line() +
+#   labs(
+
+#     title = "AlphaEngine performance of FX components)",
+#     x = "Date",
+#     y = "eqlActive Values", 
+#     color = "eqlActive Columns") +
+  
+#   theme_minimal()
+
+# # Plot portfolio
+# ggplot(data = AlleqlActive_melted, aes(x = Date, y = value, color = variable)) +
+#  geom_line() +
+#   labs(
+
+#     title = "AlphaEngine performance of FX portfolio",
+#     x = "Date",
+#     y = "Portfolo Value", 
+#     color = "AlleqlActive Columns") +
+  
+#   theme_minimal()
+
+
+############### all in one ######################
+
+estimate_portfolio_performance <- function(cp, symbol_list, capital, leverage) {
+
+# Estimate rolling correlations
+cp <- private$estimate_rolling_correlations(symbol_list, from_date, to_date)
+
+# Split data into individual dataframes
+split_data <- function(cp, symbol_list) {
+    # Function to filter and rename columns for each symbol
+    symbol_dataframes <- lapply(symbol_list, function(symbol) {
+      symbol_columns <- grep(paste0("^", symbol), names(cp), value = TRUE)
+      symbol_df <- cp %>%
+        select(Date, all_of(symbol_columns)) %>%
+        rename_with(~ gsub(paste0("^", symbol), "", .x), contains(symbol)) %>%
+        rename_all(~ gsub("^_", "", .))  # Remove underscore from the beginning of column names
+      colnames(symbol_df)[1] <- "Date"  # Rename Date column to avoid conflicts
+      return(symbol_df)
+    })
+    names(symbol_dataframes) <- symbol_list  # Rename list elements with symbol names
+    return(symbol_dataframes)
+}
+  
+process_data <- function(df) {
+    # Calculate pnlActive and pnlPassive
+    df <- df %>% 
+        mutate(
+        pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+        pnlPassive = c(0, diff(Close)),
+        nopActive = 0,
+        nopPassive = 0,
+        eqlActive = 0,
+        eqlPassive = 0
+        )
+
+    # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+    df$eqlActive[1] <- capital
+    df$nopActive[1] <- floor(capital / (df$Close[1] / leverage))
+    df$eqlPassive[1] <- capital
+    df$nopPassive[1] <- floor(capital / (df$Close[1] / leverage))   
+
+    # Check if "L" column (probability indicator) exists
+    has_L <- "nop_sizing" %in% names(df)
+    has_Vol <- "vol_nop_sizing" %in% names(df)
+
+    for (i in 2:nrow(df)) {
+        # Active
+        pnlActive <- df$pnlActive[i]
+        prev_nop_Active <- floor(df$nopActive[i - 1])
+        current_nop_Active <- floor((df$eqlActive[i - 1]) / (df$Close[i] / leverage))
+        df$eqlActive[i] <- df$eqlActive[i - 1] + prev_nop_Active * pnlActive
+
+        # Calculate nopActive based on the presence of the "L" column
+        if (has_L) {
+        df$nopActive[i] <- ifelse(
+            df$L[i], 
+            current_nop_Active * df$nop_sizing[i], 
+            current_nop_Active
+        )
+        } else if (has_Vol) {
+        df$nopActive[i] <- ifelse(
+            df$vol_nop_sizing[i], 
+            current_nop_Active * df$vol_nop_sizing[i], 
+            current_nop_Active
+        )
+        } else {
+        df$nopActive[i] <- current_nop_Active
+        }
+
+        # Passive
+        pnlPassive <- df$pnlPassive[i]
+        prev_nop_Passive <- floor(df$nopPassive[i - 1])
+        current_nop_Passive <- floor((df$eqlPassive[i - 1]) / (df$Close[i] / leverage))
+        df$eqlPassive[i] <- df$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+        df$nopPassive[i] <- current_nop_Passive
+    }
+
+    df <- df %>%
+        mutate(r_eqlActive = quantmod::Delt(eqlActive),
+            r_eqlPassive = quantmod::Delt(eqlPassive))
+    return(df)
+}
+    
+# Define a function to compute performance metrics for each currency pair
+compute_performance_metrics <- function(data) {
+
+    # Performance metrics for active strategy
+    aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlActive), scale = 252) * 100), 3)
+    IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+    MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    trades_active <- sum(diff(data$signal) != 0)
+    buy_active <- sum(data$signal == 1)
+    short_active <- sum(data$signal == -1)
+
+    # Performance metrics for passive strategy
+    aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlPassive), scale = 252) * 100), 3)
+    IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+    MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    trades_passive <- 1
+    buy_passive <- 1
+    short_passive <- 0
+    
+    # Calculate success rates
+    buy_success_rate_active <- sum(data$position > 0 & data$value > 0) / nrow(data)
+    buy_success_rate_passive <- sum(data$value > 0) / nrow(data)
+    short_success_rate_active <- sum(data$position < 0 & data$value < 0) / nrow(data)
+    short_success_rate_passive <- 0
+    combined_rate_active <- (sum(data$position > 0 & data$value > 0) + sum(data$position < 0 & data$value < 0)) / nrow(data)
+    combined_rate_passive <- (sum(data$value > 0)) / nrow(data)
+    
+    # Unique months
+    unique_months <- length(unique(format(data$Date, "%Y-%m")))
+    
+    # Create performance dataframe
+    df <- data.frame(
+        Strategy = c("Active", "Passive"),
+        aR = c(aR_active, aR_passive),
+        aSD = c(aSD_active, aSD_passive),
+        IR = c(IR_active, IR_passive),
+        MD = c(MD_active, MD_passive),
+        trades = c(trades_active, trades_passive),
+        avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
+        buys = c(buy_active, buy_passive),
+        sells = c(short_active, short_passive),
+        Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+        Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+        Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+        PortfolioEndValue = round(c(data[nrow(data),]$eqlActive, data[nrow(data),]$eqlPassive), 0)
+    )
+    
+    return(df)
+}
+    
+estimate_performance_bucket <- function(data) {
+
+    data <- data %>%
+        mutate(
+            r_AlleqlActive = as.numeric(quantmod::Delt(AlleqlActive)),
+            r_AlleqlPassive = as.numeric(quantmod::Delt(AlleqlPassive))
+            )
+    # Performance metrics for active strategy
+    aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlActive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlActive), scale = 252) * 100), 3)
+    IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+    MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    
+    # Performance metrics for passive strategy
+    aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlPassive), scale = 252) * 100), 3)
+    IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+    MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    
+    # Create performance dataframe
+    df <- data.frame(
+        Strategy = c("Active", "Passive"),
+        aR = c(aR_active, aR_passive),
+        aSD = c(aSD_active, aSD_passive),
+        IR = c(IR_active, IR_passive),
+        MD = c(MD_active, MD_passive),
+        PortfolioEndValue = c(round(data[nrow(data), ]$AlleqlActive, 0), round(data[nrow(data), ]$AlleqlPassive, 0))
+    )
+    
+    return(df)
+}
+    
+# Apply all functions to the provided data
+
+# Split data
+symbol_dataframes <- split_data(cp, symbol_list)
+
+# Process data
+processed_data <- lapply(symbol_dataframes, process_data)
+
+# Compute performance metrics for each currency pair
+results_list <- list()
+for (pair in symbol_list) {
+    data <- processed_data[[pair]]
+    results_list[[pair]] <- compute_performance_metrics(data)
+}
+
+# Merge individual dataframes for portfolio performance estimation
+data_list <- lapply(seq_along(processed_data), function(i) {
+    symbol <- symbol_list[i]
+    colnames(processed_data[[i]])[-1] <- paste(symbol, colnames(processed_data[[i]])[-1], sep = "_")
+    return(processed_data[[i]])
+})
+p <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+p <- p %>% 
+    mutate(
+AlleqlActive = rowSums(select(., contains("eqlActive"), -contains("r_eqlActive")), na.rm = TRUE),
+AlleqlPassive = rowSums(select(., contains("eqlPassive"), -contains("r_eqlPassive")), na.rm = TRUE)
+)
+
+# Estimate portfolio performance bucket
+portfolio_performance <- estimate_performance_bucket(p)
+
+print(results_list)
+print(portfolio_performance)
+    
+    return(p)
+
+}
+
+# Usage:
+result <- estimate_portfolio_performance(cp, symbol_list, capital, leverage)
+# results_list <- result$results_list
+# portfolio_performance <- result$portfolio_performance
+
+# Visualization:
+plot_portfolio_components(result, "IND")  # Plot individual currencies
+plot_portfolio_components(result, "PORT")  # Plot portfolio
+
+############### all in one ######################
+###### end
+#################################################
+
