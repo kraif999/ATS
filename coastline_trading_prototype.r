@@ -1190,8 +1190,10 @@ generate_signals = function() {
     self$data <- self$data %>%
       mutate(
         vol_nop_sizing = case_when(
-        rollSD >= rollSD75 & is.na(Exit) ~ 0.5, # vol position sizing is applied for Entry signals only
-        rollSD >= rollSD95 & is.na(Exit) ~ 0.2, # vol position sizing is applied for Entry signals only
+        # rollSD >= rollSD75 & is.na(Exit) ~ 0.5, # vol position sizing is applied for Entry signals only
+        # rollSD >= rollSD95 & is.na(Exit) ~ 0.2, # vol position sizing is applied for Entry signals only
+        rollSD >= lag(rollSD75, default = 0) & lag(signalE, default = 0) == 0 ~ 0.5, # vol position sizing is applied for Entry signals only
+        rollSD >= lag(rollSD95, default = 0) & lag(signalE == 0, default = 0) ~ 0.2, # vol position sizing is applied for Entry signals only
         TRUE ~ 1
     )
       ) %>%
@@ -1793,7 +1795,7 @@ estimate_rolling_correlations = function(symbol_list, from_date, to_date) {
         pair <- column_combinations_df[i, 1:2]
         
         # Compute rolling correlations for the pair
-        compute_rolling_correlation(merged_df, pair, 365/2)
+        compute_rolling_correlation(merged_df, pair, 365/4)
 
             }
         )
@@ -2144,6 +2146,7 @@ print(vol_df)
 ##############################
 symbol <- "GBPUSD=X"
 symbol <- "NZDJPY=X"
+symbol <- "MXN=X"
 #from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
 #from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
 #to_date <- Sys.Date()
@@ -2160,14 +2163,14 @@ data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # Warsaw Rondo ONZ, May 6th, 2024
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE) # AR: 15%
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.5, signal_generation = "TH", position_sizing = FALSE)
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = TRUE) # AR: 15%
 
 #alpha1$generate_signals()
 alpha1$estimate_performance()
 alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
-alpha1$plot_events(symbol)
+ralpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
 #a <- alpha1$data
@@ -2199,14 +2202,15 @@ symbol_list <- c("EUR=X", "NZDJPY=X", "GBPUSD=X")
 symbol_list <- c("USDPLN=X", "MXN=X", "NZDCAD=X")
 symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
 
-alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE)
 alpha1$estimate_performance()
 
 # Rolling correlations:
 cp1 <- alpha1$estimate_rolling_correlations(symbol_list, from_date, to_date)
+cp1 <- alpha1$estimate_rolling_correlations(fxs, from_date, to_date)
 alpha1$plot_rolling_correlations(cp1)
 
-fx_portfolio <- alpha1$estimate_portfolio_performance(cp, symbol_list, capital, leverage)
+fx_portfolio <- alpha1$estimate_portfolio_performance(cp1, fxs, capital, leverage)
 alpha1$plot_portfolio_components(fx_portfolio, "IND")
 alpha1$plot_portfolio_components(fx_portfolio, "PORT")
 
