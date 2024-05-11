@@ -10,6 +10,7 @@ The design comprises:
 - The child classes of the Strategy class represent specific trading strategies (based on *Technical  Indicators*, statistical models (*GARCH*, *ARIMA*), or other approaches (*AlphaEngine: coastline counter-trend trading*).
 - Following the signal generation phase, next steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
 Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
+
 Around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
 
 The taxonomy of trading strategies implemented is as follows:
