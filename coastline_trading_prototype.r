@@ -1123,21 +1123,24 @@ generate_signals = function() {
     # Calculate sequence lengths for UOS and DOS
     sequence_lengths <- private$calculate_sequence_lengths(self$data)
 
-    avgOS <- data.frame(avgUOS = floor(mean(sequence_lengths$uos_lengths)), avgDOS = floor(mean(sequence_lengths$dos_lengths)))
+    avgOS <- data.frame(
+      avgUOS = floor(mean(sequence_lengths$uos_lengths)), 
+      avgDOS = floor(mean(sequence_lengths$dos_lengths))
+    )
 
-    # Usage:
-    self$data <- private$calculate_OS_length(self$data)
+    # Modify calculate_OS_length to accept avgOS
+    self$data <- private$calculate_OS_length(self$data, avgOS)
+
     self$data <- self$data %>%
-        mutate(
-            ExitOS = case_when(
-            signalOS == -1 ~ mid * (1 - self$profit_taking),
-            signalOS == 1 ~ mid * (1 + self$profit_taking),
-            TRUE ~ 0
-            )
+      mutate(
+        ExitOS = case_when(
+          signalOS == -1 ~ mid * (1 - self$profit_taking),
+          signalOS == 1 ~ mid * (1 + self$profit_taking),
+          TRUE ~ 0
         )
+      )
 
     # Updating signal and Exits value given signal based method
-
     self$data <- self$data %>%
       mutate(
         signal = case_when(
@@ -1570,7 +1573,7 @@ calculate_sequence_lengths = function(h) {
 },
 
 # Map average duration of UOS or DOS overshoots 
-calculate_OS_length = function(data) {
+calculate_OS_length = function(data, avgOS) {
   # Initialize an empty vector to store OS lengths
   data$OS_length <- 0
   
@@ -1602,8 +1605,11 @@ calculate_OS_length = function(data) {
   
   # Calculate signalOS based on OS_length and average UOS/DOS lengths
   data <- data %>% mutate(
-    signalOS = ifelse(OS == "UOS" & OS_length >= avgOS$avgUOS, -1, 
-                      ifelse(OS == "DOS" & OS_length >= avgOS$avgDOS, 1, 0))
+    signalOS = case_when(
+      OS == "UOS" & OS_length >= avgOS$avgUOS ~ -1, 
+      OS == "DOS" & OS_length >= avgOS$avgDOS ~ 1, 
+      TRUE ~ 0
+    )
   )
   
   return(data)
@@ -2164,13 +2170,14 @@ data_fetcher$plot_close_or_rets(type = "close")
 # Instance of AlphaEngine class given threshold
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # Warsaw Rondo ONZ, May 6th, 2024
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE) # AR: 15%
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.5, signal_generation = "TH", position_sizing = FALSE)
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = TRUE) # AR: 15%
 
 #alpha1$generate_signals()
 alpha1$estimate_performance()
 alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
-ralpha1$plot_events(symbol)
+alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
 #a <- alpha1$data
