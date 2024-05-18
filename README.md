@@ -1,5 +1,5 @@
-"This branch contains experiments with the implementation of different trading strategies on various asset classes. 
-The performance of these strategies, referred to as 'Active,' is compared against a benchmark buy-and-hold strategy, referred to as 'Passive.'"
+This branch contains experiments with the implementation of different trading strategies on various asset classes. 
+The performance of these strategies, referred to as 'Active,' is compared against a benchmark buy-and-hold strategy, referred to as 'Passive'.
 Additionally, there is TSA class which analyses time series patterns and various characteristics.
 
 All strategies are architected using the R6 class, enabling flexible incorporation of new features or strategies. 

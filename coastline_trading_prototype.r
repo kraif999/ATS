@@ -2184,6 +2184,12 @@ alpha1$plotSignals()
 ##############################
 # Run backtest:
  ##############################
+
+symbol_list <- c("EUR=X", "AUDUSD=X", "EURUSD=X", "CAD=X", "GBPUSD=X")
+symbol_list <- c("EUR=X", "NZDJPY=X", "GBPUSD=X")
+symbol_list <- c("USDPLN=X", "MXN=X", "NZDCAD=X")
+symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
+
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
 res_alpha <- alpha1$run_backtest(
   #symbols = fxs,  
@@ -2200,14 +2206,22 @@ res_alpha <- alpha1$run_backtest(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
+# res_alpha <- alpha1$run_backtest(
+#   symbols = fxs,  
+#   thresholds = c(0.005, 0.01, 0.015, 0.02, 0.01 * 2.525729),
+#   profit_takings = c(0.0001, 0.001, 0.01),
+#   signal_generations = c("TH", "OS"),
+#   position_sizings = FALSE,
+#   vol_position_sizing = c(TRUE, FALSE),
+#   from_date,
+#   to_date,
+#   output_df = TRUE
+# ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
+#     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
+
 ##############################
 # Portfolio composition
 ##############################
-
-symbol_list <- c("EUR=X", "AUDUSD=X", "EURUSD=X", "CAD=X", "GBPUSD=X")
-symbol_list <- c("EUR=X", "NZDJPY=X", "GBPUSD=X")
-symbol_list <- c("USDPLN=X", "MXN=X", "NZDCAD=X")
-symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
 
 alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
 alpha1$estimate_performance()
