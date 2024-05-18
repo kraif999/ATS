@@ -1351,14 +1351,13 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
 
       })
 
-        # Keeping only one Passive strategy related row
-        passive <- results_df %>%
-          filter(Strategy == "Passive") %>%
-            distinct(Strategy, keep_all = TRUE)
-
+        # Filter and combine "Active" and unique "Passive" strategies in one step
         results_df <- results_df %>%
-          filter(Strategy == "Active") %>%
-            bind_rows(passive) # binding results from buy & hold
+          filter(Strategy == "Active" | Strategy == "Passive") %>%
+            group_by(Symbol, Strategy) %>%
+              filter(row_number() == 1 | Strategy == "Active") %>%
+                ungroup() %>% 
+                  arrange(desc(Symbol), desc(aR))
             
       if (output_df) {
         return(results_df)
@@ -2188,7 +2187,8 @@ alpha1$plotSignals()
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
 res_alpha <- alpha1$run_backtest(
   #symbols = fxs,  
-  symbols = "EUR=X",
+  #symbols = "EUR=X",
+  symbols = symbol_list,
   thresholds = c(0.005, 0.01),
   profit_takings = c(0.0001),
   signal_generations = c("TH", "OS"),
@@ -2209,7 +2209,7 @@ symbol_list <- c("EUR=X", "NZDJPY=X", "GBPUSD=X")
 symbol_list <- c("USDPLN=X", "MXN=X", "NZDCAD=X")
 symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
 
-alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE)
+alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
 alpha1$estimate_performance()
 
 # Rolling correlations:
