@@ -2204,8 +2204,10 @@ generate_signals = function() {
                   self$data,
                   as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
                   signal1 = case_when(
-                    DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
-                    DIp < DIn & ADX > self$trend_strength ~ -1,
+                    #DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
+                    DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
+                    #DIp < DIn & ADX > self$trend_strength ~ -1,
+                    DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
                     TRUE ~ 0
                   ),
                   signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),

@@ -1077,7 +1077,7 @@ generate_signals = function() {
       } else if (self$data$OS[i] == "DOS" && self$data$mid[i] < prev_mid * (1 - self$threshold)) {
         prev_mid <- self$data$mid[i]  # Update prev_mid for DOS
       }
-    }
+    } 
   }
 
     #self$profit_taking <- 0.005 # assymetric
@@ -1095,7 +1095,8 @@ generate_signals = function() {
         ),
         position = lag(signal, default = 0),
         #OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
-        OSS = mid >= lag(change_value, default = 0) * (1 + self$threshold) | mid <= change_value * (1 - self$threshold) 
+        #OSS = mid >= lag(change_value, default = 0) * (1 + self$threshold) | mid <= change_value * (1 - self$threshold)
+        OSS = mid >= lag(change_value, default = 0) * (1 + self$threshold) | mid <= lag(change_value, default = 0) * (1 - self$threshold)  
     ) #%>% 
         #select(Date, High, Low, Close, mid, change_value, OS, dc, events, L, signal, OSS, position, row_number)
 
