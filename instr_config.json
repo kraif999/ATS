@@ -205,7 +205,22 @@
       "ETH-USD": {
         "class": "Cryptocurrency",
         "description": "Ethereum USD"
-      }
+      },
 
+      "USDT-USD": {
+        "class": "Cryptocurrency",
+        "description": "Tether"
+      },
+
+      "BNB-USD": {
+        "class": "Cryptocurrency",
+        "description": "Binance Coin"
+      },
+
+      "ADA-USD": {
+        "class": "Cryptocurrency",
+        "description": "Cardano"
+      }
+      
   }
 }

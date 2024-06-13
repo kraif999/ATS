@@ -646,6 +646,27 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
   } else {
     return(p)
   }
+},
+
+# Plot Japanese candles for the period of latest ndays
+plot_candles = function(ndays) {
+  self$data <- tail(self$data, ndays)
+  fig <- self$data %>% plot_ly(x = ~Date, type= "candlestick",
+          open = ~Open, close = ~Close,
+          high = ~High, low = ~Low) 
+  fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
+  fig
+},
+
+# Estimate Average True Range (ATR)
+estimate_average_true_range = function(ts, n = 14) { # 14 days by default
+  atr <- ATR(HLC(ts), n)
+  atr_data <- data.frame(Date = index(atr), coredata(atr))
+  ts_data <- data.frame(Date = index(ts), coredata(ts))
+  combined_data <- merge(ts_data, atr_data, by = "Date") %>%
+    #mutate(tr_reserve = 1 - tr/atr * 100)
+    mutate(tr_reserve = tr/atr * 100)
+  return(combined_data)
 }
 
 # Money management rules (risk per trade, position sizing, diversification, profit taking, risk tolerance level) are to be added
@@ -1290,11 +1311,12 @@ generate_signals = function() {
 
     # Compare data$value[i] with the first previous value and update data$s2
     self$data$signal <- NA
-    # self$data$signal <- ifelse((self$data$value > self$data$last_long_value) & (self$data$value > self$data$ma), 1,
-    #                     ifelse((self$data$value < self$data$last_short_value) & (self$data$value < self$data$ma), -1, 0))
 
-    self$data$signal <- ifelse((self$data$Close > self$data$last_long_value) & (self$data$Close > self$data$ma), 1,
-                        ifelse((self$data$Close < self$data$last_short_value) & (self$data$Close < self$data$ma), -1, 0))
+    # self$data$signal <- ifelse((self$data$Close > self$data$last_long_value) & (self$data$Close > self$data$ma), 1,
+    #                     ifelse((self$data$Close < self$data$last_short_value) & (self$data$Close < self$data$ma), -1, 0))
+
+    self$data$signal <- ifelse((self$data$Close > self$data$last_long_value) & (self$data$Close > lag(self$data$ma)), 1,
+                    ifelse((self$data$Close < self$data$last_short_value) & (self$data$Close < lag(self$data$ma)), -1, 0))
 
     # Replacing 0s by previous signal value:
     self$data$signal <- na.locf(ifelse(self$data$signal == 0, NA, self$data$signal), fromLast = FALSE, na.rm = FALSE)
@@ -1462,9 +1484,14 @@ generate_signals = function() {
       }
 
       # Signals:
+      
+      # self$data$signal <- NA
+      # self$data$signal <- ifelse((self$data$ma1 > self$data$last_long_value) & (self$data$ma1 > self$data$ma2), 1,
+      #                            ifelse((self$data$ma1 < self$data$last_short_value) & (self$data$ma1 < self$data$ma2), -1, 0))
+
       self$data$signal <- NA
-      self$data$signal <- ifelse((self$data$ma1 > self$data$last_long_value) & (self$data$ma1 > self$data$ma2), 1,
-                                 ifelse((self$data$ma1 < self$data$last_short_value) & (self$data$ma1 < self$data$ma2), -1, 0))
+      self$data$signal <- ifelse((lag(self$data$ma1) > self$data$last_long_value) & (lag(self$data$ma1) > lag(self$data$ma2)), 1,
+                                 ifelse((lag(self$data$ma1) < self$data$last_short_value) & (lag(self$data$ma1) < lag(self$data$ma2)), -1, 0))
       #self$data <- self$data 
       # %>% select(-c(last_long_value, last_short_value))
     # Replacing 0s by previous signal value:
@@ -2205,9 +2232,13 @@ generate_signals = function() {
                   as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
                   signal1 = case_when(
                     #DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
-                    DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
+                    #DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
+                    DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
+                    lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
                     #DIp < DIn & ADX > self$trend_strength ~ -1,
-                    DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
+                    #DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
+                    DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
+                    lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
                     TRUE ~ 0
                   ),
                   signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
@@ -2283,9 +2314,13 @@ run_backtest = function(symbols, ndxs, trend_strengths, from_date, to_date, outp
 )
 
 # Create  an instance of the ADX class
-adx <- ADX$new(ts, ndx = 14, trend_strength = 25)
+#adx <- ADX$new(ts, ndx = 14, trend_strength = 25)
+adx <- ADX$new(ts, ndx = 5, trend_strength = 25)
 adx$estimate_performance()
 adx$plot_equity_lines("Average Directional Index, ndx = 14, trend_strength = 25", signal_flag = TRUE)
+adx_df <- adx$data
+adx$plot_candles(ndays = 10)
+atr_df <- adx$estimate_average_true_range(ts, 14)
 
 # Create  an instance of the ADX class (run backtesting)
 leverage <- 1
