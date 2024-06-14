@@ -1,0 +1,226 @@
+{
+    "strategies": ["TI", "Q", "ML", "Random"],
+    "assets": {
+      
+      "EUR=X": {
+        "class": "FX",
+        "description": "USD/EUR"
+      },
+
+      "EURUSD=X": {
+        "class": "FX",
+        "description": "EUR/USD"
+      },
+
+      "JPY=X": {
+        "class": "FX",
+        "description": "USD/JPY"
+      },
+
+      "GBPUSD=X": {
+        "class": "FX",
+        "description": "GBP/USD"
+      },
+
+      "AUDUSD=X": {
+        "class": "FX",
+        "description": "AUD/USD"
+      },
+
+      "CAD=X": {
+        "class": "FX",
+        "description": "USD/CAD"
+      },
+
+      "USDPLN=X": {
+        "class": "FX",
+        "description": "USD/PLN"
+      },
+
+      "MXN=X": {
+        "class": "FX",
+        "description": "USD/MXN"
+      },
+
+      "NZDJPY=X": {
+        "class": "FX",
+        "description": "NZD/JPY"
+      },
+
+      "AUDNZD=X": {
+        "class": "FX",
+        "description": "AUD/NZD"
+      },
+
+      "NZDCAD=X": {
+        "class": "FX",
+        "description": "NZD/CAD"
+      },
+
+      "EURNZD=X": {
+        "class": "FX",
+        "description": "EUR/NZD"
+      },
+
+      "^GSPC": {
+        "class": "Equities",
+        "description": "S&P 500 Index"
+      },
+
+      "^IXIC": {
+        "class": "Equities",
+        "description": "NASDAQ"
+      },
+
+      "^FTSE": {
+        "class": "Equities",
+        "description": "Stock market index of 100 most highly cap on LSE"
+      },
+
+      "^GDAXI": {
+        "class": "Equities",
+        "description": "DAX PERFORMANCE INDEX"
+      },
+
+      "^FCHI": {
+        "class": "Equities",
+        "description": "CAC 40 Index at Euronext Paris"
+      },
+
+      "^N100": {
+        "class": "Equities",
+        "description": "Euronext 100 Index"
+      },
+
+      "EPOL": {
+        "class": "Equities",
+        "description": "iShares MSCI Poland ETF"
+      },
+
+      "^N225": {
+        "class": "Equities",
+        "description": "Nikkei 225"
+      },
+
+      "^HSI": {
+        "class": "Equities",
+        "description": "HANG SENG INDEX"
+      },
+
+      "000001.SS": {
+        "class": "Equities",
+        "description": "Composite Index at Shanghai Stock Exchange"
+      },
+      
+      "SPY": {
+        "class": "Equities",
+        "description": "SPDR S&P 500 ETF Trust"
+      },
+
+      "VUG": {
+        "class": "Equities",
+        "description": "Vanguard Growth Index Fund ETF Shares"
+      },
+
+      "VBR": {
+        "class": "Equities",
+        "description": "Vanguard Small-Cap Value Index Fund ETF Shares"
+      },
+
+      "AGG": {
+        "class": "Fixed Income",
+        "description": "iShares Core U.S. Aggregate Bond ETF (AGG)"
+      },
+
+      "VTI": {
+        "class": "Macro",
+        "description": "Vanguard Total Stock Market Index Fund ETF Shares"
+      },
+
+      "LQD": {
+        "class": "Credit",
+        "description": "iShares iBoxx $ Investment Grade Corporate Bond ETF (LQD)"
+      },
+
+      "HYG": {
+        "class": "Liquidity",
+        "description": "iShares iBoxx $ High Yield Corporate Bond ETF"
+      },
+
+      "USO": {
+        "class": "Commodities",
+        "description": "United States Oil Fund, LP"
+      },
+
+      "HACK": {
+        "class": "Operational",
+        "description": "Amplify Cybersecurity ETF"
+      },
+
+      "TLT": {
+        "class": "Rates",
+        "description": "iShares 20+ Year Treasury Bond ETF"
+      },
+
+      "^FVX": {
+        "class": "Rates",
+        "description": "Treasury Yield 5 Years"
+      },
+
+      "GC=F": {
+        "class": "Commodities",
+        "description": "Gold"
+      },
+
+      "BZ=F": {
+        "class": "Commodities",
+        "description": "Oil"
+      },
+
+      "SI=F": {
+        "class": "Commodities",
+        "description": "Silver"
+      },
+
+      "NG=F": {
+        "class": "Commodities",
+        "description": "Natural Gas"
+      },
+
+      "HG=F": {
+        "class": "Commodities",
+        "description": "Copper"
+      },
+
+      "TIP": {
+        "class": "Inflation",
+        "description": "iShares TIPS Bond ETF"
+      },
+     
+      "BTC-USD": {
+        "class": "Cryptocurrency",
+        "description": "Bitcoin USD"
+      },
+
+      "ETH-USD": {
+        "class": "Cryptocurrency",
+        "description": "Ethereum USD"
+      },
+
+      "USDT-USD": {
+        "class": "Cryptocurrency",
+        "description": "Tether"
+      },
+
+      "BNB-USD": {
+        "class": "Cryptocurrency",
+        "description": "Binance Coin"
+      },
+
+      "ADA-USD": {
+        "class": "Cryptocurrency",
+        "description": "Cardano"
+      }
+      
+  }
+}
