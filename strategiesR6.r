@@ -1,3 +1,4 @@
+# Copyright (c) June 2024 Oleh Bilyk
 # Price-time based strategies
 
 # Define Data parent class (DataFetcher)
