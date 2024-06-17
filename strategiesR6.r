@@ -1,3 +1,4 @@
+# Copyright (c) June 2024 Oleh Bilyk
 # Price-time based strategies
 
 # Define Data parent class (DataFetcher)
@@ -650,8 +651,9 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
 
 # Plot Japanese candles for the period of latest ndays
 plot_candles = function(ndays) {
-  self$data <- tail(self$data, ndays)
-  fig <- self$data %>% plot_ly(x = ~Date, type= "candlestick",
+  #self$data <- tail(self$data, ndays)
+  df_tail <- tail(self$data, ndays)
+  fig <- df_tail %>% plot_ly(x = ~Date, type= "candlestick",
           open = ~Open, close = ~Close,
           high = ~High, low = ~Low) 
   fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
@@ -2319,7 +2321,7 @@ adx <- ADX$new(ts, ndx = 5, trend_strength = 25)
 adx$estimate_performance()
 adx$plot_equity_lines("Average Directional Index, ndx = 14, trend_strength = 25", signal_flag = TRUE)
 adx_df <- adx$data
-adx$plot_candles(ndays = 10)
+adx$plot_candles(ndays = 60)
 atr_df <- adx$estimate_average_true_range(ts, 14)
 
 # Create  an instance of the ADX class (run backtesting)
