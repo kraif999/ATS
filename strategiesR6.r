@@ -3357,23 +3357,26 @@ res_event2 <- event$run_backtest2(
 # Define AlphaEngine (based on intrinsic time approach)
 ######################################################
 
+# Define AlphaEngine (based on intrinsic time approach)
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
   public = list(
 
-    threshold = NULL,
-    profit_taking = NULL,
-    signal_generation = NULL,
-    position_sizing = NULL,
+  threshold = NULL,
+  profit_taking = NULL,
+  signal_generation = NULL,
+  position_sizing = NULL,
+  vol_position_sizing = NULL,
 
-initialize = function(data, threshold, profit_taking, signal_generation = "TH", position_sizing = FALSE) {
+initialize = function(data, threshold, profit_taking, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$threshold <- threshold
       self$profit_taking <- profit_taking
       self$signal_generation <- signal_generation
       self$position_sizing <- position_sizing
+      self$vol_position_sizing <- vol_position_sizing
 },
 
 generate_signals = function() {
@@ -3381,10 +3384,10 @@ generate_signals = function() {
     cat("Threshold value:", self$threshold, "\n")  # Print the threshold value
 
     # Mid data
-    self$data <- self$data %>%
-        mutate(
-            mid = (High + Low) / 2
-        )
+    # self$data <- self$data %>%
+    #     mutate(
+    #         mid = (High + Low) / 2
+    #     )
 
     # STEP1 : DETECT DIRECTIONAL CHANGES
     self$data <- private$identify_events(data = self$data, threshold = self$threshold)
@@ -3441,6 +3444,16 @@ generate_signals = function() {
 
     }
 
+    if(self$vol_position_sizing) {
+        self$data <- self$data %>%
+        mutate(
+            rollSD = rollapply(mid, width = 21 * 3, FUN = sd, fill = NA, align = "right"),
+            rollSD75  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.75, na.rm = TRUE), align = "right", fill = NA),
+            rollSD95  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.95, na.rm = TRUE), align = "right", fill = NA),
+            rollSD999  = rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.999, na.rm = TRUE), align = "right", fill = NA),
+      )
+    }
+
     # STEP3 : GENERATE ENTRY SIGNALS (BASED ON THRESHOLD)
 
     # Identify threshold value (which is used to compare current mid price)
@@ -3467,12 +3480,14 @@ generate_signals = function() {
     
     # Check if the price further changes by the threshold and update prev_mid accordingly
     if (!is.na(prev_mid) && !is.na(self$data$OS[i])) {
-      if (self$data$OS[i] == "UOS" && self$data$mid[i] > prev_mid * (1 + self$profit_taking)) {
+      #if (self$data$OS[i] == "UOS" && self$data$mid[i] > prev_mid * (1 + self$profit_taking)) {
+      if (self$data$OS[i] == "UOS" && self$data$mid[i] > prev_mid * (1 + self$threshold)) {
         prev_mid <- self$data$mid[i]  # Update prev_mid for UOS
-      } else if (self$data$OS[i] == "DOS" && self$data$mid[i] < prev_mid * (1 - self$profit_taking)) {
+      #} else if (self$data$OS[i] == "DOS" && self$data$mid[i] < prev_mid * (1 - self$profit_taking)) {
+      } else if (self$data$OS[i] == "DOS" && self$data$mid[i] < prev_mid * (1 - self$threshold)) {
         prev_mid <- self$data$mid[i]  # Update prev_mid for DOS
       }
-    }
+    } 
   }
 
     #self$profit_taking <- 0.005 # assymetric
@@ -3480,12 +3495,18 @@ generate_signals = function() {
     mutate(
         row_number = row_number(),
         signal = case_when(
-        OS == "UOS" & mid >= change_value * (1 + self$profit_taking) ~ -1,
-        OS == "DOS" & mid <= change_value * (1 - self$profit_taking) ~ 1,
+        #OS == "UOS" & mid >= change_value * (1 + self$profit_taking) ~ -1,
+        OS == "UOS" & Open >= lag(change_value, default = 0) * (1 + self$threshold) ~ -1,
+        #OS == "UOS" & Open >= change_value * (1 + self$threshold) ~ -1,
+        #OS == "DOS" & mid <= change_value * (1 - self$profit_taking) ~ 1,
+        OS == "DOS" & Open <= lag(change_value, default = 0) * (1 - self$threshold) ~ 1,
+        #OS == "DOS" & Open <= change_value * (1 - self$threshold) ~ 1,
         TRUE ~ 0
         ),
         position = lag(signal, default = 0),
-        OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
+        #OSS = mid >= change_value * (1 + self$profit_taking) | mid <= change_value * (1 - self$profit_taking) 
+        #OSS = mid >= lag(change_value, default = 0) * (1 + self$threshold) | mid <= change_value * (1 - self$threshold)
+        OSS = mid >= lag(change_value, default = 0) * (1 + self$threshold) | mid <= lag(change_value, default = 0) * (1 - self$threshold)  
     ) #%>% 
         #select(Date, High, Low, Close, mid, change_value, OS, dc, events, L, signal, OSS, position, row_number)
 
@@ -3513,21 +3534,24 @@ generate_signals = function() {
     # Calculate sequence lengths for UOS and DOS
     sequence_lengths <- private$calculate_sequence_lengths(self$data)
 
-    avgOS <- data.frame(avgUOS = floor(mean(sequence_lengths$uos_lengths)), avgDOS = floor(mean(sequence_lengths$dos_lengths)))
+    avgOS <- data.frame(
+      avgUOS = floor(mean(sequence_lengths$uos_lengths)), 
+      avgDOS = floor(mean(sequence_lengths$dos_lengths))
+    )
 
-    # Usage:
-    self$data <- private$calculate_OS_length(self$data)
+    # Modify calculate_OS_length to accept avgOS
+    self$data <- private$calculate_OS_length(self$data, avgOS)
+
     self$data <- self$data %>%
-        mutate(
-            ExitOS = case_when(
-            signalOS == -1 ~ mid * (1 - self$profit_taking),
-            signalOS == 1 ~ mid * (1 + self$profit_taking),
-            TRUE ~ 0
-            )
+      mutate(
+        ExitOS = case_when(
+          signalOS == -1 ~ mid * (1 - self$profit_taking),
+          signalOS == 1 ~ mid * (1 + self$profit_taking),
+          TRUE ~ 0
         )
+      )
 
     # Updating signal and Exits value given signal based method
-
     self$data <- self$data %>%
       mutate(
         signal = case_when(
@@ -3551,40 +3575,48 @@ generate_signals = function() {
                         ) %>% 
                             filter(change == 2)
 
-    if(self$position_sizing) {
-
     self$data <- self$data %>%
-      mutate(
+    mutate(
         out_exits = row_number() %in% exits$row_number,
         signal = if_else(in_entries, signal, 0),
         signalE = ifelse(signalE != 0, signalE, 0),
         signalE = if_else(out_exits, signalE, 0),
         signal = if_else(signal != signalE & signalE != 0, signalE, signal),
-        position = lag(signal, default = 0),
-        nop_sizing = case_when(
-          L < 0.1 ~ 0.1,
-          L < 0.4 ~ 0.5,
-          TRUE ~ 1
-      )
-  ) %>% 
-    mutate(
-      L = replace_na(L, 1)
-  ) %>% 
-      select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
-         signal, signalOS, signalE, signalE_closes_row, L, nop_sizing, position, in_entries, out_exits, Exit, OS_length)
-    } else {
-
-    self$data <- self$data %>%
-    mutate(
-        out_exits = row_number() %in% exits$row_number,
-        signal = if_else(in_entries, signal, 0),
-        signalE = ifelse(signalE != 0, signalE, 0),
-        signalE = if_else(out_exits, signalE, 0),
-        signal = if_else(signal != signalE & signalE != 0, signalE, signal), # shift to have more exits rather than entries
-         #signal = if_else(signal != signalE & signalE != 0, signalE, signal), # signals cancel entry and exit
         position = lag(signal, default = 0)
-    ) %>% select(Date, row_number, High, Low, Close, mid, change_value, OS, OSS, dc, events,
-        signal, signalOS, signalE, signalE_closes_row, position, in_entries, out_exits, Exit, OS_length)
+    )
+
+    if (self$position_sizing) {
+    self$data <- self$data %>%
+        mutate(
+        nop_sizing = case_when(
+            L < 0.1 ~ 0.1,
+            L < 0.4 ~ 0.5,
+            TRUE ~ 1
+        )
+        ) %>% 
+        mutate(
+        L = replace_na(L, 1)
+        ) %>% 
+      select(Date, row_number, High, Low, Close, value, mid, change_value, OS, OSS, dc, events,
+         signal, signalOS, signalE, signalE_closes_row, L, nop_sizing, position, in_entries, out_exits, Exit, OS_length)
+
+    } else if (self$vol_position_sizing) {
+    self$data <- self$data %>%
+      mutate(
+        vol_nop_sizing = case_when(
+        # rollSD >= rollSD75 & is.na(Exit) ~ 0.5, # vol position sizing is applied for Entry signals only
+        # rollSD >= rollSD95 & is.na(Exit) ~ 0.2, # vol position sizing is applied for Entry signals only
+        rollSD >= lag(rollSD75, default = 0) & lag(signalE, default = 0) == 0 ~ 0.5, # vol position sizing is applied for Entry signals only
+        rollSD >= lag(rollSD95, default = 0) & lag(signalE == 0, default = 0) ~ 0.2, # vol position sizing is applied for Entry signals only
+        TRUE ~ 1
+    )
+      ) %>%
+        select(Date, row_number, High, Low, Close, value, mid, change_value, OS, OSS, dc, events,
+            signal, signalOS, signalE, signalE_closes_row, position, vol_nop_sizing, in_entries, out_exits, Exit, OS_length)
+    } else {
+    self$data <- self$data %>%
+        select(Date, row_number, High, Low, Close, value, mid, change_value, OS, OSS, dc, events,
+            signal, signalOS, signalE, signalE_closes_row, position, in_entries, out_exits, Exit, OS_length)
     }
 
 
@@ -3613,7 +3645,7 @@ plot_events = function(symbol) {
 
     theme_minimal() +
     theme(legend.position = "bottom",  # Moving legend to bottom
-            axis.text.x = element_text(angle = 45, hjust = 1),  # Rotating x-axis labels for better readability
+            #axis.text.x = element_text(angle = 45, hjust = 1),  # Rotating x-axis labels for better readability
             plot.title = element_text(size = 14, face = "bold"),  # Increasing title font size and making it bold
             axis.title = element_text(size = 12),  # Increasing axis label font size
             legend.text = element_text(size = 10),  # Adjusting legend text size
@@ -3630,14 +3662,15 @@ plot_dc = function(symbol) {
     filter(events == 1 | events == -1)
 
     ggplot(self$data, aes(x = Date, y = Close)) +
-    geom_line() +  # Plot close price
     geom_vline(data = subset(self$data, events == 1), aes(xintercept = as.numeric(Date)), color = "blue", linetype = "dashed") +  # Add vertical lines for UE
     geom_vline(data = subset(self$data, events == -1), aes(xintercept = as.numeric(Date)), color = "red", linetype = "dashed") +  # Add vertical lines for DE
+    geom_line() +  # Plot close price
     labs(title = paste("Close Price filtered by Directional Changes for", symbol), x = "Date", y = "Close Price") +
     theme_minimal()
 
 },
 
+# Plot Entry and Exit signals
 plotSignals = function(data) {
   ggplot(self$data, aes(x = Date, y = Close)) +
     geom_line() +
@@ -3651,7 +3684,8 @@ plotSignals = function(data) {
     theme_minimal()
 },
 
-run_backtest = function(symbols, thresholds, profit_takings, signal_generations, position_sizings, from_date, to_date, output_df = TRUE) {
+# Create multiple instances of  the class object given different parameters value
+run_backtest = function(symbols, thresholds, profit_takings, signal_generations, position_sizings, vol_position_sizings, from_date, to_date, output_df = TRUE) {
       # Create an empty list to store results
       results <- list()
 
@@ -3662,29 +3696,33 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
             for (profit_taking in profit_takings) {
               for (signal_generation in signal_generations) {
                 for (position_sizing in position_sizings) {
+                  for (vol_position_sizing in vol_position_sizings) {
 
-            # Fetch data using DataFetcher for the current symbol and date range
-            data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-            data <- data_fetcher$download_xts_data()
-          
-            # Create an instance of Alpha strategy 
-            alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation, position_sizing)
+                    # Fetch data using DataFetcher for the current symbol and date range
+                    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+                    data <- data_fetcher$download_xts_data()
+                  
+                    # Create an instance of Alpha strategy 
+                    alpha <- AlphaEngine$new(data, threshold, profit_taking, signal_generation, position_sizing, vol_position_sizing)
 
-            # Store the results
-            results[[paste(symbol, threshold, profit_taking, signal_generation, position_sizing, sep = "_")]] <- list(
-              Symbol = symbol,
-              Class = meta$assets[[symbol]]$class,
-              Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation, position_sizing),
-              Threshold = threshold,
-              ProfitTaking = profit_taking,
-              Signal_generation  = signal_generation,
-              Position_sizing = position_sizing,
-              Performance = alpha$estimate_performance()
-            )
+                    # Store the results
+                    results[[paste(symbol, threshold, profit_taking, signal_generation, position_sizing, vol_position_sizing, sep = "_")]] <- list(
+                      Symbol = symbol,
+                      Class = meta$assets[[symbol]]$class,
+                      Methodology = paste("AlphaEngine:", threshold, profit_taking, signal_generation, position_sizing, vol_position_sizing),
+                      Threshold = threshold,
+                      ProfitTaking = profit_taking,
+                      Signal_generation  = signal_generation,
+                      Position_sizing = position_sizing,
+                      Vol_position_sizing = vol_position_sizing,
+                      Performance = alpha$estimate_performance()
+                    )
 
-            print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
-              "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", signal_generation, ",", "position sizing:", position_sizing, ")"))
-                
+                    print(paste0("Results for ", "AlphaEngine: ", "(", "symbol:", symbol, ",", "class:", meta$assets[[symbol]]$class, ",", 
+                      "threshold:", threshold, ",", "profit_taking:", profit_taking, ",", "signal_generation:", 
+                      signal_generation, ",", "position sizing:", position_sizing, ",", "vol_position_sizing:", vol_position_sizing, ")"))
+                    
+                  }
                 }
               }
             }
@@ -3706,6 +3744,7 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
           ProfitTaking = item$ProfitTaking,
           Signal_generation = item$Signal_generation,
           Position_sizing = item$Position_sizing,
+          Vol_position_sizing = item$Vol_position_sizing,
           Strategy = item$Performance$Strategy,
           aR = item$Performance$aR,
           aSD = item$Performance$aSD,
@@ -3720,19 +3759,29 @@ run_backtest = function(symbols, thresholds, profit_takings, signal_generations,
           Combined_Success_Rate = item$Performance$Combined_Success_Rate,
           PortfolioValue = item$Performance$PortfolioEndValue
         )
+
       })
 
+        # Filter and combine "Active" and unique "Passive" strategies in one step
+        results_df <- results_df %>%
+          filter(Strategy == "Active" | Strategy == "Passive") %>%
+            group_by(Symbol, Strategy) %>%
+              filter(row_number() == 1 | Strategy == "Active") %>%
+                ungroup() %>% 
+                  arrange(desc(Symbol), desc(aR))
+            
       if (output_df) {
         return(results_df)
       } else {
         return(results)
       }
 }
-  
+
   ),
 
   private = list(
 
+# Identify directional changes given threshold (1%, etc.)
 identify_events = function(data, threshold) {
   # Initialize event vector
   data <- data %>%
@@ -3825,6 +3874,7 @@ identify_events = function(data, threshold) {
   return(result)
 },
 
+# Estimate L (information theoretical value): measures the unlikeliness of the occurence of price trajecotries (helper function)
 estimate_prob_surprise = function(data) {
   # Step 1: Identify transitions in the price trajectory
   transitions <- data %>%
@@ -3851,6 +3901,7 @@ estimate_prob_surprise = function(data) {
   return(transition_probs)
 },
 
+# Estimate L (information theoretical value): measures the unlikeliness of the occurence of price trajecotries (helper function)
 estimate_entropies = function(data) {
   # Identify transitions
   entropy_transitions <- data %>%
@@ -3892,6 +3943,7 @@ estimate_entropies = function(data) {
   return(entropy_df)
 },
 
+# Average duration of UOS or DOS overshoots 
 calculate_sequence_lengths = function(h) {
   uos_lengths <- numeric()  # Initialize vector to store UOS sequence lengths
   dos_lengths <- numeric()  # Initialize vector to store DOS sequence lengths
@@ -3930,7 +3982,8 @@ calculate_sequence_lengths = function(h) {
   return(list(uos_lengths = uos_lengths, dos_lengths = dos_lengths))
 },
 
-calculate_OS_length = function(data) {
+# Map average duration of UOS or DOS overshoots 
+calculate_OS_length = function(data, avgOS) {
   # Initialize an empty vector to store OS lengths
   data$OS_length <- 0
   
@@ -3962,13 +4015,17 @@ calculate_OS_length = function(data) {
   
   # Calculate signalOS based on OS_length and average UOS/DOS lengths
   data <- data %>% mutate(
-    signalOS = ifelse(OS == "UOS" & OS_length >= avgOS$avgUOS, -1, 
-                      ifelse(OS == "DOS" & OS_length >= avgOS$avgDOS, 1, 0))
+    signalOS = case_when(
+      OS == "UOS" & OS_length >= avgOS$avgUOS ~ -1, 
+      OS == "DOS" & OS_length >= avgOS$avgDOS ~ 1, 
+      TRUE ~ 0
+    )
   )
   
   return(data)
 },
 
+# Generate Exit signals
 generateExitSignals = function(df, signal_generation = "TH") {
     
   df <- df %>%
@@ -4046,9 +4103,397 @@ generateExitSignals = function(df, signal_generation = "TH") {
     )
 )
 
-################################################################################
-# IMPLEMENTATION (class instances)
-################################################################################
+
+# Multivariate approach: FX portfolio bucket
+AlphaEngineMult <- R6Class(
+  "AlphaEngineMult",
+  inherit = AlphaEngine,
+  public = list(
+
+# Methods for portfolio composition (multivariate)
+estimate_rolling_correlations = function(symbol_list, from_date, to_date) {
+
+  data_list <- list()
+  
+  # Fetch data and create AlphaEngine instances for each symbol
+  for (i in seq_along(symbol_list)) {
+    symbol <- symbol_list[i]
+    # Download data
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    ts <- data_fetcher$download_xts_data()
+    
+    # Create AlphaEngine instance
+    alpha_engine <- AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, 
+                                     signal_generation = "TH", position_sizing = FALSE, 
+                                     vol_position_sizing = FALSE)
+    
+    # Generate signals
+    alpha <- alpha_engine$generate_signals()
+
+    # Add to data list with automatic numbering
+    data_list[[i]] <- alpha
+  }
+    
+    # Estimate rolling standard deviation as volatility proxy
+    estimate_vol <- function(data) {
+    data <- data %>%
+        mutate(
+        rollSD = rollapply(mid, width = 21 * 3, FUN = sd, fill = NA, align = "right"),
+        rollSD_q = as.vector(rollapply(rollSD, width = 21 * 3, FUN = function(x) quantile(x, probs = 0.75, na.rm = TRUE), align = "right", fill = NA)),
+        vol_nop_sizing = case_when(
+            rollSD >= rollSD_q & is.na(Exit) ~ 0.5,
+            TRUE ~ 1
+        )
+        )
+    
+    return(data)
+    }
+
+    # Loop through each data frame and apply the estimate_vol function
+    for (i in seq_along(data_list)) {
+    data_list[[i]] <- estimate_vol(data_list[[i]])
+    }
+
+    select_cols <- function(data) {
+    data <- data %>%
+        select(Date, Close, value, signal, position, vol_nop_sizing, rollSD, rollSD_q)
+        return(data)
+    }
+
+    data_list <- lapply(data_list, select_cols)
+
+    data_list <- lapply(
+        seq_along(data_list), function(i) {
+        symbol <- symbol_list[[i]]
+        colnames(data_list[[i]])[-1] <- paste(symbol, colnames(data_list[[i]])[-1], sep = "_")
+        return(data_list[[i]])
+    })
+
+    merged_df <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+    close_columns <- c(paste0(symbol_list, "_Close"))
+
+    # Create all possible unique combinations of close columns
+    column_combinations <- combn(close_columns, 2)
+
+    column_combinations_df <- as.data.frame(t(column_combinations))
+
+    # Add a column indicating the pair number
+    column_combinations_df$Pair <- paste0("Pair", seq_len(ncol(column_combinations)))
+
+    # Define a function to compute rolling correlations for a pair of columns
+    compute_rolling_correlation <- function(data, pair, cor_window) {
+    # Extract column names from the pair
+    col1 <- as.character(pair[1])
+    col2 <- as.character(pair[2])
+    
+    # Compute rolling correlation for the pair
+    data <- data %>%
+        mutate(!!paste0("Cor_", col1, ";", col2) := rollapply(data[, c(col1, col2)], 
+                                                        width = cor_window, 
+                                                        FUN = function(x) cor(x, use = "pairwise.complete.obs")[col1, col2], 
+                                                        by.column = FALSE, 
+                                                        align = "right", 
+                                                        fill = NA)
+        )
+    
+    # Return the updated data frame
+    return(data[ncol(data)])
+    }
+
+    # Compute rolling correlations for each pair and bind them to the original data frame
+    res_cor <- bind_cols(
+        merged_df, 
+        lapply(1:nrow(column_combinations_df), function(i) {
+        # Get the pair
+        pair <- column_combinations_df[i, 1:2]
+        
+        # Compute rolling correlations for the pair
+        compute_rolling_correlation(merged_df, pair, 365/4)
+
+            }
+        )
+    )
+
+    # Remove Invalid numbers, NaN, NAs
+    res_cor <- res_cor[complete.cases(res_cor), ]
+    return(res_cor)
+},
+
+# Function definition with plot_flag parameter
+plot_rolling_correlations = function(data, plot_flag = TRUE) {
+
+  cor_columns <- colnames(data)[grep("Cor_", colnames(data))]
+  
+  cor_data <- data[, c("Date", cor_columns)]
+  
+  cor_data_long <- tidyr::gather(cor_data, Pair, Rolling_Correlation, -Date)
+  
+  if (plot_flag) {
+    # Plot rolling correlations using ggplot
+    ggplot(cor_data_long, aes(x = Date, y = Rolling_Correlation, color = Pair)) +
+      geom_line() +
+      geom_hline(yintercept = 0.5, linetype = "dashed") +  
+      geom_hline(yintercept = -0.5, linetype = "dashed") +  
+      labs(title = "Rolling Correlations",
+           x = "Date",
+           y = "Rolling Correlation") +
+      theme_minimal()
+  }
+},
+
+estimate_portfolio_performance = function(cp, symbol_list, capital, leverage) {
+
+  # Estimate rolling correlations
+  cp <- self$estimate_rolling_correlations(symbol_list, from_date, to_date)
+      
+  # Split data
+  symbol_dataframes <- private$split_data(cp, symbol_list)
+
+  # Process data
+  processed_data <- lapply(symbol_dataframes, private$process_data)
+
+  # Compute performance metrics for each currency pair
+  results_list <- list()
+  for (pair in symbol_list) {
+      data <- processed_data[[pair]]
+      results_list[[pair]] <- private$compute_performance_metrics(data)
+  }
+
+  # Merge individual dataframes for portfolio performance estimation
+  data_list <- lapply(seq_along(processed_data), function(i) {
+      symbol <- symbol_list[i]
+      colnames(processed_data[[i]])[-1] <- paste(symbol, colnames(processed_data[[i]])[-1], sep = "_")
+      return(processed_data[[i]])
+  })
+  p <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE), data_list)
+
+  p <- p %>% 
+      mutate(
+  AlleqlActive = rowSums(select(., contains("eqlActive"), -contains("r_eqlActive")), na.rm = TRUE),
+  AlleqlPassive = rowSums(select(., contains("eqlPassive"), -contains("r_eqlPassive")), na.rm = TRUE)
+  )
+
+  # Estimate portfolio performance bucket
+  portfolio_performance <- private$estimate_performance_bucket(p)
+
+  print(results_list)
+  print(portfolio_performance)
+      
+  return(p)
+    
+},
+
+plot_portfolio_components = function(df, type) {
+  columns <- NULL
+  title <- NULL
+  ylabel <- NULL
+  color_label <- NULL
+  
+  switch(type,
+         "IND" = {
+           columns <- df %>% 
+             select(contains("eqlActive")) %>% 
+             select(-contains("r_eqlActive")) %>%
+             select(-contains("AlleqlActive"))
+           title <- "AlphaEngine performance of FX components"
+           ylabel <- "eqlActive Values"
+           color_label <- "eqlActive Columns"
+         },
+         "PORT" = {
+           columns <- df %>% select(contains("AlleqlActive"), contains("AlleqlPassive"))
+           title <- "AlphaEngine performance of FX portfolio"
+           ylabel <- "Portfolio Value"
+           color_label <- "AlleqlActive Columns"
+         },
+         stop("Invalid type. Choose either 'IND' for individual currencies or 'PORT' for portfolio")
+  )
+  
+  # Add Date column
+  columns$Date <- df$Date
+  
+  # Melt the data frame to long format for easier plotting
+  melted <- melt(columns, id.vars = "Date")
+  
+  # Plot
+  ggplot(data = melted, aes(x = Date, y = value, color = variable)) +
+    geom_line() +
+    labs(
+      title = title,
+      x = "Date",
+      y = ylabel,
+      color = color_label
+    ) +
+    theme_minimal()
+}
+  
+  ),
+  private = list(
+
+##################################################
+# Helper functions for estimate_performance_bucket
+
+# Split data into individual dataframes
+split_data = function(cp, symbol_list) {
+  # Function to filter and rename columns for each symbol
+  symbol_dataframes <- lapply(symbol_list, function(symbol) {
+    symbol_columns <- grep(paste0("^", symbol), names(cp), value = TRUE)
+    symbol_df <- cp %>%
+      select(Date, all_of(symbol_columns)) %>%
+      rename_with(~ gsub(paste0("^", symbol), "", .x), contains(symbol)) %>%
+      rename_all(~ gsub("^_", "", .))  # Remove underscore from the beginning of column names
+    colnames(symbol_df)[1] <- "Date"  # Rename Date column to avoid conflicts
+    return(symbol_df)
+  })
+  names(symbol_dataframes) <- symbol_list  # Rename list elements with symbol names
+  return(symbol_dataframes)
+},
+
+# Prepare data for performance estimation
+process_data = function(df) {
+    # Calculate pnlActive and pnlPassive
+    df <- df %>% 
+        mutate(
+        pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+        pnlPassive = c(0, diff(Close)),
+        nopActive = 0,
+        nopPassive = 0,
+        eqlActive = 0,
+        eqlPassive = 0
+        )
+
+    # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+    df$eqlActive[1] <- capital
+    df$nopActive[1] <- floor(capital / (df$Close[1] / leverage))
+    df$eqlPassive[1] <- capital
+    df$nopPassive[1] <- floor(capital / (df$Close[1] / leverage))   
+
+    # Check if "L" column (probability indicator) exists
+    has_L <- "nop_sizing" %in% names(df)
+    has_Vol <- "vol_nop_sizing" %in% names(df)
+
+    for (i in 2:nrow(df)) {
+        # Active
+        pnlActive <- df$pnlActive[i]
+        prev_nop_Active <- floor(df$nopActive[i - 1])
+        current_nop_Active <- floor((df$eqlActive[i - 1]) / (df$Close[i] / leverage))
+        df$eqlActive[i] <- df$eqlActive[i - 1] + prev_nop_Active * pnlActive
+
+        # Calculate nopActive based on the presence of the "L" column
+        if (has_L) {
+        df$nopActive[i] <- ifelse(
+            df$L[i], 
+            current_nop_Active * df$nop_sizing[i], 
+            current_nop_Active
+        )
+        } else if (has_Vol) {
+        df$nopActive[i] <- ifelse(
+            df$vol_nop_sizing[i], 
+            current_nop_Active * df$vol_nop_sizing[i], 
+            current_nop_Active
+        )
+        } else {
+        df$nopActive[i] <- current_nop_Active
+        }
+
+        # Passive
+        pnlPassive <- df$pnlPassive[i]
+        prev_nop_Passive <- floor(df$nopPassive[i - 1])
+        current_nop_Passive <- floor((df$eqlPassive[i - 1]) / (df$Close[i] / leverage))
+        df$eqlPassive[i] <- df$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+        df$nopPassive[i] <- current_nop_Passive
+    }
+
+    df <- df %>%
+        mutate(r_eqlActive = quantmod::Delt(eqlActive),
+            r_eqlPassive = quantmod::Delt(eqlPassive))
+    return(df)
+},
+
+# Define a function to compute performance metrics for each currency pair
+compute_performance_metrics = function(data) {
+
+  # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_active <- sum(diff(data$signal) != 0)
+  buy_active <- sum(data$signal == 1)
+  short_active <- sum(data$signal == -1)
+
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_eqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  trades_passive <- 1
+  buy_passive <- 1
+  short_passive <- 0
+  
+  # Calculate success rates
+  buy_success_rate_active <- sum(data$position > 0 & data$value > 0) / nrow(data)
+  buy_success_rate_passive <- sum(data$value > 0) / nrow(data)
+  short_success_rate_active <- sum(data$position < 0 & data$value < 0) / nrow(data)
+  short_success_rate_passive <- 0
+  combined_rate_active <- (sum(data$position > 0 & data$value > 0) + sum(data$position < 0 & data$value < 0)) / nrow(data)
+  combined_rate_passive <- (sum(data$value > 0)) / nrow(data)
+  
+  # Unique months
+  unique_months <- length(unique(format(data$Date, "%Y-%m")))
+  
+  # Create performance dataframe
+  df <- data.frame(
+      Strategy = c("Active", "Passive"),
+      aR = c(aR_active, aR_passive),
+      aSD = c(aSD_active, aSD_passive),
+      IR = c(IR_active, IR_passive),
+      MD = c(MD_active, MD_passive),
+      trades = c(trades_active, trades_passive),
+      avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
+      buys = c(buy_active, buy_passive),
+      sells = c(short_active, short_passive),
+      Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+      Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+      Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+      PortfolioEndValue = round(c(data[nrow(data),]$eqlActive, data[nrow(data),]$eqlPassive), 0)
+  )
+  
+  return(df)
+},
+    
+estimate_performance_bucket = function(data) {
+  data <- data %>%
+      mutate(
+          r_AlleqlActive = as.numeric(quantmod::Delt(AlleqlActive)),
+          r_AlleqlPassive = as.numeric(quantmod::Delt(AlleqlPassive))
+          )
+  # Performance metrics for active strategy
+  aR_active <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlActive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlActive), scale = 252) * 100), 3)
+  IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+  MD_active <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Performance metrics for passive strategy
+  aR_passive <- round(as.numeric(Return.annualized(as.numeric(data$r_AlleqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+  aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data$r_AlleqlPassive), scale = 252) * 100), 3)
+  IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+  MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data$r_AlleqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+  
+  # Create performance dataframe
+  df <- data.frame(
+      Strategy = c("Active", "Passive"),
+      aR = c(aR_active, aR_passive),
+      aSD = c(aSD_active, aSD_passive),
+      IR = c(IR_active, IR_passive),
+      MD = c(MD_active, MD_passive),
+      PortfolioEndValue = c(round(data[nrow(data), ]$AlleqlActive, 0), round(data[nrow(data), ]$AlleqlPassive, 0))
+  )
+  
+  return(df)
+}
+  )
+)
 
 # Instances of AlphaEngine strategy
 leverage <- 1
@@ -4071,19 +4516,16 @@ data_fetcher$plot_close_or_rets(type = "rets_hist")
 data_fetcher$compute_NA_close_price_ratio()
 
 # Instance of AlphaEngine class given threshold
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005) # signal_generation by default is based on threshold
+alpha1 <- AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE) # signal_generation by default is based on threshold
 #alpha1$generate_signals()
 alpha1$estimate_performance()
-alpha1$plot_equity_lines(paste0("EventBased for ", symbol), signal_flag = TRUE)
+alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
-#a <- alpha1$data # check how the final data looks like
 
 ################################################################################
 # PICK UP ONLY LEAST VOLATILE CURRENCIES
 ################################################################################
-
-# Take least volatile currencies
 
 # Downlaod all FX data
 data_fetcher_mult <- DataFetcher$new(fxs, from_date, to_date, type = "Close")
@@ -4097,8 +4539,6 @@ vol_df <- data.frame(FX = names(df_fx)[-1],
 # Rank the columns based on their standard deviation
 vol_df <- vol_df[order(vol_df$SD), , drop = FALSE]
 
-print(vol_df) 
-
 # TOP5 most mean reverting ones (in descending order) are:
 # EUR=X (USD/EUR)
 # AUDUSD=X (AUD/USD))
@@ -4106,17 +4546,11 @@ print(vol_df)
 # CAD=X (USD/CAD)
 # GBPUSD=X (GBP/USD)
 
-##############################
-# Test strategy
-##############################
-symbol <- "GBPUSD=X"
 symbol <- "NZDJPY=X"
-#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-#from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
-#to_date <- Sys.Date()
+
 from_date <- as.Date("2006-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2015-01-01", format = "%Y-%m-%d")
-##############################
+#to_date <- Sys.Date()
 
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -4126,10 +4560,10 @@ ts <- data_fetcher$download_xts_data()
 data_fetcher$plot_close_or_rets(type = "close")
 
 # Instance of AlphaEngine class given threshold
-# alpha1 <-  AlphaEngine$new(ts, threshold = 2.525729 * 0.01, profit_taking = 0.005, signal_generation = "TH")
-# alpha1 <-  AlphaEngine$new(ts, threshold = 0.015, profit_taking = 0.005, signal_generation = "OS")
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH")
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH") # Warsaw Rondo ONZ, May 6th, 2024
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = TRUE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE) # AR: 15%
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.5, signal_generation = "TH", position_sizing = FALSE)
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.001, signal_generation = "TH", position_sizing = TRUE) # AR: 15%
 
 #alpha1$generate_signals()
@@ -4138,20 +4572,35 @@ alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
-a <- alpha1$data
 
-##############################
 # Run backtest:
- ##############################
-alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE) # signal_generation by default is based on threshold
+symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
+
+alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+
 res_alpha <- alpha1$run_backtest(
   symbols = fxs,  
+  #symbols = symbol_list,
   thresholds = c(0.005, 0.01, 0.015, 0.02, 0.01 * 2.525729),
   profit_takings = c(0.0001, 0.001, 0.01),
   signal_generations = c("TH", "OS"),
   position_sizings = FALSE,
+  vol_position_sizing = c(TRUE, FALSE),
   from_date,
   to_date,
   output_df = TRUE
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
+
+# Instances of AlphaEngineMult class
+alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+alpha1$estimate_performance()
+
+# Rolling correlations:
+cp1 <- alpha1$estimate_rolling_correlations(symbol_list, from_date, to_date)
+cp1 <- alpha1$estimate_rolling_correlations(fxs, from_date, to_date)
+alpha1$plot_rolling_correlations(cp1)
+
+fx_portfolio <- alpha1$estimate_portfolio_performance(cp1, fxs, capital, leverage)
+alpha1$plot_portfolio_components(fx_portfolio, "IND")
+alpha1$plot_portfolio_components(fx_portfolio, "PORT")

@@ -943,11 +943,7 @@ prot <- prot %>%
 
 View(prot) # final table with signals
 
-
-################################################################################
 # Define AlphaEngine (based on intrinsic time approach)
-################################################################################
-
 AlphaEngine <- R6Class(
   "AlphaEngine",
   inherit = Strategy,
@@ -1693,10 +1689,8 @@ generateExitSignals = function(df, signal_generation = "TH") {
     )
 )
 
-#################################################
-# Multivariate approach: FX portfolio composition
-#################################################
 
+# Multivariate approach: FX portfolio bucket
 AlphaEngineMult <- R6Class(
   "AlphaEngineMult",
   inherit = AlphaEngine,
@@ -2087,10 +2081,6 @@ estimate_performance_bucket = function(data) {
   )
 )
 
-################################################################################
-# IMPLEMENTATION (class instances)
-################################################################################
-
 # Instances of AlphaEngine strategy
 leverage <- 1
 symbol <- "MXN=X"
@@ -2118,13 +2108,10 @@ alpha1$estimate_performance()
 alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
-#a <- alpha1$data # check how the final data looks like
 
 ################################################################################
 # PICK UP ONLY LEAST VOLATILE CURRENCIES
 ################################################################################
-
-# Take least volatile currencies
 
 # Downlaod all FX data
 data_fetcher_mult <- DataFetcher$new(fxs, from_date, to_date, type = "Close")
@@ -2138,8 +2125,6 @@ vol_df <- data.frame(FX = names(df_fx)[-1],
 # Rank the columns based on their standard deviation
 vol_df <- vol_df[order(vol_df$SD), , drop = FALSE]
 
-print(vol_df) 
-
 # TOP5 most mean reverting ones (in descending order) are:
 # EUR=X (USD/EUR)
 # AUDUSD=X (AUD/USD))
@@ -2147,18 +2132,11 @@ print(vol_df)
 # CAD=X (USD/CAD)
 # GBPUSD=X (GBP/USD)
 
-##############################
-# Test strategy
-##############################
-symbol <- "GBPUSD=X"
 symbol <- "NZDJPY=X"
-symbol <- "MXN=X"
-#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-#from_date <- as.Date("2020-01-01", format = "%Y-%m-%d")
-#to_date <- Sys.Date()
+
 from_date <- as.Date("2006-01-01", format = "%Y-%m-%d")
 to_date <- as.Date("2015-01-01", format = "%Y-%m-%d")
-##############################
+#to_date <- Sys.Date()
 
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -2180,24 +2158,17 @@ alpha1$plot_equity_lines(paste0("AlphaEngine for ", symbol), signal_flag = TRUE)
 alpha1$plot_events(symbol)
 alpha1$plot_dc(symbol)
 alpha1$plotSignals()
-#a <- alpha1$data
 
-##############################
 # Run backtest:
- ##############################
-
-symbol_list <- c("EUR=X", "AUDUSD=X", "EURUSD=X", "CAD=X", "GBPUSD=X")
-symbol_list <- c("EUR=X", "NZDJPY=X", "GBPUSD=X")
-symbol_list <- c("USDPLN=X", "MXN=X", "NZDCAD=X")
 symbol_list <- c("NZDJPY=X", "JPY=X", "EUR=X")
 
 alpha1 <-  AlphaEngine$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
+
 res_alpha <- alpha1$run_backtest(
-  #symbols = fxs,  
-  #symbols = "EUR=X",
-  symbols = symbol_list,
-  thresholds = c(0.005, 0.01),
-  profit_takings = c(0.0001),
+  symbols = fxs,  
+  #symbols = symbol_list,
+  thresholds = c(0.005, 0.01, 0.015, 0.02, 0.01 * 2.525729),
+  profit_takings = c(0.0001, 0.001, 0.01),
   signal_generations = c("TH", "OS"),
   position_sizings = FALSE,
   vol_position_sizing = c(TRUE, FALSE),
@@ -2207,23 +2178,7 @@ res_alpha <- alpha1$run_backtest(
 ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
 
-# res_alpha <- alpha1$run_backtest(
-#   symbols = fxs,  
-#   thresholds = c(0.005, 0.01, 0.015, 0.02, 0.01 * 2.525729),
-#   profit_takings = c(0.0001, 0.001, 0.01),
-#   signal_generations = c("TH", "OS"),
-#   position_sizings = FALSE,
-#   vol_position_sizing = c(TRUE, FALSE),
-#   from_date,
-#   to_date,
-#   output_df = TRUE
-# ) %>% select(Symbol, Class, Methodology, Strategy, aR, aSD, IR, MD, 
-#     trades, avg_no_monthly_trades, buys, sells, Buy_Success_Rate, Short_Success_Rate, Combined_Success_Rate, PortfolioValue)
-
-##############################
-# Portfolio composition
-##############################
-
+# Instances of AlphaEngineMult class
 alpha1 <-  AlphaEngineMult$new(ts, threshold = 0.01, profit_taking = 0.005, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
 alpha1$estimate_performance()
 
@@ -2235,12 +2190,3 @@ alpha1$plot_rolling_correlations(cp1)
 fx_portfolio <- alpha1$estimate_portfolio_performance(cp1, fxs, capital, leverage)
 alpha1$plot_portfolio_components(fx_portfolio, "IND")
 alpha1$plot_portfolio_components(fx_portfolio, "PORT")
-
-# Download data from Yahoo (instances of DataFetcher class)
-aud_usd <- DataFetcher$new("AUD=X", from_date, to_date) # 2006-12-25 outlier
-ts <- aud_usd$download_xts_data()
-
-# Exchange rate evolution  over time
-aud_usd$plot_close_or_rets(type = "close")
-
-a <- alpha1$data
