@@ -4284,3 +4284,13 @@ alpha1$plot_rolling_correlations(cp1)
 fx_portfolio <- alpha1$estimate_portfolio_performance(cp1, fxs, capital, leverage)
 alpha1$plot_portfolio_components(fx_portfolio, "IND")
 alpha1$plot_portfolio_components(fx_portfolio, "PORT")
+
+# All results in one df
+res_all <- list.files("Run_backtest_results/", pattern = "*.csv", full.names = TRUE) %>% 
+  map_dfr(read.csv, stringsAsFactors = FALSE)
+
+res_all <- res_all %>% 
+  mutate(
+    Meth = str_extract(Methodology, "^[^:]+")
+) %>%
+  select(Symbol, Class, Meth, Methodology, everything(.))
