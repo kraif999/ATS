@@ -4,6 +4,8 @@
 # September the 3rd, 2024
 
 # Apply historical time period split
+# Add method to extract the list of all trades
+# Add plot with equity line and raw timeseries (segmented: with vertical lines for start/end dates)
 # Modify what metrics is being computed (add trade list across date, % of winning signals, etc.)
 # Review Search and Judgement section in Robert Pardo
 
@@ -612,257 +614,211 @@ convert_to_tibble = function(ts) {
 },
 
 # Performance estimation for Active and Passive strategies (annualized return, standard deviation, Information ratio, maximum drawdown, trades count, success prediction rate)
-# estimate_performance = function() {
-
-#   self$generate_signals()  # Call generate_signals dynamically
-
-#   self$data <- self$data %>% 
-#     mutate(
-#     pnlActive = c(0, diff(Close) * signal[-length(Close)]),
-#     pnlPassive = c(0, diff(Close)),
-#     nopActive = 0,
-#     nopPassive = 0,
-#     eqlActive = 0,
-#     eqlPassive = 0
-#   )
-
-#   # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
-#   self$data$eqlActive[1] <- capital
-#   self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
-#   self$data$eqlPassive[1] <- capital
-#   self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))   
-
-#   # Check if "L" column (probability indicator) exists
-#   has_L <- "nop_sizing" %in% names(self$data)
-#   has_Vol <- "vol_nop_sizing" %in% names(self$data)
-
-#   for (i in 2:nrow(self$data)) {
-#     # Active
-#     pnlActive <- self$data$pnlActive[i]
-#     prev_nop_Active <- floor(self$data$nopActive[i - 1])
-#     current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
-#     self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
-    
-#     # Calculate nopActive based on the presence of the "L" column
-#     if (has_L) {
-#       self$data$nopActive[i] <- ifelse(
-#         self$data$L[i], 
-#         current_nop_Active * self$data$nop_sizing[i], 
-#         current_nop_Active
-#       )
-#     } else if (has_Vol) {
-#       self$data$nopActive[i] <- ifelse(
-#         #self$data$L[i], 
-#         self$data$vol_nop_sizing[i], 
-#         current_nop_Active * self$data$vol_nop_sizing[i], 
-#         current_nop_Active
-#       )
-#     } else {
-#       self$data$nopActive[i] <- current_nop_Active
-#     }
-    
-#     # Passive
-#     pnlPassive <- self$data$pnlPassive[i]
-#     prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
-#     current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
-#     self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
-#     self$data$nopPassive[i] <- current_nop_Passive
-#   }
-
-#   self$data <- self$data %>%
-#     mutate(r_eqlActive = quantmod::Delt(eqlActive),
-#             r_eqlPassive = quantmod::Delt(eqlPassive))
-#             #%>% na.omit()
-
-#   # Performance metrics for active strategy
-#   aR_active <- round(as.numeric(Return.annualized(as.numeric(self$data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
-#   aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(self$data$r_eqlActive), scale = 252) * 100), 3)
-#   IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
-#   MD_active <- round(as.numeric(maxDrawdown(as.numeric(self$data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100),3)
-#   #trades_active <- sum(c(1, ifelse(self$data$signal[-1] * self$data$signal[-length(self$data$signal)] < 0, 1, 0)))
-#   trades_active <- sum(diff(self$data$signal) != 0)
-#   buy_active <- sum(self$data$signal == 1)
-#   short_active <- sum(self$data$signal == -1)
-
-#   # Performance metrics for passive strategy
-#   aR_passive <- round(as.numeric(Return.annualized(as.numeric(self$data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
-#   aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(self$data$r_eqlPassive), scale = 252) * 100), 3)
-#   IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
-#   MD_passive <- round(as.numeric(maxDrawdown(as.numeric(self$data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100),3)
-#   trades_passive <- 1
-#   buy_passive <- 1
-#   short_passive <- 0
-
-#   # Calculate success rates
-#   buy_success_rate_active <- sum(self$data$position > 0 & self$data$value > 0) / nrow(self$data)
-#   buy_success_rate_passive <- sum(self$data$value > 0) / nrow(self$data)
-
-#   short_success_rate_active <- sum(self$data$position < 0 & self$data$value < 0) / nrow(self$data)
-#   short_success_rate_passive <- 0
-
-#   combined_rate_active <- (sum(self$data$position > 0 & self$data$value > 0) + sum(self$data$position < 0 & self$data$value < 0)) / nrow(self$data)
-#   combined_rate_passive <- (sum(self$data$value > 0)) / nrow(self$data)
-
-#   # Unique months
-#   unique_months <- length(unique(format(self$data$Date, "%Y-%m")))
-
-#   # Create performance dataframe
-#   df <- data.frame(
-#     from = From, # start date given historical data spit
-#     to = To, # end date given historical data spit
-#     Strategy = c("Active", "Passive"),
-#     aR = c(aR_active, aR_passive),
-#     aSD = c(aSD_active, aSD_passive),
-#     IR = c(IR_active, IR_passive),
-#     MD = c(MD_active, MD_passive),
-#     trades = c(trades_active, trades_passive),
-#     avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
-#     buys = c(buy_active, buy_passive),
-#     sells = c(short_active, short_passive),
-#     Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
-#     Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
-#     Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
-#     PortfolioEndValue = round(c(self$data[nrow(self$data),]$eqlActive, self$data[nrow(self$data),]$eqlPassive), 0)
-#   )
-
-#   # Print the performance data frame and success rate data frame
-#   # print(df)
-#   # return(self$data)
-
-#   # print(self$data)
-#   return(df)
-# },
-
 estimate_performance = function() {
-    # Generate signals
-    self$generate_signals()
-    
-    # Ensure self$data is not empty
-    if (nrow(self$data) == 0) {
-        stop("No data available for performance estimation.")
-    }
-    
-    # Initialize metrics lists
-    performance_metrics <- list()
 
-    # Unique periods
-    unique_periods <- unique(self$data %>% select(From, To))
+  self$generate_signals()  # Call generate_signals dynamically
 
-    # Loop through each period
-    for (i in 1:nrow(unique_periods)) {
-        period_data <- self$data %>%
-            filter(Date >= unique_periods$From[i] & Date <= unique_periods$To[i])
+  self$data <- self$data %>% 
+    mutate(
+      pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+      pnlPassive = c(0, diff(Close)),
+      nopActive = 0,
+      nopPassive = 0,
+      eqlActive = 0,
+      eqlPassive = 0,
+      From = as.Date(NA),
+      To = as.Date(NA)
+    )
 
-        if (nrow(period_data) == 0) next
+  # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
+  self$data$eqlActive[1] <- capital
+  self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
+  self$data$eqlPassive[1] <- capital
+  self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))  
 
-        # Calculate metrics for the period
-        period_data <- period_data %>%
-            mutate(
-                pnlActive = c(0, diff(Close) * signal[-length(Close)]),
-                pnlPassive = c(0, diff(Close)),
-                nopActive = 0,
-                nopPassive = 0,
-                eqlActive = 0,
-                eqlPassive = 0
-            )
-        
-        # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
-        period_data$eqlActive[1] <- capital
-        period_data$nopActive[1] <- floor(capital / (period_data$Close[1] / leverage))
-        period_data$eqlPassive[1] <- capital
-        period_data$nopPassive[1] <- floor(capital / (period_data$Close[1] / leverage))
+  # Check if sizing columns exist
+  has_L <- "nop_sizing" %in% names(self$data)
+  has_Vol <- "vol_nop_sizing" %in% names(self$data)
 
-        has_L <- "nop_sizing" %in% names(period_data)
-        has_Vol <- "vol_nop_sizing" %in% names(period_data)
+  for (i in 2:nrow(self$data)) {
+    # Active
+    pnlActive <- self$data$pnlActive[i]
+    prev_nop_Active <- floor(self$data$nopActive[i - 1])
+    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
+    self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
 
-        for (j in 2:nrow(period_data)) {
-            # Active
-            pnlActive <- period_data$pnlActive[j]
-            prev_nop_Active <- floor(period_data$nopActive[j - 1])
-            current_nop_Active <- floor((period_data$eqlActive[j - 1]) / (period_data$Close[j] / leverage))
-            period_data$eqlActive[j] <- period_data$eqlActive[j - 1] + prev_nop_Active * pnlActive
-            
-            if (has_L) {
-                period_data$nopActive[j] <- ifelse(
-                    period_data$L[j], 
-                    current_nop_Active * period_data$nop_sizing[j], 
-                    current_nop_Active
-                )
-            } else if (has_Vol) {
-                period_data$nopActive[j] <- ifelse(
-                    period_data$vol_nop_sizing[j], 
-                    current_nop_Active * period_data$vol_nop_sizing[j], 
-                    current_nop_Active
-                )
-            } else {
-                period_data$nopActive[j] <- current_nop_Active
-            }
-            
-            # Passive
-            pnlPassive <- period_data$pnlPassive[j]
-            prev_nop_Passive <- floor(period_data$nopPassive[j - 1])
-            current_nop_Passive <- floor((period_data$eqlPassive[j - 1]) / (period_data$Close[j] / leverage))
-            period_data$eqlPassive[j] <- period_data$eqlPassive[j - 1] + prev_nop_Passive * pnlPassive
-            period_data$nopPassive[j] <- current_nop_Passive
-        }
-
-        period_data <- period_data %>%
-            mutate(
-                r_eqlActive = quantmod::Delt(eqlActive),
-                r_eqlPassive = quantmod::Delt(eqlPassive)
-            )
-        
-        # Performance metrics
-        aR_active <- round(as.numeric(Return.annualized(as.numeric(period_data$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
-        aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(period_data$r_eqlActive), scale = 252) * 100), 3)
-        IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
-        MD_active <- round(as.numeric(maxDrawdown(as.numeric(period_data$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
-        trades_active <- sum(diff(period_data$signal) != 0)
-        buy_active <- sum(period_data$signal == 1)
-        short_active <- sum(period_data$signal == -1)
-
-        aR_passive <- round(as.numeric(Return.annualized(as.numeric(period_data$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
-        aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(period_data$r_eqlPassive), scale = 252) * 100), 3)
-        IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
-        MD_passive <- round(as.numeric(maxDrawdown(as.numeric(period_data$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
-        trades_passive <- 1
-        buy_passive <- 1
-        short_passive <- 0
-
-        # Success rates
-        buy_success_rate_active <- sum(period_data$position > 0 & period_data$value > 0) / nrow(period_data)
-        buy_success_rate_passive <- sum(period_data$value > 0) / nrow(period_data)
-
-        short_success_rate_active <- sum(period_data$position < 0 & period_data$value < 0) / nrow(period_data)
-        short_success_rate_passive <- 0
-
-        combined_rate_active <- (sum(period_data$position > 0 & period_data$value > 0) + sum(period_data$position < 0 & period_data$value < 0)) / nrow(period_data)
-        combined_rate_passive <- (sum(period_data$value > 0)) / nrow(period_data)
-
-        unique_months <- length(unique(format(period_data$Date, "%Y-%m")))
-
-        performance_metrics[[i]] <- data.frame(
-            From = unique_periods$From[i],
-            To = unique_periods$To[i],
-            Strategy = c("Active", "Passive"),
-            aR = c(aR_active, aR_passive),
-            aSD = c(aSD_active, aSD_passive),
-            IR = c(IR_active, IR_passive),
-            MD = c(MD_active, MD_passive),
-            trades = c(trades_active, trades_passive),
-            avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
-            buys = c(buy_active, buy_passive),
-            sells = c(short_active, short_passive),
-            Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
-            Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
-            Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
-            PortfolioEndValue = round(c(period_data[nrow(period_data),]$eqlActive, period_data[nrow(period_data),]$eqlPassive), 0)
-        )
+    # Calculate nopActive based on the presence of the "L" column
+    if (has_L) {
+      self$data$nopActive[i] <- ifelse(
+        self$data$L[i], 
+        current_nop_Active * self$data$nop_sizing[i], 
+        current_nop_Active
+      )
+    } else if (has_Vol) {
+      self$data$nopActive[i] <- ifelse(
+        self$data$vol_nop_sizing[i], 
+        current_nop_Active * self$data$vol_nop_sizing[i], 
+        current_nop_Active
+      )
+    } else {
+      self$data$nopActive[i] <- current_nop_Active
     }
 
-    # Combine all performance metrics into one data frame
-    final_performance_df <- bind_rows(performance_metrics)
-    return(final_performance_df)
+    # Passive
+    pnlPassive <- self$data$pnlPassive[i]
+    prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
+    current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
+    self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+    self$data$nopPassive[i] <- current_nop_Passive
+  }
+
+  self$data <- self$data %>%
+    mutate(
+      r_eqlActive = quantmod::Delt(eqlActive),
+      r_eqlPassive = quantmod::Delt(eqlPassive)
+    )
+
+  # Function to compute performance metrics for a given subset of data
+  compute_metrics <- function(data_subset) {
+    aR_active <- round(as.numeric(Return.annualized(as.numeric(data_subset$r_eqlActive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data_subset$r_eqlActive), scale = 252) * 100), 3)
+    IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
+    MD_active <- round(as.numeric(maxDrawdown(as.numeric(data_subset$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    trades_active <- sum(diff(data_subset$signal) != 0)
+    buy_active <- sum(data_subset$signal == 1)
+    short_active <- sum(data_subset$signal == -1)
+
+    aR_passive <- round(as.numeric(Return.annualized(as.numeric(data_subset$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
+    aSD_passive <- round(as.numeric(StdDev.annualized(as.numeric(data_subset$r_eqlPassive), scale = 252) * 100), 3)
+    IR_passive <- round(as.numeric(aR_passive / aSD_passive), 3) 
+    MD_passive <- round(as.numeric(maxDrawdown(as.numeric(data_subset$r_eqlPassive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
+    trades_passive <- 1
+    buy_passive <- 1
+    short_passive <- 0
+
+    # Calculate success rates
+    buy_success_rate_active <- ifelse(nrow(data_subset) > 0, sum(data_subset$position > 0 & data_subset$value > 0) / nrow(data_subset), NA)
+    buy_success_rate_passive <- ifelse(nrow(data_subset) > 0, sum(data_subset$value > 0) / nrow(data_subset), NA)
+
+    short_success_rate_active <- ifelse(nrow(data_subset) > 0, sum(data_subset$position < 0 & data_subset$value < 0) / nrow(data_subset), NA)
+    short_success_rate_passive <- 0
+
+    combined_rate_active <- ifelse(nrow(data_subset) > 0, 
+                                   (sum(data_subset$position > 0 & data_subset$value > 0) + sum(data_subset$position < 0 & data_subset$value < 0)) / nrow(data_subset), 
+                                   NA)
+    combined_rate_passive <- ifelse(nrow(data_subset) > 0, sum(data_subset$value > 0) / nrow(data_subset), NA)
+
+    unique_months <- length(unique(format(data_subset$Date, "%Y-%m")))
+
+    # Create performance dataframe for the subset
+    df_subset <- data.frame(
+      aR = c(aR_active, aR_passive),
+      aSD = c(aSD_active, aSD_passive),
+      IR = c(IR_active, IR_passive),
+      MD = c(MD_active, MD_passive),
+      trades = c(trades_active, trades_passive),
+      avg_no_monthly_trades = round(c(trades_active / unique_months, 0), 2),
+      buys = c(buy_active, buy_passive),
+      sells = c(short_active, short_passive),
+      Buy_Success_Rate = round(c(buy_success_rate_active, buy_success_rate_passive), 4),
+      Short_Success_Rate = round(c(short_success_rate_active, short_success_rate_passive), 4),
+      Combined_Success_Rate = round(c(combined_rate_active, combined_rate_passive), 4),
+      PortfolioEndValue = round(c(tail(data_subset$eqlActive, 1), tail(data_subset$eqlPassive, 1)), 0)
+    )
+
+    df_subset$Strategy <- c("Active", "Passive")
+    df_subset$ticker <- symbol
+
+    return(df_subset)
+  }
+
+  # Ensure Date is in Date format and sorted
+  self$data <- self$data %>%
+    mutate(Date = as.Date(Date)) %>%
+    arrange(Date)
+
+  # Define the start and end dates
+  start_date <- min(self$data$Date)
+  end_date <- max(self$data$Date)
+
+  # Create a sequence of 2-year periods
+  period_start <- start_date
+  period_end <- period_start %m+% years(2) - days(1)  # 2-year period
+
+  performance_list <- list()
+
+  while (period_start <= end_date) {
+    current_end <- min(period_end, end_date)
+
+    # Filter data for the current period
+    data_period <- self$data %>%
+      filter(Date >= period_start & Date <= current_end)
+
+    # Update self$data to include 'From' and 'To' columns for the current period
+    self$data <- self$data %>%
+      mutate(From = as.Date(ifelse(Date >= period_start & Date <= current_end, period_start, From)),
+             To = as.Date(ifelse(Date >= period_start & Date <= current_end, current_end, To)))
+
+    if (nrow(data_period) > 0) {
+      metrics <- compute_metrics(data_period)
+      metrics$from <- period_start
+      metrics$to <- current_end
+      performance_list[[length(performance_list) + 1]] <- metrics
+    }
+
+    # Move to the next period
+    period_start <- period_start %m+% years(2)
+    period_end <- period_start %m+% years(2) - days(1)
+  }
+
+  # Combine all period performances into one data frame
+  performance_df <- bind_rows(performance_list) %>%
+    select(ticker, from, to, Strategy, everything())
+
+  return(performance_df)
+},
+
+ # Method to plot Close price and running PnL
+plot_performance = function() {
+
+    # Filter unique From and To dates
+    unique_dates <- self$data %>%
+    filter(!is.na(From) | !is.na(To)) %>%
+    select(From, To) %>%
+    distinct() %>%
+    pivot_longer(cols = c(From, To), names_to = "LineType", values_to = "Date") %>%
+    filter(!is.na(Date))
+
+    # Generate date breaks for every 2 years
+    date_breaks <- seq(from = floor_date(min(self$data$Date), "year"),
+                        to = ceiling_date(max(self$data$Date), "year"),
+                        by = "2 years")
+
+    # Plot Close price dynamics with vertical lines
+    p1 <- ggplot(self$data, aes(x = Date, y = Close)) +
+    geom_line(color = "black") +
+    geom_vline(data = unique_dates,
+                aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "blue") +
+    scale_x_date(breaks = date_breaks, date_labels = "%Y") +
+    labs(title = paste0("Historical Close Price of ", symbol),
+            x = "Date",
+            y = "Close Price") +
+    theme_minimal()
+
+    # Plot eqlActive and eqlPassive with vertical lines
+    p2 <- ggplot(self$data, aes(x = Date)) +
+    geom_line(aes(y = eqlActive), color = "red") +
+    geom_line(aes(y = eqlPassive), color = "green") +
+    geom_vline(data = unique_dates,
+                aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "blue") +
+    scale_x_date(breaks = date_breaks, date_labels = "%Y") +
+    labs(title = paste0("Running PnL for ", symbol, " for Active and Passive Strategies"),
+            x = "Date",
+            y = "Portfolio Value") +
+    theme_minimal()
+
+    # Combine plots using patchwork
+    p1 / p2
 },
 
 # Calculate cumulative return (method to be removed)
@@ -873,37 +829,6 @@ calculate_cumulative_return = function() {
         Buy_and_hold = prod(1+self$data$value) - 1
       )
       return(cret)
-},
-
-split_data_into_periods = function() {
-  
-  # Create a sequence of start dates for each 2-year period
-  period_starts <- seq(from_date, to_date, by = "2 years")
-  period_ends <- c(period_starts[-1] - 1, to_date)  # End dates are one day before the next start
-
-  # Split the data into a list of dataframes, each corresponding to a 2-year period
-  period_data <- lapply(seq_along(period_starts), function(i) {
-    period_df <- self$data %>%
-      filter(Date >= period_starts[i] & Date <= period_ends[i]) %>%
-      mutate(From = period_starts[i],   # Add start date column
-             To = period_ends[i])      # Add end date column
-    return(period_df)
-  })
-
-  return(period_data)
-},
-
-estimate_performance_for_periods = function(data_list) {
-  results <- lapply(data_list, function(period_data) {
-    self$data <- period_data  # Assuming `self$data` is the dataframe used in `estimate_performance`
-    self$estimate_performance()  # Call the method via `self$`
-  })
-
-  # Combine all results into one dataframe
-  combined_results <- do.call(rbind, results)
-
-  # Return the combined results
-  return(combined_results)
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
@@ -1037,27 +962,23 @@ Nero <- R6Class(
     # },
 
 generate_signals = function() {
-    # Split data into periods
-    period_list <- super$split_data_into_periods()
     
-    # Apply signal generation logic to each period
-    period_list <- lapply(period_list, function(df) {
-        df <- df %>%
-            mutate(
-                # Generate signals: 1 for Buy, -1 for Sell, 0 for Hold
-                signal = ifelse(Close > lag(Close), 1, ifelse(Close < lag(Close), -1, 0)),
-                
-                # Lag the signal to determine position, avoiding using today's signal for today's position
-                position = lag(signal, default = 0)
-            ) %>%
-            na.omit()  # Remove any rows with NA values that may result from the lag function
-        return(df)
-    })
+    # Ensure self$data is not empty
+    if (nrow(self$data) == 0) {
+        stop("No data available for signal generation.")
+    }
     
-    # Combine all period data frames into one data frame
-    self$data <- bind_rows(period_list)
+    # Apply signal generation logic directly to self$data
+    self$data <- self$data %>%
+        mutate(
+            # Generate signals: 1 for Buy, -1 for Sell, 0 for Hold
+            signal = ifelse(Close > lag(Close), 1, ifelse(Close < lag(Close), -1, 0)),
+            
+            # Lag the signal to determine position, avoiding using today's signal for today's position
+            position = lag(signal, default = 0)
+        ) %>%
+        na.omit()  # Remove any rows with NA values that may result from the lag function
 },
-
     # Estimate strategy performance
     # estimate_performance = function() {
     #   # 3R/R
@@ -1205,31 +1126,15 @@ generate_signals = function() {
 
 # Instances of Nero strategy
 nero <- Nero$new(ts)
-#nero$data
 
-c <- nero$generate_signals()
-c
-#nero$estimate_performance()
-#sma1$estimate_performance()
-#sma1$data
-
-#a <- nero$generate_signals()
 nero$identify_historical_levels()
 nero$identify_reversals(window = 50)
-a <- nero$identify_reversals(window = 50)
+reversals <- nero$identify_reversals(window = 50)
 nero$plot_reversals_lvl("2023-01-01", "2024-06-20")
 
-b <- nero$generate_signals()
-
-#df_split <- nero$split_data_into_periods()
-per_res <- nero$estimate_performance_for_periods(df_split) %>% filter(Strategy == "Active")
-sum(per_res$aR)
-per_res <- nero$estimate_performance()
-
-d <- df_split[[1]]
-
-nero$generate_signals()
-
+per_res <- nero$estimate_performance() %>% filter(Strategy == "Active")
+data <- nero$data
+nero$plot_performance()
 
 a$plot.x == a$plot.y
 
@@ -1246,7 +1151,6 @@ atr_btc <- nero$estimate_average_true_range(ts, 14) %>%
 mean(atr_btc$tr_reserve)
 
 # Strong levels identification
-
 identify_events = function(data, threshold) {
   # Initialize event vector
   data <- data %>%

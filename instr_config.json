@@ -138,8 +138,13 @@
       },
 
       "LQD": {
-        "class": "Credit",
+        "class": "Credit (Bonds)",
         "description": "iShares iBoxx $ Investment Grade Corporate Bond ETF (LQD)"
+      },
+
+      "ZN=F": {
+        "class": "Credit (Bonds)",
+        "description": "U.S. 10-Year Treasury Note Futures"
       },
 
       "HYG": {
