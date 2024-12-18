@@ -3,11 +3,24 @@
 
 # September the 3rd, 2024
 
-# Apply historical time period split
+# Apply historical time period split + 
 # Add method to extract the list of all trades
-# Add plot with equity line and raw timeseries (segmented: with vertical lines for start/end dates)
+# Add plot with equity line and raw timeseries (segmented: with vertical lines for start/end dates) +
 # Modify what metrics is being computed (add trade list across date, % of winning signals, etc.)
 # Review Search and Judgement section in Robert Pardo
+
+# September the 4th, 2924
+# Try more advanced optimization techniques (currently brute force = grid search is used only, see "run_backtest" function)
+# Hill Climbing Search Algorithms
+
+# December 12th, 2024
+# GOAL: THE ENHANCED EVALUATION PROFILE
+# Add more metrics in "estimate_performance" method in Strategy class, streamline the information, the output is df with Strategy name and all metrics across all tested periods
+# Answer the question how the strategy behaves given different regimes (upward/downward trend, flatten conditions, etc.)
+# MACROSCOPIC LEVEL (table with metrics for a Strategy) Vs MICROSCOPIC LEVEL (list of trades occurred at time t)
+# GRAPHICAL Vs TABULAR
+
+# Compare periodically a test profile with a trade profile (50% - 150%)
 
 ############### Strategy based on Gerchyk ideas (June 2024) ################
 
@@ -194,6 +207,29 @@ download_xts_data = function() {
     return(ts)
 },
 
+# Cut the data into in-sample or out-of-sample
+slicer = function(data, cut_date, sample_type) {
+  # Ensure data is provided and is an xts object
+  if (is.null(data) || !inherits(data, "xts")) {
+    stop("A valid xts object must be provided as data.")
+  }
+
+  # Ensure cut_date is of class Date
+  if (!inherits(cut_date, "Date")) {
+    stop("cut_date must be of class Date.")
+  }
+
+  # Use switch to handle sample_type
+  result <- switch(
+    sample_type,
+    "in-sample" = data[index(data) <= cut_date, ],
+    "out-of-sample" = data[index(data) >= cut_date, ],
+    stop("sample_type must be either 'in-sample' or 'out-of-sample'.")
+  )
+
+  return(result)
+},
+
 # Visualize Close price or returns
 plot_close_or_rets = function(type = "close") {
   colnames(ts) <- sub(".*\\.", "", colnames(ts))
@@ -284,6 +320,9 @@ leverage <- 1 # financial leverage used to calculate number of positions in esti
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher$download_xts_data()
+ts_in_sample <- data_fetcher$slicer(ts, as.Date("2024-01-01"), "in-sample")
+ts_in_sample %>% tail
+
 data_fetcher$plot_close_or_rets(type = "close")
 data_fetcher$plot_close_or_rets(type = "rets")
 data_fetcher$plot_close_or_rets(type = "rets_hist")
@@ -859,7 +898,7 @@ compute_metrics = function(data_subset) {
     aSD_active <- round(as.numeric(StdDev.annualized(as.numeric(data_subset$r_eqlActive), scale = 252) * 100), 3)
     IR_active <- round(as.numeric(aR_active / aSD_active), 3) 
     MD_active <- round(as.numeric(maxDrawdown(as.numeric(data_subset$r_eqlActive), weights = NULL, geometric = TRUE, invert = TRUE) * 100), 3)
-    trades_active <- sum(diff(data_subset$signal) != 0) + 1
+    trades_active <- sum(diff(data_subset$position) != 0) + 1
     #trades_active <- nrow(data_subset)
 
     aR_passive <- round(as.numeric(Return.annualized(as.numeric(data_subset$r_eqlPassive), scale = 252, geometric = TRUE) * 100), 3)
@@ -876,7 +915,7 @@ compute_metrics = function(data_subset) {
     df$reversal[1] <- 1
     df2 <- df[df$reversal != 0,]
 
-    num_winning_trades <- sum(df2$pnlActive > 0)
+    num_winning_trades <- sum(df2$pnlActive > 0) # there are trades where PnL = 0
     num_losing_trades <- sum(df2$pnlActive < 0)
     avg_winning_trade <- ifelse(num_winning_trades > 0, round(mean(df[df$pnlActive > 0,]$pnlActive * df[df$pnlActive > 0,]$nopActive), 2), 0)
     avg_losing_trade <- ifelse(num_losing_trades > 0, round(mean(df[df$pnlActive < 0,]$pnlActive * df[df$pnlActive < 0,]$nopActive), 2), 0)
@@ -915,6 +954,9 @@ compute_metrics = function(data_subset) {
 # e$reversal[1] <- 1
 # e2 <- e[e$reversal != 0,]
 # sum(e2$pnlActive > 0)
+# sum(e2$pnlActive < 0)
+# sum(e2$pnlActive == 0) # 18 cases when trade resulted in PnL being equal to 0
+
 # range(as.numeric(e2$r_eqlActive), na.rm = TRUE)
 
 Nero <- R6Class(
@@ -928,7 +970,7 @@ Nero <- R6Class(
     },
     
     # identify Close price's global min, global max, local min1, local max1, ...
-    identify_historical_levels = function() {
+identify_historical_levels = function() {
       self$data <- self$data %>%
         mutate(
           # max
@@ -993,14 +1035,20 @@ generate_signals = function() {
     }
     
     # Apply signal generation logic directly to self$data
-    self$data <- self$data %>%
-        mutate(
-            # Generate signals: 1 for Buy, -1 for Sell, 0 for Hold
-            signal = ifelse(Close > lag(Close), 1, ifelse(Close < lag(Close), -1, 0)),
+    # self$data <- self$data %>%
+    #     mutate(
+    #         # Generate signals: 1 for Buy, -1 for Sell, 0 for Hold
+    #         signal = ifelse(Close > lag(Close), 1, ifelse(Close < lag(Close), -1, 0)),
             
-            # Lag the signal to determine position, avoiding using today's signal for today's position
-            position = lag(signal, default = 0)
-        ) %>% na.omit()  # Remove any rows with NA values that may result from the lag function
+    #         # Lag the signal to determine position, avoiding using today's signal for today's position
+    #         position = lag(signal, default = 0)
+    #     ) %>% na.omit()  # Remove any rows with NA values that may result from the lag function
+
+    self$data <- mutate(self$data, 
+                    ma = EMA(Close, 20, align = "right", fill = NA),
+                    signal = ifelse(Close > lag(ma), 1, ifelse(Close < lag(ma), -1, 0)),
+                    position = lag(signal, default = 0)) %>% na.omit()
+    
 },
     # Estimate strategy performance
     # estimate_performance = function() {
@@ -1147,6 +1195,8 @@ generate_signals = function() {
   )
 )
 
+
+
 # Instances of Nero strategy
 nero <- Nero$new(ts)
 
@@ -1157,11 +1207,18 @@ nero$plot_reversals_lvl("2023-01-01", "2024-06-20")
 
 per_res <- nero$estimate_performance() %>% filter(Strategy == "Active")
 per_res
+sum(per_res$GrossProfit)
 data <- nero$data
 nero$plot_performance()
 
 data$reversal <- c(0, diff(data$signal))
 data %>% filter(reversal != 0)
+
+hist(data$pnlActive, breaks = 200)
+
+#########################################################################################################
+
+
 a$plot.x == a$plot.y
 
 na.omit(a$plot.x)
