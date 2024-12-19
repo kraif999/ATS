@@ -1153,5 +1153,3 @@ res_sma1 <- sma1$run_backtest(
   to_date,
   output_df = TRUE
 )
-
-ggsave("sma1_btc_usd_plot.png", bg = "white")
