@@ -736,7 +736,7 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
   
   # Plot equity lines
   p <- ggplot(self$data, aes(x = Date)) +
-    labs(title = paste0("Equity Lines for Active ", "(", as.character(strategy_name), ")", " and Passive (buy-and-hold) strategies"),
+    labs(title = paste0("Asset: ", symbol, ", ", "Equity Lines for Active ", "(", as.character(strategy_name), ")", " and Passive (buy-and-hold) strategies"),
          x = "Date",
          y = "Equity line") +
     theme_minimal()
@@ -1045,7 +1045,6 @@ slicer = function(data, cut_date, data_type) {
          stop("Invalid data_type. Use 'in_sample' or 'out_of_sample'.")
   )
 }
-
   )
 )
 
@@ -1142,7 +1141,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
 # Run instance of SMA1
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'EMA')
 sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 2)
-sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
+sma1_in_sample_btc_plot <- sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
 trades <- sma1$get_trades() # list of trades
 
 # Multimarket and multiperiod (example for SMA strategy)
@@ -1154,3 +1153,5 @@ res_sma1 <- sma1$run_backtest(
   to_date,
   output_df = TRUE
 )
+
+ggsave("sma1_btc_usd_plot.png", bg = "white")
