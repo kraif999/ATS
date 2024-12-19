@@ -146,7 +146,7 @@ classDiagram
     Strategy --|> GARCHbasedStrategy
     AlphaEngine --|> AlphaEngineMult
 
-Below is example of Bitcoin performance based on the SMA strategy with a moving exponentially weighted 10-day window.
+Below is example of Bitcoin performance based on the SMA strategy with a moving exponentially weighted 10 day window. 
 Solid black vertical lines represent period splits, with metrics computed for each period. 
 Red (sell) and green (buy) vertical lines indicate the corresponding positions taken.
 
