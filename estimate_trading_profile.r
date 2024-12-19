@@ -1143,5 +1143,14 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'EMA')
 sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 2)
 sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
-trades <- sma1$get_trades()
+trades <- sma1$get_trades() # list of trades
 
+# Multimarket and multiperiod (example for SMA strategy)
+res_sma1 <- sma1$run_backtest(
+  symbols = c("BTC-USD", "ETH-USD"),
+  window_sizes = seq(10, 10, by = 20), 
+  ma_type = c("SMA","EMA"),
+  from_date,
+  to_date,
+  output_df = TRUE
+)

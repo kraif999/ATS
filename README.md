@@ -1,9 +1,10 @@
-This branch contains experiments with the implementation of different trading strategies on various asset classes. 
+This branch contains experiments involving the implementation of a wide range of trading strategies across various asset classes. 
 The performance of these strategies, referred to as 'Active,' is compared against a benchmark buy-and-hold strategy, referred to as 'Passive'.
 Additionally, there is TSA class which analyses time series patterns and various characteristics.
 
-All strategies are architected using the R6 class, enabling flexible incorporation of new features or strategies. 
-The design comprises:
+All strategies are architected using the R6 class system, which provides a modular and flexible framework for incorporating new features or strategies.
+
+The design is structured as follows::
 
 - A parent class, **DataFetcher**, which features methods for overlapping daily data retrieval from Yahoo.
 - A parent class, **Strategy**, contains a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
@@ -12,6 +13,9 @@ The design comprises:
 Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
 
 Around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
+
+Additionally, the estimation of a strategy's trading profile has been introduced (see the example in estimate_trading_profile.R). 
+It's purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions.
 
 The taxonomy of trading strategies implemented is as follows:
 
