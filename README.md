@@ -18,7 +18,9 @@ Additionally, the estimation of a strategy's trading profile has been introduced
 Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions.
 
 ![BTC USD Plot](sma1_btc_usd_plot.png)
-Performance for Bitcoin. The black vertical lines represent periods split; metrics are computed for each such period.
+
+Performance for Bitcoin. 
+The black vertical lines represent periods split; metrics are computed for each such period.
 
 The taxonomy of trading strategies implemented is as follows:
 
