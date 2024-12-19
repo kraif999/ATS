@@ -17,11 +17,6 @@ Around **~37,000** parameters combinations were tested, refer to **'Run_backtest
 Additionally, the estimation of a strategy's trading profile has been introduced (see the example in estimate_trading_profile.R). 
 Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions.
 
-![BTC USD Plot](sma1_btc_usd_plot.png)
-
-Performance for Bitcoin. 
-The black vertical lines represent periods split; metrics are computed for each such period.
-
 The taxonomy of trading strategies implemented is as follows:
 
 ```mermaid
@@ -150,3 +145,9 @@ classDiagram
     Strategy --|> AlphaEngine
     Strategy --|> GARCHbasedStrategy
     AlphaEngine --|> AlphaEngineMult
+
+Below is example of Bitcoin performance based on the SMA strategy with a moving exponentially weighted 10-day window.
+Solid black vertical lines represent period splits, with metrics computed for each period. 
+Red (sell) and green (buy) vertical lines indicate the corresponding positions taken.
+
+![BTC USD Plot](sma1_btc_usd_plot.png)
