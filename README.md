@@ -12,7 +12,7 @@ The design is structured as follows::
 - Following the signal generation phase, next steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
 Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
 
-Around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
+Around **~37,000** parameters combinations across 12 strategies were tested, refer to **'Run_backtest_results'** folder.
 
 Additionally, the estimation of a strategy's trading profile has been introduced (see the example in estimate_trading_profile.R). 
 Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions.
