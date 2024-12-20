@@ -808,6 +808,7 @@ compute_metrics = function(data_subset) {
     
   estimate_trading_profile <- function(data_subset, strategy_type) {
 
+      #data_subset <- data_subset[complete.cases(data_subset), ]
       data_subset$Date <- as.Date(data_subset$Date)
 
       # Select appropriate columns based on strategy type
@@ -848,6 +849,15 @@ compute_metrics = function(data_subset) {
         merge(data_subset, by = "trade_id") %>%
         aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
         with(round(mean(Date, na.rm = TRUE)))
+      
+      # 7. Length of Average Win
+      # AverageWinLength <- data_subset %>%
+      #   dplyr::mutate(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
+      #   dplyr::group_by(trade_id) %>%
+      #   dplyr::filter(tail(cum_pnl, 1) > 0) %>%
+      #   dplyr::summarize(win_length = as.numeric(max(Date) - min(Date) + 1)) %>%
+      #   dplyr::summarize(AverageWinLength = round(mean(win_length, na.rm = TRUE))) %>%
+      #   dplyr::pull(AverageWinLength
 
       # 8. Largest Loss
       LargestLoss <- min(data_subset[[pnl_col]], na.rm = TRUE)
@@ -1075,7 +1085,7 @@ generate_signals = function() {
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, slicing_years, output_df = FALSE) {
       # Create an empty list to store results
       results <- list()
 
@@ -1098,7 +1108,7 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
               Methodology = paste("SMA1:", window_size, ma_type),
               Window_Size = window_size,
               MA_Type = ma_type,
-              Performance = sma_instance$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 2)
+              Performance = sma_instance$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = slicing_years)
             )
 
             print(paste0("Results are for ", "SMA1 ", "(", "symbol: ", symbol, ",", "class: ", meta$assets[[symbol]]$class, ",", "window_size: ", window_size, ",", "ma_type: ", ma_type, ")"))
@@ -1141,7 +1151,16 @@ run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, out
 
 # Run instance of SMA1
 sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'EMA')
-sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 2)
+sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 4)
 sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
 trades <- sma1$get_trades()
 
+res_sma1 <- sma1$run_backtest(
+  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  window_sizes = seq(10, 100, by = 10), 
+  ma_type = c("SMA","EMA"),
+  from_date,
+  to_date,
+  slicing_years = 4, # slicing window depends on head availability ts data
+  output_df = TRUE
+  )
