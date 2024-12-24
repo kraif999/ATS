@@ -1194,7 +1194,7 @@ ts <- data_fetcher$download_xts_data()
 
 # Run instance of SMA1
 
-# In-sample:
+# IN-SAMPLE
 sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
@@ -1218,7 +1218,54 @@ sma1_res_in_sample_dt[, units := ifelse(
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
 trades <- sma1$get_trades()
 
-# Out-of sample
+sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
+sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1)
+
+# Overall trading profile
+res_sma1_overall <- sma1$run_backtest(
+  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  window_sizes = seq(10, 100, by = 5), 
+  ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
+  data_type = "in_sample",
+  split = FALSE,
+  cut_date = as.Date("2024-01-01"),
+  from_date = as.Date("2020-01-01"),
+  to_date = as.Date("2024-01-01"),
+  slicing_years = 4,
+  output_df = TRUE
+  )
+
+# HOW STRATEGY (in-sample or out-of-sample) BEHAVES UNDER DIFFERENT PERIODS
+
+# More granular (split) - only for potential good candidates to check robustness
+res_sma1_granular <- sma1$run_backtest(
+  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  window_sizes = seq(35, 50, by = 1), 
+  ma_type = c("SMA"),
+  data_type = "in_sample",
+  split = TRUE,
+  cut_date = as.Date("2024-01-01"),
+  from_date,
+  to_date,
+  slicing_years = 1,
+  output_df = TRUE
+  )
+
+#ggsave("sma1_btc_usd_plot.png", bg = "white")
+
+res_sma1_overall %>%
+  group_by(Strategy) %>%
+  summarise(
+    avg_AnnualizedProfit = mean(as.numeric(AnnualizedProfit), na.rm = TRUE)
+  )
+
+res_sma1_overall %>%
+  group_by(MA_Type) %>%
+  summarise(
+    avg_AnnualizedProfit = mean(as.numeric(AnnualizedProfit), na.rm = TRUE)
+  )
+
+# OUT-OF-SAMPLE
 sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
 sma1_res_out_sample <- t(sma1$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
@@ -1243,17 +1290,12 @@ sma1_res_out_sample_dt[, units := ifelse(
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
 trades <- sma1$get_trades()
 
-# HOW STRATEGY (in-sample or out-of-sample) BEHAVES UNDER DIFFERENT PERIODS
-sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
-sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1)
-
 # Overall trading profile
 res_sma1_overall <- sma1$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(10, 50, by = 5), 
-  #ma_type = c("SMA","EMA"),
+  window_sizes = seq(35, 50, by = ), 
   ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
-  data_type = "in_sample",
+  data_type = "out_of_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   from_date = as.Date("2020-01-01"),
@@ -1261,19 +1303,3 @@ res_sma1_overall <- sma1$run_backtest(
   slicing_years = 4,
   output_df = TRUE
   )
-
-# More granular (split) - only for potential good candidates
-res_sma1_granular <- sma1$run_backtest(
-  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(10, 50, by = 10), 
-  ma_type = c("SMA","EMA"),
-  data_type = "in_sample",
-  split = TRUE,
-  cut_date = as.Date("2024-01-01"),
-  from_date,
-  to_date,
-  slicing_years = 4,
-  output_df = TRUE
-  )
-
-#ggsave("sma1_btc_usd_plot.png", bg = "white")

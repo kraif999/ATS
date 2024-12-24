@@ -150,38 +150,44 @@ classDiagram
 Below is an example of Bitcoin's performance based on the **SMA strategy** with a simple 40-day moving window which is superior than the passive (buy-and-hold) strategy.
 
 **Key Visualization:**  
-Solid black vertical lines represent period splits, with metrics computed for each period.  
+
 ![BTC USD Plot](sma1_btc_usd_plot.png)
 
 **Trading Profile:**  
+
 From **2020-02-12** to **2024-01-01**, the estimated *"in-sample"* trading profile is as follows:
 
 | **Metric**                      | **Active Strategy**    | **Passive Strategy**   | **Units**   |
 |----------------------------------|------------------------|-------------------------|-------------|
-| **Annualized Profit**            | **45.448**            | **30.963**             | **%**       |
-| **Number of Trades Per Year**    | **17**                | **0**                  |             |
-| **Percentage of Winning Trades** | **26.44**             | **Not Applicable**     | **%**       |
-| Largest Win                      | 7554                  | 7293                   | USD         |
-| Length of Largest Win            | 75                    | 56                     | days        |
-| Average Win                      | 762                   | 721                    | USD         |
-| Length of Average Win            | 48                    | 18                     | days        |
-| Largest Loss                     | -5822                 | -7554                  | USD         |
-| Length of Largest Loss           | 46                    | 75                     | days        |
-| Average Loss                     | -654                  | -697                   | USD         |
-| Length of Average Loss           | 5                     | 15                     | days        |
-| Average Winning Run              | 1.928                 | 1.892                  | USD         |
-| Largest Winning Run              | 8                     | 10                     | days        |
-| Length of Time in Largest Winning Run | 8                 | 10                     | days        |
-| Length of Time in Average Winning Run | 2                 | 2                      | days        |
-| Average Losing Run               | 1                     | 1                      | USD         |
-| Length of Time in Average Losing Run | 2                  | 2                      | days        |
-| Largest Losing Run               | 8                     | 10                     | days        |
-| Length of Time in Largest Losing Run | 8                  | 10                     | days        |
-| Max Drawdown                     | -47.56728             | -72.48046              | %           |
-| Start Date Max Drawdown          | 2022-06-18            | 2021-11-08             | Date        |
-| End Date Max Drawdown            | 2023-01-06            | 2022-11-09             | Date        |
-| Length of Max Drawdown           | 202                   | 366                    | days        |
-| Max Run-Up                       | 957.8024              | 1032.4623              | %           |
-| Start Date Max Run-Up            | 2020-04-21            | 2020-03-12             | Date        |
-| End Date Max Run-Up              | 2024-01-01            | 2021-11-08             | Date        |
-| Length of Max Run-Up             | 1350                  | 606                    | days        |
+| **ticker**                      | BTC-USD               | BTC-USD                |             |
+| **from**                        | 2020-02-12            | 2020-02-12             | Date        |
+| **to**                          | 2024-01-01            | 2024-01-01             | Date        |
+| **data_type**                   | in_sample             | in_sample              |             |
+| **Strategy**                    | Active                | Passive                |             |
+| **AnnualizedProfit**            | 54.050                | 32.096                 | %           |
+| **NumberOfTradesPerYear**       | 17                    | 0                      |             |
+| **PercentageOfWinningTrades**   | 26.44                 | NotApplicable          | %           |
+| **LargestWin**                  | 7554                  | 7293                   | USD         |
+| **LengthOfLargestWin**          | 75                    | 56                     | days        |
+| **AverageWin**                  | 762                   | 721                    | USD         |
+| **LengthOfAverageWin**          | 48                    | 18                     | days        |
+| **LargestLoss**                 | -5822                 | -7554                  | USD         |
+| **LengthOfLargestLoss**         | 46                    | 75                     | days        |
+| **AverageLoss**                 | -654                  | -697                   | USD         |
+| **LengthOfAverageLoss**         | 5                     | 15                     | days        |
+| **AverageWinningRun**           | 1.928                 | 1.892                  |             |
+| **LargestWinningRun**           | 8                     | 10                     |             |
+| **LengthOfTimeInLargestWinningRun** | 8                  | 10                     | days        |
+| **LengthOfTimeInAverageWinningRun** | 2                  | 2                      | days        |
+| **AverageLosingRun**            | 1                     | 1                      |             |
+| **LengthOfTimeInAverageLosingRun** | 2                  | 2                      | days        |
+| **LargestLosingRun**            | 8                     | 10                     |             |
+| **LengthOfTimeInLargestLosingRun** | 8                  | 10                     | days        |
+| **MaxDrawdown**                 | -48.69131             | -76.89015              | %           |
+| **StartDateMaxDrawdown**        | 2022-06-18            | 2021-11-08             | Date        |
+| **EndDateMaxDrawdown**          | 2023-01-06            | 2022-11-09             | Date        |
+| **LengthOfMaxDrawdown**         | 202                   | 366                    | days        |
+| **MaxRunUp**                    | 1369.752              | 1424.309               | %           |
+| **StartDateMaxRunUp**           | 2020-04-21            | 2020-03-12             | Date        |
+| **EndDateMaxRunUp**             | 2024-01-01            | 2021-11-08             | Date        |
+| **LengthOfMaxRunUp**            | 1350                  | 606                    | days        |

@@ -328,299 +328,6 @@ data_fetcher$plot_close_or_rets(type = "rets")
 data_fetcher$plot_close_or_rets(type = "rets_hist")
 data_fetcher$compute_NA_close_price_ratio()
 
-# Define TSA class (time series analysis class)
-# The purpose is to understand a market state (bull, bear, congested, cyclcing - to be added) and its characteristics
-TSA <- R6Class(
-  "TSA",
-  public = list(
-    original_data = NULL,
-    data = NULL,
-
-initialize = function(data) {
-      self$original_data <- data
-      self$data <- private$preprocess_data(freq = "daily")
-},
-    
-estimate_stationarity = function(freq = "daily", plot_flag = TRUE) {
-      self$data <- private$preprocess_data(freq)
-      adf <- aTSA::adf.test(self$data$value, output = FALSE)[["type1"]] %>% data.frame()
-      
-      # Plot values
-      if (plot_flag) {
-        print(
-          ggplot(self$data, aes(x = Date, y = value)) +
-            geom_line() +
-            labs(title = "Stationarity (ADF test)") +
-            scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-            theme_minimal()
-        )
-      }
-      return(adf)
-},
-    
-estimate_autocorr_rets_vol = function(test, freq = "daily", plot_flag = TRUE) {
-      self$data <- private$preprocess_data(freq)
-      switch(test,
-             "rets" = {
-               # ACF test for returns  
-               acf <- acf(self$data$value, main = "Autocorrelation", plot = TRUE)
-               return(list(acf = acf))
-             },
-             "vol" = {
-               # ACF test for squared returns
-               acf2 <- acf(self$data$value^2, main = "Volatility clustering", plot = TRUE)
-               return(list(acf = acf2))
-             }
-      )
-},
-    
-estimate_seasonality = function(freq = "daily") {
-      self$data <- private$preprocess_data(freq)
-      self$data <- ts(self$data$value, frequency = ifelse(freq == "daily", 26, 52))
-      # Decompose the time series
-      decomposed_data <- decompose(self$data) # decompose into 1) original ts, 2) trend component, 3) seasonal component, 4) residual component
-      # Plot the decomposed components
-      plot(decomposed_data)
-},
-    
-estimate_heteroscedasticity = function(freq = "daily", plot_flag = TRUE) {
-      self$data <- private$preprocess_data(freq)
-      
-      # Fit a linear regression model to the squared log returns
-      model <- lm(self$data$value^2 ~ self$data$value, data = data.frame(value = self$data$value))
-      
-      # Perform Breusch-Pagan test and print results
-      bp_test <- bptest(model)
-      print(bp_test)
-      
-      # Get the residuals from the linear regression model
-      residuals <- residuals(model)
-      
-      # Create a data frame for the residuals
-      residual_df <- data.frame(Residuals = residuals, Observation = 1:length(residuals))
-      
-      # Plot using ggplot
-      if (plot_flag) {
-        print(
-          ggplot(residual_df, aes(x = Observation, y = Residuals)) +
-            geom_point() +
-            geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-            labs(title = "Residuals from Linear Regression Model",
-                 x = "Observation Number",
-                 y = "Residuals") +
-            theme_minimal()
-        )
-      }
-},
-
-estimate_arch_effects = function(freq = "daily", p = 1, q = 1, plot_flag = TRUE) {
-  
-  self$data <- private$preprocess_data(freq)
-  
-  # Fit an ARIMA model
-  fit <- arima(self$data$value, order=c(p,0,q))
-  
-  # Engle's ARCH test
-  arch <- aTSA::arch.test(fit)
-  return(arch)
-},
-
-estimate_outliers = function(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5) {
-  self$data <- private$preprocess_data(freq)
-  switch(
-    test,
-    # Super smoothing
-    "supsmu" = {  
-    ts_rets <- ts(self$data$value, frequency = 1)
-
-    # Clean the time series using tsclean
-    clean_ts <- tsclean(ts_rets)
-
-    # Identify outliers using tsoutliers
-    outliers <- tsoutliers(ts_rets)
-
-    # Plot the original time series, cleaned time series, and outliers
-    if (plot_flag) {
-      print(
-        autoplot(clean_ts, series = "Cleaned", color = 'red', lwd = 0.9) +
-        autolayer(ts_rets, series = "Original", color = 'gray', lwd = 1) +
-        geom_point(data = outliers %>% as.data.frame(),
-        aes(x = index, y = replacements), col = 'blue') +
-        labs(x = "Date", y = "Close Price", title = "Time Series with Outliers Highlighted (via SuperSmoothing 'tsoutliers' function)")
-        )
-      }
-    
-    # Create a data frame from the outliers list
-    outliers_df <- data.frame(
-      index = outliers$index,
-      replacements = outliers$replacements
-    )
-    return(outliers_df)
-    },
-
-    "zscore" = {
-    ts_rets <- ts(self$data$value, frequency = 1)
-     # Calculate Modified Z-scores
-     median_val <- median(ts_rets)
-     mad_val <- mad(ts_rets)
-
-     modified_z_scores <- abs(0.6745 * (ts_rets - median_val) / mad_val)
-
-     # Identify outliers (e.g., Modified Z-score > 3.5)
-     outliers_modified <- which(modified_z_scores > 3.5)
-
-     # Plot outliers
-      if (plot_flag) {
-        print(
-          ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
-            geom_line() +
-            geom_point(data = data.frame(Date = time(ts_rets)[outliers_modified], Value = ts_rets[outliers_modified]), aes(x = Date, y = Value), color = "red") +
-            labs(title = "Time Series Data with Outliers Identified by Modified Z-Score")
-        )
-      }
-
-      # Create a data frame from the outliers list
-      outliers_df <- data.frame(
-        index = time(ts_rets)[outliers_modified],
-        replacements = ts_rets[outliers_modified]
-      )
-      return(outliers_df)
-        },
-      
-    "fences" = {
-    ts_rets <- ts(self$data$value, frequency = 1)
-    # Calculate IQR
-    Q1 <- quantile(ts_rets, q1)
-    Q3 <- quantile(ts_rets, q3)
-    IQR_val <- Q3 - Q1
-
-    # Identify outliers (e.g., values < Q1 - 1.5 * IQR or values > Q3 + 1.5 * IQR)
-    outliers_tukey <- which(ts_rets < (Q1 - threshold * IQR_val) | ts_rets > (Q3 + threshold * IQR_val))
-
-    # Plot outliers
-    if (plot_flag) {
-      print(
-    ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
-        geom_line() +
-        geom_point(data = data.frame(Date = time(ts_rets)[outliers_tukey], Value = ts_rets[outliers_tukey]), aes(x = Date, y = Value), color = "red", size = 2) +
-        labs(title = "Time Series Data with Outliers Identified by Tukey's Fences")
-            )   
-          }
-        }
-      )
-},
-
-compute_wkd_rets = function(freq = "daily") {
-  self$data <- private$preprocess_data(freq)
-  self$data <- self$data %>%
-    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) 
-
-  # Compute average return on weekdays
-  avg_wkd_rets <- self$data %>%
-    group_by(weekday) %>%
-      summarize(avg_return = mean(value, na.rm = TRUE)) %>%
-        arrange(weekday)
-  
-  # Compute longest consequtive streak of positive and negative weekday returns
-  positive <- self$data %>%
-    group_by(weekday) %>%
-      summarise(longest_series_weekdays = max(rle(value > 0)$lengths * (rle(value > 0)$values))) %>%
-          ungroup()
-
-  negative <- self$data %>%
-    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) %>%
-      group_by(weekday) %>%
-        summarise(longest_series_weekdays = max(rle(value < 0)$lengths * (rle(value < 0)$values))) %>%
-            ungroup()
-
-  res_longest <- merge(positive, negative, by = "weekday", all = TRUE) %>%
-    rename(longest_positive = longest_series_weekdays.x, longest_negative = longest_series_weekdays.y) %>% 
-      arrange(weekday)
-
-  # Test hypothesis if any weekday return is statistically different from rets mean return
-
-  # Overall mean return
-  overall_mean <- mean(self$data$value)
-
-  # Perform Wilcoxon signed-rank test for each weekday
-  avg_wkd_rets <- avg_wkd_rets %>%
-    rowwise() %>%
-      mutate(
-    test_statistic = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$statistic,
-    p_value = format(wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$p.value, nsmall = 5)
-  )
-
-  return(list(avg_wkd_rets = avg_wkd_rets, res_longest = res_longest))
-},
-
-compute_summary_statistics = function(freq = "daily") {
-  self$data <- private$preprocess_data(freq)
-  summary_stats <- self$data %>%
-    summarise(
-      mean_return = mean(value),
-      median_return = median(value),
-      sd_return = sd(value),
-      skewness = skewness(value),
-      kurtosis = kurtosis(value)
-    )
-  
-  return(summary_stats)
-}
-
-  ), # end of public list arguments
-  
-private = list(
-
-preprocess_data = function(freq) {
-      # Convert xts data into tibble 
-      data <- data.frame(self$original_data)  
-      data <- data %>%
-        rename_with(~ sub(".*\\.", "", .), everything()) %>%
-        mutate(Date = as.Date(rownames(data))) %>%
-        select(Date, everything()) %>%
-        na.omit() %>%
-        as.tibble()
-      
-      # Choose values frequency: daily overlapping values or bi-weekly non-overlapping 
-      switch(
-        freq,
-        "daily" = {
-          data <- data
-        },
-        "biweekly" = {
-          bdates <- seq.Date(
-            from = (from_date + 0:6)[weekdays(from_date + 0:6) %in% "Wednesday"], 
-            to = (to_date - 0:6)[weekdays(to_date - 0:6) %in% "Wednesday"], by = 14)
-            data <- data %>% filter(Date %in% bdates)
-        },
-        stop("Invalid value for 'freq' argument. Choose 'daily' or 'biweekly'.")
-      )
-      return(data)
-    }
-  )
-)
-
-# Instances of TSA
-# daily overlapping returns
-tsa <- TSA$new(ts)
-tsa$estimate_stationarity(freq = "daily")
-tsa$estimate_heteroscedasticity(freq = "daily")
-tsa$estimate_autocorr_rets_vol(test = "rets", freq = "daily", plot_flag = TRUE)
-tsa$estimate_seasonality(freq = "daily")
-tsa$estimate_arch_effects(freq = "daily", p = 1, q = 1)
-tsa$compute_wkd_rets(freq = "daily")
-tsa$compute_summary_statistics(freq = "daily")
-
-# biweekly non-overlapping returns
-tsa$estimate_stationarity(freq = "biweekly")
-tsa$estimate_heteroscedasticity(freq = "biweekly")
-tsa$estimate_autocorr_rets_vol(test = "rets", freq = "biweekly", plot_flag = TRUE)
-tsa$estimate_seasonality(freq = "biweekly")
-tsa$estimate_outliers(test = "zscore", freq = "daily", plot_flag = TRUE)
-tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 1.5)
-tsa$estimate_outliers(test = "fences", freq = "biweekly", plot_flag = TRUE, q1 = 0.25, q3 = 0.75, threshold = 2)
-
-
 # Define parent Strategy class (modified slightly based on the ideas in Robert Parto)
 Strategy <- R6Class(
   "Strategy",
@@ -1058,148 +765,146 @@ generate_signals = function() {
     #   # sequence of 3 losing trades - pause activity
     # },
     
-    # Identify levels based on reversal points given rolling window
-    identify_reversals = function(window ) {
-      # Calculate the rolling minimum
-      self$data$RollingMin <- rollapply(self$data$Close, width = window, FUN = min, by.column = TRUE, fill = NA, align = "right")
-      
-      # Initialize columns
-      self$data$strong_min <- NA
-      self$data$strong_max <- NA
-      
-      # Variables to track current minimum and current high
-      current_min <- NA
-      current_high <- -Inf
-      
-      # Iterate through each row in the data frame
-      for (i in 1:nrow(self$data)) {
-        if (!is.na(self$data$RollingMin[i])) {
-          # Check if a new rolling window starts (every `window` days)
-          if (i %% window == 1) {
-            current_min <- self$data$RollingMin[i]  # Reset current_min
-            current_high <- self$data$Close[i]      # Reset current_high
+# Identify levels based on reversal points given rolling window
+identify_reversals = function(window ) {
+  # Calculate the rolling minimum
+  self$data$RollingMin <- rollapply(self$data$Close, width = window, FUN = min, by.column = TRUE, fill = NA, align = "right")
+  
+  # Initialize columns
+  self$data$strong_min <- NA
+  self$data$strong_max <- NA
+  
+  # Variables to track current minimum and current high
+  current_min <- NA
+  current_high <- -Inf
+  
+  # Iterate through each row in the data frame
+  for (i in 1:nrow(self$data)) {
+    if (!is.na(self$data$RollingMin[i])) {
+      # Check if a new rolling window starts (every `window` days)
+      if (i %% window == 1) {
+        current_min <- self$data$RollingMin[i]  # Reset current_min
+        current_high <- self$data$Close[i]      # Reset current_high
+        self$data$strong_min[i] <- current_min
+      } else {
+        # If we encounter a new minimum within the window
+        if (is.na(current_min) || self$data$RollingMin[i] < current_min) {
+          current_min <- self$data$RollingMin[i]
+          current_high <- self$data$Close[i]    # Reset current high
+          self$data$strong_min[i] <- current_min
+        }
+        
+        # If we encounter a new high within the window
+        if (self$data$Close[i] > current_high) {
+          current_high <- self$data$Close[i]
+          if (!is.na(current_min)) {
+            # Record the current minimum and maximum as strong
             self$data$strong_min[i] <- current_min
-          } else {
-            # If we encounter a new minimum within the window
-            if (is.na(current_min) || self$data$RollingMin[i] < current_min) {
-              current_min <- self$data$RollingMin[i]
-              current_high <- self$data$Close[i]    # Reset current high
-              self$data$strong_min[i] <- current_min
-            }
-            
-            # If we encounter a new high within the window
-            if (self$data$Close[i] > current_high) {
-              current_high <- self$data$Close[i]
-              if (!is.na(current_min)) {
-                # Record the current minimum and maximum as strong
-                self$data$strong_min[i] <- current_min
-                self$data$strong_max[i] <- current_high
-              }
-            }
+            self$data$strong_max[i] <- current_high
           }
         }
       }
-      
-      # Filter out rows with NA in strong_max
-      data_filtered <- self$data[!is.na(self$data$strong_max), ]
-      
-      # Calculate strongest values
-      strongest_values <- data_filtered %>%
-        group_by(strong_min) %>%
-        mutate(strongest = ifelse(strong_max == max(strong_max, na.rm = TRUE), max(strong_max, na.rm = TRUE), NA)) %>%
-        ungroup()
-      
-      # Create levels data frame
-      levels <- strongest_values %>%
-        filter(!is.na(strongest)) %>%
-        mutate(plot = TRUE)
-      
-      # Merge strongest column back to original data by Date
-      # self$data <- merge(self$data, levels[, c("Date", "strongest", "plot")], by = "Date", all.x = TRUE)
-      
-      self$data <- self$data %>% left_join(levels[, c("Date", "strongest", "plot")], by = "Date")
-      #self$data <- merge(self$data, levels[, c("Date", "strongest", "plot")], by = "Date", all.x = TRUE, suffixes = c("", ""))
-      
-      # Return self$data for chaining or other purposes
-      #return(self$data)
-    },
-    
-    # Plot levels based on reversal points
-    plot_reversals_lvl = function(from, to) {
-      # Plotting using ggplot2
-      ggplot(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to), ], aes(x = Date, y = Close)) +
-        geom_line(color = "black", size = 1) +  # Close prices
-        geom_hline(aes(yintercept = strong_min), data = subset(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & self$data$plot.x == TRUE, ]), linetype = "dashed", color = "green", size = 0.5) +  # strong_min levels
-        geom_hline(aes(yintercept = strong_max), data = subset(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & self$data$plot.x == TRUE, ]), linetype = "longdash", color = "red", size = 0.5) +  # strong_max levels
-        annotate("text", x = self$data$Date[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_min) & self$data$plot.x == TRUE], y = self$data$strong_min[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_min) & self$data$plot.x == TRUE], label = "strong_min", vjust = -0.5, color = "green", size = 3) +  # Annotation for strong_min
-        annotate("text", x = self$data$Date[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_max) & self$data$plot.x == TRUE], y = self$data$strong_max[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_max) & self$data$plot.x == TRUE], label = "strong_max", vjust = 1, color = "red", size = 3) +  # Annotation for strong_max
-        labs(
-          title = "Close Prices with strong_min and strong_max Levels",
-          x = "Date",
-          y = "Price"
-        ) +
-        theme_minimal() +
-        theme(
-          plot.title = element_text(size = 16, face = "bold"),
-          axis.text.x = element_text(angle = 45, hjust = 1)
-        )
-    },
-    
-    # Plot Japanese candles (HLOC) given latest ndays
-    plot_candles = function(ndays) {
-      
-      # Get the last ndays of data
-      df_tail <- tail(self$data, ndays)
-      
-      # Latest date in the tail data
-      latest_date <- max(df_tail$Date)
-      
-      # Get the latest levels for the horizontal lines
-      latest_levels <- self$data %>%
-        filter(Date == latest_date) %>%
-        select(local_year_max, local_half_year_max, local_month_max, local_week_max,
-               local_three_month_min, local_month_min, local_week_min) %>%
-        slice(1)
-      
-      # Plot the candlestick chart
-      fig <- df_tail %>% plot_ly(x = ~Date, type= "candlestick",
-                                 open = ~Open, close = ~Close,
-                                 high = ~High, low = ~Low) 
-      
-      # Add horizontal lines for historical levels
-      fig <- fig %>% 
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_year_max, nrow(df_tail)),
-                  line = list(color = 'blue', dash = 'dash', width = 1), name = 'Year Max') %>%
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_half_year_max, nrow(df_tail)),
-                  line = list(color = 'green', dash = 'dash', width = 1), name = 'Half Year Max') %>%
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_month_max, nrow(df_tail)),
-                  line = list(color = 'red', dash = 'dash', width = 1), name = 'Month Max') %>%
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_week_max, nrow(df_tail)),
-                  line = list(color = 'purple', dash = 'dash', width = 1), name = 'Week Max') %>%
-        
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_three_month_min, nrow(df_tail)),
-                  line = list(color = 'brown', dash = 'dot', width = 1), name = '3 Month Min') %>%
-        
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_month_min, nrow(df_tail)),
-                  line = list(color = 'red', dash = 'dot', width = 1), name = 'Month Min') %>%
-        add_lines(x = df_tail$Date, y = rep(latest_levels$local_week_min, nrow(df_tail)),
-                  line = list(color = 'purple', dash = 'dot', width = 1), name = 'Week Min')
-      
-      # Add layout title
-      fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
-      
-      # Return the plot
-      fig
     }
+  }
+  
+  # Filter out rows with NA in strong_max
+  data_filtered <- self$data[!is.na(self$data$strong_max), ]
+  
+  # Calculate strongest values
+  strongest_values <- data_filtered %>%
+    group_by(strong_min) %>%
+    mutate(strongest = ifelse(strong_max == max(strong_max, na.rm = TRUE), max(strong_max, na.rm = TRUE), NA)) %>%
+    ungroup()
+  
+  # Create levels data frame
+  levels <- strongest_values %>%
+    filter(!is.na(strongest)) %>%
+    mutate(plot = TRUE)
+  
+  # Merge strongest column back to original data by Date
+  # self$data <- merge(self$data, levels[, c("Date", "strongest", "plot")], by = "Date", all.x = TRUE)
+  
+  self$data <- self$data %>% left_join(levels[, c("Date", "strongest", "plot")], by = "Date")
+  #self$data <- merge(self$data, levels[, c("Date", "strongest", "plot")], by = "Date", all.x = TRUE, suffixes = c("", ""))
+  
+  # Return self$data for chaining or other purposes
+  #return(self$data)
+},
     
+# Plot levels based on reversal points
+plot_reversals_lvl = function(from, to) {
+  # Plotting using ggplot2
+  ggplot(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to), ], aes(x = Date, y = Close)) +
+    geom_line(color = "black", size = 1) +  # Close prices
+    geom_hline(aes(yintercept = strong_min), data = subset(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & self$data$plot.x == TRUE, ]), linetype = "dashed", color = "green", size = 0.5) +  # strong_min levels
+    geom_hline(aes(yintercept = strong_max), data = subset(self$data[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & self$data$plot.x == TRUE, ]), linetype = "longdash", color = "red", size = 0.5) +  # strong_max levels
+    annotate("text", x = self$data$Date[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_min) & self$data$plot.x == TRUE], y = self$data$strong_min[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_min) & self$data$plot.x == TRUE], label = "strong_min", vjust = -0.5, color = "green", size = 3) +  # Annotation for strong_min
+    annotate("text", x = self$data$Date[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_max) & self$data$plot.x == TRUE], y = self$data$strong_max[self$data$Date >= as.Date(from) & self$data$Date <= as.Date(to) & !is.na(self$data$strong_max) & self$data$plot.x == TRUE], label = "strong_max", vjust = 1, color = "red", size = 3) +  # Annotation for strong_max
+    labs(
+      title = "Close Prices with strong_min and strong_max Levels",
+      x = "Date",
+      y = "Price"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+},
+    
+# Plot Japanese candles (HLOC) given latest ndays
+plot_candles = function(ndays) {
+  
+  # Get the last ndays of data
+  df_tail <- tail(self$data, ndays)
+  
+  # Latest date in the tail data
+  latest_date <- max(df_tail$Date)
+  
+  # Get the latest levels for the horizontal lines
+  latest_levels <- self$data %>%
+    filter(Date == latest_date) %>%
+    select(local_year_max, local_half_year_max, local_month_max, local_week_max,
+            local_three_month_min, local_month_min, local_week_min) %>%
+    slice(1)
+  
+  # Plot the candlestick chart
+  fig <- df_tail %>% plot_ly(x = ~Date, type= "candlestick",
+                              open = ~Open, close = ~Close,
+                              high = ~High, low = ~Low) 
+  
+  # Add horizontal lines for historical levels
+  fig <- fig %>% 
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_year_max, nrow(df_tail)),
+              line = list(color = 'blue', dash = 'dash', width = 1), name = 'Year Max') %>%
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_half_year_max, nrow(df_tail)),
+              line = list(color = 'green', dash = 'dash', width = 1), name = 'Half Year Max') %>%
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_month_max, nrow(df_tail)),
+              line = list(color = 'red', dash = 'dash', width = 1), name = 'Month Max') %>%
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_week_max, nrow(df_tail)),
+              line = list(color = 'purple', dash = 'dash', width = 1), name = 'Week Max') %>%
+    
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_three_month_min, nrow(df_tail)),
+              line = list(color = 'brown', dash = 'dot', width = 1), name = '3 Month Min') %>%
+    
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_month_min, nrow(df_tail)),
+              line = list(color = 'red', dash = 'dot', width = 1), name = 'Month Min') %>%
+    add_lines(x = df_tail$Date, y = rep(latest_levels$local_week_min, nrow(df_tail)),
+              line = list(color = 'purple', dash = 'dot', width = 1), name = 'Week Min')
+  
+  # Add layout title
+  fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
+  
+  # Return the plot
+  fig
+}
+
   )
 )
 
 
-
 # Instances of Nero strategy
 nero <- Nero$new(ts)
-
 nero$identify_historical_levels()
 nero$identify_reversals(window = 50)
 reversals <- nero$identify_reversals(window = 50)
