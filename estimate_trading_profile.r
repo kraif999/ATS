@@ -182,21 +182,6 @@ compute_NA_close_price_ratio = function() {
   )
 )
 
-######################################################
-# Specify trading strategy parameters
-#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-from_date <- as.Date("2020-01-01") 
-to_date <- Sys.Date()
-symbol <- "BTC-USD"
-capital <- 50000 # units of initial capital invested
-leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
-# Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
-######################################################
-
-# Download data from Yahoo (instances of DataFetcher class)
-data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-ts <- data_fetcher$download_xts_data()
-
 TSA <- R6Class(
   "TSA",
   public = list(
@@ -1067,14 +1052,13 @@ generate_signals = function() {
       ma_func <- get(self$ma_type)
       self$data <- mutate(self$data, 
                           ma = ma_func(Close, self$window_size, align = "right", fill = NA),
-                          #signal = ifelse(Close > ma, 1, ifelse(Close < ma, -1, 0)),
                           signal = ifelse(Close > lag(ma), 1, ifelse(Close < lag(ma), -1, 0)),
                           position = lag(signal, default = 0)) %>% 
                             na.omit
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, split, cut_date, from_date, to_date, slicing_years, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1100,14 +1084,14 @@ run_backtest = function(symbols, window_sizes, ma_types, split, cut_date, from_d
       # Estimate performance based on the split argument
       if (split) {
         performance <- sma_instance$estimate_performance(
-          data_type = "in_sample",
+          data_type = data_type,
           split_data = TRUE,
           cut_date = cut_date,
           window = slicing_years
         )
       } else {
         performance <- sma_instance$estimate_performance(
-          data_type = "in_sample",
+          data_type = data_type,
           split_data = FALSE,
           cut_date = cut_date,
           window = slicing_years
@@ -1193,7 +1177,24 @@ run_backtest = function(symbols, window_sizes, ma_types, split, cut_date, from_d
   )
 )
 
+######################################################
+# Specify trading strategy parameters
+#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+from_date <- as.Date("2020-01-01") 
+to_date <- Sys.Date()
+symbol <- "BTC-USD"
+capital <- 1000000 # USD
+leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
+# Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
+######################################################
+
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
 # Run instance of SMA1
+
+# In-sample:
 sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
@@ -1214,28 +1215,59 @@ sma1_res_in_sample_dt[, units := ifelse(
   )
 )]
 
-#sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 4)
-sma1$plot_equity_lines("SMA1", signal_flag = FALSE) # strategy name, not to be confused with moving average type
+sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
 trades <- sma1$get_trades()
+
+# Out-of sample
+sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
+sma1_res_out_sample <- t(sma1$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
+sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
+
+# Apply the same logic for the units column
+sma1_res_out_sample_dt[, units := ifelse(
+  .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
+  ifelse(
+    Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
+    ifelse(
+      Metric %in% c("LengthOfLargestWin", "LengthOfLargestLoss", "LengthOfAverageWin", "LengthOfAverageLoss", 
+                    "LengthOfMaxDrawdown", "LengthOfMaxRunUp", "LengthOfTimeInLargestWinningRun", "LengthOfTimeInLargestLosingRun", 
+                    "LengthOfTimeInAverageWinningRun", "LengthOfTimeInAverageLosingRun", "LargestWinningRun", "LargestLosingRun"), "days",
+      ifelse(
+        grepl("Date", Metric), "Date", 
+        "USD"  # Default case for other rows
+      )
+    )
+  )
+)]
+
+sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
+trades <- sma1$get_trades()
+
+# HOW STRATEGY (in-sample or out-of-sample) BEHAVES UNDER DIFFERENT PERIODS
+sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
+sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1)
 
 # Overall trading profile
 res_sma1_overall <- sma1$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(10, 100, by = 10), 
-  ma_type = c("SMA","EMA"),
+  window_sizes = seq(10, 50, by = 5), 
+  #ma_type = c("SMA","EMA"),
+  ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
+  data_type = "in_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
-  from_date,
-  to_date,
+  from_date = as.Date("2020-01-01"),
+  to_date = as.Date("2024-01-01"),
   slicing_years = 4,
   output_df = TRUE
   )
 
-# More granular (split)
+# More granular (split) - only for potential good candidates
 res_sma1_granular <- sma1$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(10, 100, by = 10), 
+  window_sizes = seq(10, 50, by = 10), 
   ma_type = c("SMA","EMA"),
+  data_type = "in_sample",
   split = TRUE,
   cut_date = as.Date("2024-01-01"),
   from_date,
@@ -1245,4 +1277,3 @@ res_sma1_granular <- sma1$run_backtest(
   )
 
 #ggsave("sma1_btc_usd_plot.png", bg = "white")
-
