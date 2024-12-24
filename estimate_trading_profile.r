@@ -184,9 +184,10 @@ compute_NA_close_price_ratio = function() {
 
 ######################################################
 # Specify trading strategy parameters
-from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
+from_date <- as.Date("2020-01-01") 
 to_date <- Sys.Date()
-symbol <- "BTC-USD" # oil
+symbol <- "BTC-USD"
 capital <- 50000 # units of initial capital invested
 leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
 # Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
@@ -498,7 +499,7 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy
-estimate_performance = function(data_type, cut_date, window = 2) {
+estimate_performance = function(data_type, split_data, cut_date, window) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
@@ -570,66 +571,58 @@ estimate_performance = function(data_type, cut_date, window = 2) {
     mutate(Date = as.Date(Date)) %>%
     arrange(Date)
 
-  # Define the start and end dates
-  start_date <- min(self$data$Date)
-  end_date <- max(self$data$Date)
+  if (split_data) {
+    # Define the start and end dates
+    start_date <- min(self$data$Date)
+    end_date <- max(self$data$Date)
 
-  # Create a sequence of periods based on the window argument (e.g., 2 years, or any other value)
-  period_start <- start_date
-  period_end <- period_start %m+% years(window) - days(1)  # Flexible period based on window
+    # Create a sequence of periods based on the window argument (e.g., 2 years, or any other value)
+    period_start <- start_date
+    period_end <- period_start %m+% years(window) - days(1)  # Flexible period based on window
 
-  performance_list <- list()
+    performance_list <- list()
 
-  while (period_start <= end_date) {
-    current_end <- min(period_end, end_date)
+    while (period_start <= end_date) {
+      current_end <- min(period_end, end_date)
 
-    # Filter data for the current period
-    data_period <- self$data %>%
-      filter(Date >= period_start & Date <= current_end)
+      # Filter data for the current period
+      data_period <- self$data %>%
+        filter(Date >= period_start & Date <= current_end)
 
-    # Update self$data to include 'From' and 'To' columns for the current period
-    self$data <- self$data %>%
-      mutate(From = as.Date(ifelse(Date >= period_start & Date <= current_end, period_start, From)),
-             To = as.Date(ifelse(Date >= period_start & Date <= current_end, current_end, To)))
+      # Update self$data to include 'From' and 'To' columns for the current period
+      self$data <- self$data %>%
+        mutate(From = as.Date(ifelse(Date >= period_start & Date <= current_end, period_start, From)),
+              To = as.Date(ifelse(Date >= period_start & Date <= current_end, current_end, To)))
 
-    if (nrow(data_period) > 0) {
-      metrics <- private$compute_metrics(data_period)
-      metrics$from <- period_start
-      metrics$to <- current_end
-      metrics$data_type <- data_type  # Add data_type column
-      performance_list[[length(performance_list) + 1]] <- metrics
+      if (nrow(data_period) > 0) {
+        metrics <- private$compute_metrics(data_period)
+        metrics$from <- period_start
+        metrics$to <- current_end
+        metrics$data_type <- data_type  # Add data_type column
+        performance_list[[length(performance_list) + 1]] <- metrics
+      }
+
+      # Move to the next period based on the window
+      period_start <- period_start %m+% years(window)
+      period_end <- period_start %m+% years(window) - days(1)
     }
 
-    # Move to the next period based on the window
-    period_start <- period_start %m+% years(window)
-    period_end <- period_start %m+% years(window) - days(1)
-  }
-
-  # Combine all period performances into one data frame
-  performance_df <- bind_rows(performance_list) %>%
-    select(ticker, from, to, data_type, Strategy, everything())
-
-
-  return(performance_df)
-
-  # Create new columns that combine Strategy, from, and to
-  # performance_df_reshaped <- performance_df %>%
-  #   gather(key = "metric", value = "value", -ticker, -from, -to, -data_type, -Strategy) %>%
-  #     unite("Strategy_from_to", Strategy, from, to, sep = "_") %>%
-  #       spread(key = "Strategy_from_to", value = "value")
-  
-  # return(performance_df_reshaped)
-  
-  # Reshape the data using pivot_longer and pivot_wider
-  # performance_df_reshaped <- performance_df %>%
-  #   pivot_longer(cols = -c(ticker, from, to, data_type, Strategy), 
-  #               names_to = "metric", 
-  #               values_to = "value") %>%
-  #   unite("Strategy_from_to", Strategy, from, to, sep = "_") %>%
-  #   pivot_wider(names_from = "Strategy_from_to", values_from = "value")
+    # Combine all period performances into one data frame
+    performance_df <- bind_rows(performance_list) %>%
+      select(ticker, from, to, data_type, Strategy, everything())
+    return(performance_df)
+  } else {
+    # If split_data is FALSE, compute metrics for the entire dataset
+    metrics <- private$compute_metrics(self$data)
+    metrics$from <- min(self$data$Date)
+    metrics$to <- max(self$data$Date)
+    metrics$data_type <- data_type  # Add data_type column
     
-  #   return(performance_df_reshaped)
-
+    performance_df <- as.data.frame(metrics) %>%
+      select(ticker, from, to, data_type, Strategy, everything())
+    
+    return(performance_df)
+  }
 },
 
 # Method to plot Close price and running PnL
@@ -734,12 +727,18 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
   active_line_size <- ifelse(signal_flag, 1, 0.8)
   passive_line_size <- ifelse(signal_flag, 1, 0.8)
   
-  # Plot equity lines
   p <- ggplot(self$data, aes(x = Date)) +
-    labs(title = paste0("Equity Lines for Active ", "(", as.character(strategy_name), ")", " and Passive (buy-and-hold) strategies"),
-         x = "Date",
-         y = "Equity line") +
-    theme_minimal()
+  labs(
+    title = paste0(
+      "Asset: ", symbol, ", capital trajectory for Active (", 
+      as.character(strategy_name), ") and Passive (buy-and-hold)\n",
+      "strategies with original investment of ", capital, " units ",
+      "over the period from ", self$data$Date %>% head(1), " to ", self$data$Date %>% tail(1)
+    ),
+    x = "Date",
+    y = "Equity line"
+  ) +
+  theme_minimal()
   
   # Add vertical dashed lines for periods using From and To columns
   # Extract unique From and To values and convert to data.frame
@@ -808,7 +807,6 @@ compute_metrics = function(data_subset) {
     
   estimate_trading_profile <- function(data_subset, strategy_type) {
 
-      #data_subset <- data_subset[complete.cases(data_subset), ]
       data_subset$Date <- as.Date(data_subset$Date)
 
       # Select appropriate columns based on strategy type
@@ -832,14 +830,14 @@ compute_metrics = function(data_subset) {
         nrow(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)) * 100, 2)
 
       # 4. Largest Win
-      LargestWin <- max(data_subset[[pnl_col]], na.rm = TRUE)
+      LargestWin <- round(max(data_subset[[pnl_col]], na.rm = TRUE), 0)
 
       # 5. Length of Largest Win
       LengthOfLargestWin <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.max(data_subset[[pnl_col]])], ], 
                                   as.numeric(max(Date) - min(Date) + 1))
 
       # 6. Average Win
-      AverageWin <- mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE)
+      AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 0)
 
       # 7. Length of Average Win
       AverageWinLength <- data_subset %>%
@@ -850,24 +848,15 @@ compute_metrics = function(data_subset) {
         aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
         with(round(mean(Date, na.rm = TRUE)))
       
-      # 7. Length of Average Win
-      # AverageWinLength <- data_subset %>%
-      #   dplyr::mutate(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-      #   dplyr::group_by(trade_id) %>%
-      #   dplyr::filter(tail(cum_pnl, 1) > 0) %>%
-      #   dplyr::summarize(win_length = as.numeric(max(Date) - min(Date) + 1)) %>%
-      #   dplyr::summarize(AverageWinLength = round(mean(win_length, na.rm = TRUE))) %>%
-      #   dplyr::pull(AverageWinLength
-
       # 8. Largest Loss
-      LargestLoss <- min(data_subset[[pnl_col]], na.rm = TRUE)
+      LargestLoss <- round(min(data_subset[[pnl_col]], na.rm = TRUE),0)
 
       # 9. Length of Largest Loss
       LengthOfLargestLoss <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.min(data_subset[[pnl_col]])], ], 
                                   as.numeric(max(Date) - min(Date) + 1))
 
       # 10. Average Loss
-      AverageLoss <- mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE)
+      AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE),0)
 
       # 11. Length of Average Loss
       AverageLossLength <- data_subset %>%
@@ -928,7 +917,7 @@ compute_metrics = function(data_subset) {
       MaxDrawdown <- min(data_subset %>%
                           mutate(cum_max_eql = cummax(get(eql_col)),
                                   drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql) %>%
-                          pull(drawdown), na.rm = TRUE)
+                          pull(drawdown), na.rm = TRUE) * 100
 
       # 21. Start and end dates of maximum drawdown
       drawdown_data <- data_subset %>%
@@ -948,7 +937,7 @@ compute_metrics = function(data_subset) {
       MaxRunUp <- max(data_subset %>%
                         mutate(cum_min_eql = cummin(get(eql_col)),
                               run_up = (get(eql_col) - cum_min_eql) / cum_min_eql) %>%
-                        pull(run_up), na.rm = TRUE)
+                        pull(run_up), na.rm = TRUE) * 100
 
       # 24. Start and end dates of maximum run-up
       run_up_data <- data_subset %>%
@@ -1085,82 +1074,175 @@ generate_signals = function() {
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, from_date, to_date, slicing_years, output_df = FALSE) {
-      # Create an empty list to store results
-      results <- list()
+run_backtest = function(symbols, window_sizes, ma_types, split, cut_date, from_date, to_date, slicing_years, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
 
-      # Loop through symbols, window sizes, and MA types to create instances and estimate performance
-      for (symbol in symbols) {
-        for (window_size in window_sizes) {
-          for (ma_type in ma_types) {
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+      for (ma_type in ma_types) {
 
-            # Fetch data using DataFetcher for the current symbol and date range
-            data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-            data <- data_fetcher$download_xts_data()
-            
-            # Create an instance of SMA1 strategy
-            sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
-                        
-            # Store the results
-            results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
-              Symbol = symbol,
-              Class = meta$assets[[symbol]]$class,
-              Methodology = paste("SMA1:", window_size, ma_type),
-              Window_Size = window_size,
-              MA_Type = ma_type,
-              Performance = sma_instance$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = slicing_years)
-            )
-
-            print(paste0("Results are for ", "SMA1 ", "(", "symbol: ", symbol, ",", "class: ", meta$assets[[symbol]]$class, ",", "window_size: ", window_size, ",", "ma_type: ", ma_type, ")"))
-            
-          }
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
         }
-      }
 
-        # Create the final data frame
-        res_df <- do.call(rbind, lapply(results, function(x) {
-        performance_data <- x$Performance
-        # Combine 'from' and 'to' into 'Period'
-        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+        # Create an instance of SMA1 strategy
+        sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
         
-        # Remove 'from', 'to', and 'ticker' columns
-        performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
-        
-        # Add metadata columns
-        cbind(
-          Symbol = x$Symbol,
-          Class = x$Class,
-          Methodology = x$Methodology,
-          Window_Size = x$Window_Size,
-          MA_Type = x$MA_Type,
-          performance_data
+
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- sma_instance$estimate_performance(
+          data_type = "in_sample",
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years
         )
-      })) %>% select(Symbol, Class, Methodology, Window_Size, MA_Type, data_type, Strategy, Period, everything())
-
-      rownames(res_df) <- 1:nrow(res_df)
-
-      if (output_df) {
-        return(res_df)
-    }   else {
-          return(results)
+      } else {
+        performance <- sma_instance$estimate_performance(
+          data_type = "in_sample",
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years
+        )
       }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size:", window_size, 
+                        "ma_type:", ma_type))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("SMA1:", window_size, ma_type),
+          Window_Size = window_size,
+          MA_Type = ma_type,
+          Performance = performance
+        )
+
+        print(paste0(
+          "Processed SMA1 (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size: ", window_size, 
+          ", ma_type: ", ma_type, ", split: ", split, ")"
+        ))
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Check if performance_data is a data frame
+      # if (!is.data.frame(performance_data)) {
+      #   warning("Performance data is not in the expected format for symbol: ", x$Symbol)
+      #   return(NULL)
+      # }
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size = x$Window_Size,
+        MA_Type = x$MA_Type,
+        performance_data
+      )
+    }))
+
+    # Remove NULL rows resulting from invalid performance data
+    #res_df <- res_df[!sapply(res_df, is.null), ]
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
 )
 
 # Run instance of SMA1
-sma1 <- SMA1$new(ts, window_size = 10, ma_type = 'EMA')
-sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", cut_date = as.Date("2024-01-01"), window = 4)
-sma1$plot_equity_lines("SMA1", signal_flag = TRUE) # strategy name, not to be confused with moving average type
+sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
+sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
+
+sma1_res_in_sample_dt[, units := ifelse(
+  .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
+  ifelse(
+    Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
+    ifelse(
+      Metric %in% c("LengthOfLargestWin", "LengthOfLargestLoss", "LengthOfAverageWin", "LengthOfAverageLoss", 
+                    "LengthOfMaxDrawdown", "LengthOfMaxRunUp", "LengthOfTimeInLargestWinningRun", "LengthOfTimeInLargestLosingRun", 
+                    "LengthOfTimeInAverageWinningRun", "LengthOfTimeInAverageLosingRun", "LargestWinningRun", "LargestLosingRun"), "days",
+      ifelse(
+        grepl("Date", Metric), "Date", 
+        "USD"  # Default case for other rows
+      )
+    )
+  )
+)]
+
+#sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 4)
+sma1$plot_equity_lines("SMA1", signal_flag = FALSE) # strategy name, not to be confused with moving average type
 trades <- sma1$get_trades()
 
-res_sma1 <- sma1$run_backtest(
+# Overall trading profile
+res_sma1_overall <- sma1$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
   window_sizes = seq(10, 100, by = 10), 
   ma_type = c("SMA","EMA"),
+  split = FALSE,
+  cut_date = as.Date("2024-01-01"),
   from_date,
   to_date,
-  slicing_years = 4, # slicing window depends on head availability ts data
+  slicing_years = 4,
   output_df = TRUE
   )
+
+# More granular (split)
+res_sma1_granular <- sma1$run_backtest(
+  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  window_sizes = seq(10, 100, by = 10), 
+  ma_type = c("SMA","EMA"),
+  split = TRUE,
+  cut_date = as.Date("2024-01-01"),
+  from_date,
+  to_date,
+  slicing_years = 4,
+  output_df = TRUE
+  )
+
+#ggsave("sma1_btc_usd_plot.png", bg = "white")
+
