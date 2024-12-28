@@ -484,16 +484,25 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy
-estimate_performance = function(data_type, split_data, cut_date, window) {
+estimate_performance = function(data_type, split_data, cut_date, window, apply_stop_loss, stop_loss_threshold, reward_ratio) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
   
   self$generate_signals()  # Call generate_signals dynamically
 
+  if (apply_stop_loss) {
+    #self$data <- private$apply_stop_loss(self$data, stop_loss_threshold) # Apply stop loss given threshold
+    self$data <- private$apply_bracket(self$data, stop_loss_threshold, reward_ratio)
+  }
+
   self$data <- self$data %>% 
     mutate(
-      pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+      #pnlActive = c(0, diff(Close) * signal[-length(Close)]),
+      #pnlActive2 = lag(diff(Close) * position),
+      #pnlActive = c((Close - Open) * position[-1]),
+      #pnlActive = c((Close - Open) * position), 
+      pnlActive = c(0, diff(Close) * position[-1]),
       pnlPassive = c(0, diff(Close)),
       nopActive = 0,
       nopPassive = 0,
@@ -507,7 +516,8 @@ estimate_performance = function(data_type, split_data, cut_date, window) {
   self$data$eqlActive[1] <- capital
   self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
   self$data$eqlPassive[1] <- capital
-  self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))  
+  #self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))
+  self$data$nopPassive[1] <- floor(capital / (self$data$Close[1]))  
 
   # Check if sizing columns exist
   has_L <- "nop_sizing" %in% names(self$data)
@@ -517,7 +527,7 @@ estimate_performance = function(data_type, split_data, cut_date, window) {
     # Active
     pnlActive <- self$data$pnlActive[i]
     prev_nop_Active <- floor(self$data$nopActive[i - 1])
-    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage))
+    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage)) # spot transaction given leverage (no leverage)
     self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
 
     # Calculate nopActive based on the presence of the "L" column
@@ -786,6 +796,163 @@ estimate_average_true_range = function(ts, n = 14) { # 14 days by default
   ),
     
 private = list(
+
+# Private method that adds a stop loss based on the threshold
+apply_stop_loss = function(data, threshold) {
+  
+  # Convert data to data.table
+  data <- as.data.table(data)
+  
+  # Add position_group for tracking groups of positions
+  data[, position_group := cumsum(position != shift(position, type = "lag", fill = 0))]
+  
+  # Initialize columns
+  data[, `:=`(stop_loss_event = FALSE, 
+              position_modified = position, 
+              stop_loss_trigger = NA_real_, 
+              calculated_stop_loss = NA_real_)]
+  
+  # Iterate through each group
+  data[, c("stop_loss_event", "position_modified", "stop_loss_trigger", "calculated_stop_loss") := {
+    stop_loss_flag <- FALSE
+    pos_mod <- position
+    stop_loss_evt <- logical(.N)  # Initialize for current group
+    stop_loss_trig <- rep(NA_real_, .N)  # Initialize trigger price
+    calc_stop_loss <- rep(NA_real_, .N)  # Initialize calculated stop-loss price
+    
+    # Calculate stop-loss price for each position
+    if (position[1] == 1) {
+      calc_stop_loss <- Close[1] * (1 - threshold)
+    } else if (position[1] == -1) {
+      calc_stop_loss <- Close[1] * (1 + threshold)
+    }
+    
+    for (i in seq_len(.N)) {
+      if (!stop_loss_flag) {
+        # Trigger stop-loss
+        if (position[i] == 1 && Close[i] <= calc_stop_loss[1]) {
+          stop_loss_evt[i] <- TRUE
+          stop_loss_trig[i] <- Close[i]
+          stop_loss_flag <- TRUE
+        } else if (position[i] == -1 && Close[i] >= calc_stop_loss[1]) {
+          stop_loss_evt[i] <- TRUE
+          stop_loss_trig[i] <- Close[i]
+          stop_loss_flag <- TRUE
+        }
+      } else {
+        # After stop-loss, reverse position on the next day
+        if (i > 1) {
+          if (stop_loss_evt[i - 1]) {
+            pos_mod[i] <- -pos_mod[i - 1]
+          } else {
+            pos_mod[i] <- 0
+          }
+        }
+      }
+    }
+    
+    list(stop_loss_evt, pos_mod, stop_loss_trig, calc_stop_loss)
+  }, by = position_group]
+  
+  # Rename columns at the end
+  setnames(data, "position", "position_original")
+  setnames(data, "position_modified", "position")
+  
+  return(data)
+},
+
+# Private method that applies a stop loss and reward take based on the thresholds
+apply_bracket = function(data, threshold, reward_ratio) {
+  
+  # Convert data to data.table
+  data <- as.data.table(data)
+  
+  # Remove duplicate `position_original` if it already exists
+  if ("position_original" %in% colnames(data)) {
+    data[, position_original := NULL]
+  }
+  
+  # Add position_group for tracking groups of positions
+  data[, position_group := cumsum(position != shift(position, type = "lag", fill = 0))]
+  
+  # Initialize columns
+  data[, `:=`(stop_loss_event = FALSE, 
+              profit_take_event = FALSE, 
+              position_modified = position, 
+              stop_loss_trigger = NA_real_, 
+              profit_take_trigger = NA_real_, 
+              calculated_stop_loss = NA_real_, 
+              calculated_profit_take = NA_real_)]
+  
+  # Iterate through each group
+  data[, c("stop_loss_event", "profit_take_event", "position_modified", 
+           "stop_loss_trigger", "profit_take_trigger", 
+           "calculated_stop_loss", "calculated_profit_take") := {
+    
+    stop_loss_flag <- FALSE
+    profit_take_flag <- FALSE
+    pos_mod <- position
+    stop_loss_evt <- logical(.N)  # Initialize for current group
+    profit_take_evt <- logical(.N)  # Initialize for current group
+    stop_loss_trig <- rep(NA_real_, .N)  # Initialize stop-loss trigger price
+    profit_take_trig <- rep(NA_real_, .N)  # Initialize profit-taking trigger price
+    calc_stop_loss <- rep(NA_real_, .N)  # Initialize calculated stop-loss price
+    calc_profit_take <- rep(NA_real_, .N)  # Initialize calculated profit-taking price
+    
+    # Calculate stop-loss and profit-taking prices for each position
+    if (position[1] == 1) {
+      calc_stop_loss <- Close[1] * (1 - threshold)
+      calc_profit_take <- Close[1] * (1 + reward_ratio * threshold)
+    } else if (position[1] == -1) {
+      calc_stop_loss <- Close[1] * (1 + threshold)
+      calc_profit_take <- Close[1] * (1 - reward_ratio * threshold)
+    }
+    
+    for (i in seq_len(.N)) {
+      if (!stop_loss_flag && !profit_take_flag) {
+        # Trigger stop-loss
+        if (position[i] == 1 && Close[i] <= calc_stop_loss[1]) {
+          stop_loss_evt[i] <- TRUE
+          stop_loss_trig[i] <- Close[i]
+          stop_loss_flag <- TRUE
+        } else if (position[i] == -1 && Close[i] >= calc_stop_loss[1]) {
+          stop_loss_evt[i] <- TRUE
+          stop_loss_trig[i] <- Close[i]
+          stop_loss_flag <- TRUE
+        }
+        
+        # Trigger profit-taking
+        if (position[i] == 1 && Close[i] >= calc_profit_take[1]) {
+          profit_take_evt[i] <- TRUE
+          profit_take_trig[i] <- Close[i]
+          profit_take_flag <- TRUE
+        } else if (position[i] == -1 && Close[i] <= calc_profit_take[1]) {
+          profit_take_evt[i] <- TRUE
+          profit_take_trig[i] <- Close[i]
+          profit_take_flag <- TRUE
+        }
+      } else {
+        # After stop-loss or profit-taking, reverse position on the next day
+        if (i > 1) {
+          if (stop_loss_evt[i - 1] || profit_take_evt[i - 1]) {
+            pos_mod[i] <- -pos_mod[i - 1]
+          } else {
+            pos_mod[i] <- 0
+          }
+        }
+      }
+    }
+    
+    list(stop_loss_evt, profit_take_evt, pos_mod, stop_loss_trig, 
+         profit_take_trig, calc_stop_loss, calc_profit_take)
+  }, by = position_group]
+  
+  # Rename columns at the end
+  setnames(data, "position", "position_original")
+  setnames(data, "position_modified", "position")
+  
+  return(data)
+},
 
 # Function to compute metrics for the trading profile of a Strategy
 compute_metrics = function(data_subset) {
@@ -1058,7 +1225,8 @@ generate_signals = function() {
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, 
+apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1080,21 +1248,26 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         # Create an instance of SMA1 strategy
         sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
         
-
       # Estimate performance based on the split argument
       if (split) {
         performance <- sma_instance$estimate_performance(
           data_type = data_type,
           split_data = TRUE,
           cut_date = cut_date,
-          window = slicing_years
+          window = slicing_years,
+          apply_stop_loss = apply_stop_loss,
+          stop_loss_threshold = stop_loss_threshold,
+          reward_ratio = reward_ratio
         )
       } else {
         performance <- sma_instance$estimate_performance(
           data_type = data_type,
           split_data = FALSE,
           cut_date = cut_date,
-          window = slicing_years
+          window = slicing_years,
+          apply_stop_loss = apply_stop_loss,
+          stop_loss_threshold = stop_loss_threshold,
+          reward_ratio = reward_ratio
         )
       }
         # Skip if performance is NULL
@@ -1135,12 +1308,6 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
     res_df <- do.call(rbind, lapply(results, function(x) {
       performance_data <- x$Performance
 
-      # Check if performance_data is a data frame
-      # if (!is.data.frame(performance_data)) {
-      #   warning("Performance data is not in the expected format for symbol: ", x$Symbol)
-      #   return(NULL)
-      # }
-
       # Combine 'from' and 'to' into 'Period'
       if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
         performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
@@ -1162,9 +1329,6 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
       )
     }))
 
-    # Remove NULL rows resulting from invalid performance data
-    #res_df <- res_df[!sapply(res_df, is.null), ]
-
     # Reset row names
     rownames(res_df) <- 1:nrow(res_df)
 
@@ -1183,7 +1347,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
 from_date <- as.Date("2020-01-01") 
 to_date <- Sys.Date()
 symbol <- "BTC-USD"
-capital <- 1000000 # USD
+capital <- 100000 # USD
 leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
 # Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
 ######################################################
@@ -1194,9 +1358,12 @@ ts <- data_fetcher$download_xts_data()
 
 # Run instance of SMA1
 
-# IN-SAMPLE
-sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
+# IN-SAMPLE (WITHOUT SPLIT)
+sma1 <- SMA1$new(ts, window_size = 30, ma_type = 'SMA')
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, 
+  apply_stop_loss = TRUE, stop_loss_threshold = 0.01, reward_ratio = 30))
+#sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, apply_stop_loss = TRUE, stop_loss_threshold = 0.002))
+#sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, apply_stop_loss = FALSE, stop_loss_threshold = 0.03))
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
 sma1_res_in_sample_dt[, units := ifelse(
@@ -1216,30 +1383,55 @@ sma1_res_in_sample_dt[, units := ifelse(
 )]
 
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
-trades <- sma1$get_trades()
+#trades <- sma1$get_trades()
 
-sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
-sma1_res_in_sample <- sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1)
+dataset <- sma1$data
+table(dataset$position)
 
-# Overall trading profile
+sum(dataset$value > 0.01) / nrow(dataset) * 100
+sum(dataset$value > 0.025) / nrow(dataset) * 100
+sum(dataset$value > 0.05) / nrow(dataset) * 100
+
+# IN-SAMPLE (WITHOUT SPLIT)
+
+# Overall trading profile (NO SPLIT with stop-loss)
 res_sma1_overall <- sma1$run_backtest(
-  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  #symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  symbols = "BTC-USD",
   window_sizes = seq(10, 100, by = 5), 
-  ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
+  ma_type = c("WMA", "HMA", "SMA", "EMA"), 
   data_type = "in_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   from_date = as.Date("2020-01-01"),
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
+  apply_stop_loss = TRUE,
+  stop_loss_threshold = seq(0.005, 0.05, by = 0.005),
+  reward_ratio = seq(5, 30, by = 5),
   output_df = TRUE
+)
+
+superior_overall<- res_sma1_overall %>%
+  group_by(Methodology) %>% # Group by Methodology and Period for period-wise comparison
+  mutate(
+    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+      ifelse(
+        Strategy == "Active" & 
+          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
+        "Yes", 
+        "No"
+      )
+    } else {
+      NA  # Set NA if either Active or Passive is missing
+    }
   )
 
-# HOW STRATEGY (in-sample or out-of-sample) BEHAVES UNDER DIFFERENT PERIODS
 
+# IN-SAMPLE: HOW STRATEGY BEHAVES UNDER DIFFERENT PERIODS
 # More granular (split) - only for potential good candidates to check robustness
 res_sma1_granular <- sma1$run_backtest(
-  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
+  symbols = c("BTC-USD"),
   window_sizes = seq(35, 50, by = 1), 
   ma_type = c("SMA"),
   data_type = "in_sample",
@@ -1248,10 +1440,39 @@ res_sma1_granular <- sma1$run_backtest(
   from_date,
   to_date,
   slicing_years = 1,
+  #apply_stop_loss = FALSE,
+  apply_stop_loss = TRUE,
+  stop_loss_threshold = 0.025, # 2.5% threshold
+  reward_ratio = 25,
   output_df = TRUE
-  )
+)
 
-#ggsave("sma1_btc_usd_plot.png", bg = "white")
+# Check if a Methodology is superior based on the criteria
+superior_methodologies <- res_sma1_granular %>%
+  group_by(Methodology, Period) %>% # Group by Methodology and Period for period-wise comparison
+  mutate(
+    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+      ifelse(
+        Strategy == "Active" & 
+          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
+        "Yes", 
+        "No"
+      )
+    } else {
+      NA  # Set NA if either Active or Passive is missing
+    }
+  ) %>%
+  group_by(Methodology) %>% # Now group by Methodology to evaluate all periods
+  mutate(
+    Superior = if (all(Period_Superior == "Yes", na.rm = TRUE)) {
+      "Yes"
+    } else {
+      "No"
+    }
+  ) %>%
+  ungroup() %>%
+  filter(Superior == "Yes") %>%
+  distinct(Methodology, Superior) # Get unique Methodology classified as superior
 
 res_sma1_overall %>%
   group_by(Strategy) %>%
@@ -1265,7 +1486,7 @@ res_sma1_overall %>%
     avg_AnnualizedProfit = mean(as.numeric(AnnualizedProfit), na.rm = TRUE)
   )
 
-# OUT-OF-SAMPLE
+# OUT-OF-SAMPLE PERFORMANCE
 sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
 sma1_res_out_sample <- t(sma1$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
@@ -1301,5 +1522,32 @@ res_sma1_overall <- sma1$run_backtest(
   from_date = as.Date("2020-01-01"),
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
+  apply_stop_loss = FALSE,
+  stop_loss_threshold = 0.02,
   output_df = TRUE
   )
+
+# All results in one df
+res_all <- list.files("Run_backtest_results/", pattern = "*.csv", full.names = TRUE) %>% 
+  map_dfr(read.csv, stringsAsFactors = FALSE)
+
+res_all <- res_all %>% 
+  mutate(
+    Meth = str_extract(Methodology, "^[^:]+")
+) %>%
+  select(Symbol, Class, Meth, Methodology, everything(.))
+
+strategy_results <- res_all %>%
+  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
+  group_by(PairID) %>%
+  mutate(
+    Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+      ifelse(Strategy == "Active" & aR > aR[Strategy == "Passive"], "Yes", "No")
+    } else {
+      NA  # Assign NA if the group is incomplete
+    }
+  ) %>%
+  ungroup()
+
+# View the updated data
+strategy_results %>% filter(Symbol == "BTC-USD" & Strategy == "Active" & Superior == "Yes") %>% arrange(desc(aR)) %>% select(Methodology) %>% unique
