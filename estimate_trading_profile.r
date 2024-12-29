@@ -1225,8 +1225,7 @@ generate_signals = function() {
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, 
-apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_stop_loss, stop_loss_thresholds, reward_ratios, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1234,6 +1233,8 @@ apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
   for (symbol in symbols) {
     for (window_size in window_sizes) {
       for (ma_type in ma_types) {
+        for(stop_loss_threshold in stop_loss_thresholds) {
+          for(reward_ratio in reward_ratios) {
 
         # Fetch data using DataFetcher for the current symbol and date range
         data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -1279,12 +1280,14 @@ apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
         }
 
         # Store the results
-        results[[paste(symbol, window_size, ma_type, sep = "_")]] <- list(
+        results[[paste(symbol, window_size, ma_type, stop_loss_threshold, reward_ratio, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
           Methodology = paste("SMA1:", window_size, ma_type),
           Window_Size = window_size,
           MA_Type = ma_type,
+          Stop_Loss = stop_loss_threshold,
+          Reward_Ratio = reward_ratio,
           Performance = performance
         )
 
@@ -1292,8 +1295,14 @@ apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
           "Processed SMA1 (symbol: ", symbol, 
           ", class: ", meta$assets[[symbol]]$class, 
           ", window_size: ", window_size, 
-          ", ma_type: ", ma_type, ", split: ", split, ")"
-        ))
+          ", ma_type: ", ma_type, ", split: ", split, 
+          " stop loss:", stop_loss_threshold, " reward_ratio: ", reward_ratio, 
+          ")"
+          )
+        )
+          
+          }
+        }
       }
     }
   }
@@ -1325,6 +1334,8 @@ apply_stop_loss, stop_loss_threshold, reward_ratio, output_df = FALSE) {
         Methodology = x$Methodology,
         Window_Size = x$Window_Size,
         MA_Type = x$MA_Type,
+        Stop_Loss = x$Stop_Loss,
+        Reward_Ratio = x$Reward_Ratio,
         performance_data
       )
     }))
@@ -1359,11 +1370,11 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 30, ma_type = 'SMA')
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, 
-  apply_stop_loss = TRUE, stop_loss_threshold = 0.01, reward_ratio = 30))
-#sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, apply_stop_loss = TRUE, stop_loss_threshold = 0.002))
-#sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4, apply_stop_loss = FALSE, stop_loss_threshold = 0.03))
+sma1 <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+# in-sample:
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
+  apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
+
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
 sma1_res_in_sample_dt[, units := ifelse(
@@ -1395,9 +1406,8 @@ sum(dataset$value > 0.05) / nrow(dataset) * 100
 # IN-SAMPLE (WITHOUT SPLIT)
 
 # Overall trading profile (NO SPLIT with stop-loss)
-res_sma1_overall <- sma1$run_backtest(
-  #symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  symbols = "BTC-USD",
+res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
+  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
   window_sizes = seq(10, 100, by = 5), 
   ma_type = c("WMA", "HMA", "SMA", "EMA"), 
   data_type = "in_sample",
@@ -1407,43 +1417,61 @@ res_sma1_overall <- sma1$run_backtest(
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
   apply_stop_loss = TRUE,
-  stop_loss_threshold = seq(0.005, 0.05, by = 0.005),
-  reward_ratio = seq(5, 30, by = 5),
+  stop_loss_thresholds = seq(0.005, 0.025, by = 0.005),
+  reward_ratios = seq(5, 30, by = 5),
   output_df = TRUE
 )
 
-superior_overall<- res_sma1_overall %>%
-  group_by(Methodology) %>% # Group by Methodology and Period for period-wise comparison
+res_sma1_overall_btc_bnb_eth <- fread("res_sma1_overall_btc_bnb_eth.csv")
+
+res_sma1_overall_btc_bnb_eth <- res_sma1_overall_btc_bnb_eth %>%
+  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows
+  group_by(PairID) %>%
   mutate(
     Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
       ifelse(
-        Strategy == "Active" & 
-          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
+        Strategy == "Active" & AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"][1], 
         "Yes", 
         "No"
       )
     } else {
-      NA  # Set NA if either Active or Passive is missing
+      NA  # Assign NA if the group is incomplete
     }
-  )
+  ) %>%
+  ungroup()
 
+# Filter for Active strategies and group by strategy parameters
+res_sma1_overall_btc_bnb_eth %>%
+  filter(Strategy == "Active") %>%
+  group_by(Methodology, Window_Size, MA_Type, Stop_Loss, Reward_Ratio) %>%
+  summarise(
+    Avg_AnnualizedProfit = mean(AnnualizedProfit, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(Avg_AnnualizedProfit)) %>%
+  slice(1)
+
+# Best in-sample combinations:
+# BTC-USD, HMA 100-day 0.015 25
+# ETH-USD, WMA 25-day 0.025 15
+# BNB-USD, HMA 15-day 0.02 5
+# CANDIDATE: EMA 20 day 0.015 25
 
 # IN-SAMPLE: HOW STRATEGY BEHAVES UNDER DIFFERENT PERIODS
 # More granular (split) - only for potential good candidates to check robustness
 res_sma1_granular <- sma1$run_backtest(
-  symbols = c("BTC-USD"),
-  window_sizes = seq(35, 50, by = 1), 
-  ma_type = c("SMA"),
+  symbols = c("BTC-USD", "ETH-USD", "BNB-USD"),
+  window_sizes = 25, 
+  ma_type = "WMA",
   data_type = "in_sample",
   split = TRUE,
   cut_date = as.Date("2024-01-01"),
   from_date,
   to_date,
   slicing_years = 1,
-  #apply_stop_loss = FALSE,
   apply_stop_loss = TRUE,
-  stop_loss_threshold = 0.025, # 2.5% threshold
-  reward_ratio = 25,
+  stop_loss_threshold = 0.025,
+  reward_ratio = 15,
   output_df = TRUE
 )
 
@@ -1470,25 +1498,15 @@ superior_methodologies <- res_sma1_granular %>%
       "No"
     }
   ) %>%
-  ungroup() %>%
-  filter(Superior == "Yes") %>%
-  distinct(Methodology, Superior) # Get unique Methodology classified as superior
+  ungroup()
 
-res_sma1_overall %>%
-  group_by(Strategy) %>%
-  summarise(
-    avg_AnnualizedProfit = mean(as.numeric(AnnualizedProfit), na.rm = TRUE)
-  )
-
-res_sma1_overall %>%
-  group_by(MA_Type) %>%
-  summarise(
-    avg_AnnualizedProfit = mean(as.numeric(AnnualizedProfit), na.rm = TRUE)
-  )
+in_sample_robustness <- superior_methodologies %>% filter(Period_Superior == "Yes") %>% nrow / nrow(superior_methodologies) * 100
 
 # OUT-OF-SAMPLE PERFORMANCE
-sma1 <- SMA1$new(ts, window_size = 40, ma_type = 'SMA')
-sma1_res_out_sample <- t(sma1$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4))
+sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4,
+ apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
+
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
 
 # Apply the same logic for the units column
@@ -1508,13 +1526,13 @@ sma1_res_out_sample_dt[, units := ifelse(
   )
 )]
 
-sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
-trades <- sma1$get_trades()
+sma1_os$plot_equity_lines("SMA1", signal_flag = FALSE)
+#trades <- sma1_os$get_trades()
 
 # Overall trading profile
-res_sma1_overall <- sma1$run_backtest(
+res_sma1_overall_os <- sma1_os$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(35, 50, by = ), 
+  window_sizes = seq(35, 50, by = 5), 
   ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
   data_type = "out_of_sample",
   split = FALSE,
@@ -1523,7 +1541,8 @@ res_sma1_overall <- sma1$run_backtest(
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
   apply_stop_loss = FALSE,
-  stop_loss_threshold = 0.02,
+  stop_loss_threshold = 0.025,
+  reward_ratio = 15,
   output_df = TRUE
   )
 
