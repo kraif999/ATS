@@ -1370,9 +1370,9 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1 <- SMA1$new(ts, window_size = 60, ma_type = 'SMA')
 # in-sample:
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1, 
   apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
@@ -1547,8 +1547,7 @@ res_sma1_overall_os <- sma1_os$run_backtest(
   )
 
 # All results in one df
-res_all <- list.files("Run_backtest_results/", pattern = "*.csv", full.names = TRUE) %>% 
-  map_dfr(read.csv, stringsAsFactors = FALSE)
+res_all <- fread("Run_backtest_results/res_all.csv")
 
 res_all <- res_all %>% 
   mutate(
@@ -1570,3 +1569,8 @@ strategy_results <- res_all %>%
 
 # View the updated data
 strategy_results %>% filter(Symbol == "BTC-USD" & Strategy == "Active" & Superior == "Yes") %>% arrange(desc(aR)) %>% select(Methodology) %>% unique
+
+best_strategies <- strategy_results %>% group_by(Symbol) %>%
+filter(Strategy == "Active") %>%
+  filter(aR == max(aR)) %>%
+  ungroup() %>% arrange(Class)

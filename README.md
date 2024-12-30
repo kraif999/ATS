@@ -1,6 +1,8 @@
 This branch contains experiments involving the implementation of a wide range of trading strategies across various asset classes. 
 The performance of these strategies, referred to as 'Active,' is compared against a benchmark buy-and-hold strategy, referred to as 'Passive'.
 Additionally, there is TSA class which analyses time series patterns and various characteristics.
+Also,the estimation of a strategy's trading profile has been introduced (see the example in estimate_trading_profile.R). 
+Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions. Furthermore, the framework supports the application of stop-loss and profit-taking mechanisms, enabling users to manage risk and lock in profits.
 
 All strategies are architected using the R6 class system, which provides a modular and flexible framework for incorporating new features or strategies.
 
@@ -12,10 +14,7 @@ The design is structured as follows::
 - Following the signal generation phase, next steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
 Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
 
-Across 12 strategies around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
-
-Additionally, the estimation of a strategy's trading profile has been introduced (see the example in estimate_trading_profile.R). 
-Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions.
+Across 18 strategies around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
 
 The taxonomy of trading strategies implemented is as follows:
 
