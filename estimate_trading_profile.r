@@ -106,7 +106,6 @@ download_xts_data = function() {
     ts$value <- log(ts[, grep("\\.Close$", colnames(ts))]) - log(lag(ts[, grep("\\.Close$", colnames(ts))]))
     ts <- na.omit(ts)
     attr(ts, "na.action") <- NULL
-
     return(ts)
 },
 
@@ -489,7 +488,11 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
   
-  self$generate_signals()  # Call generate_signals dynamically
+  # Modify the format of Volume column
+  self$data$Volume <- format(self$data$Volume, scientific = TRUE)
+
+ # Call generate_signals dynamically
+  self$generate_signals()
 
   if (apply_stop_loss) {
     #self$data <- private$apply_stop_loss(self$data, stop_loss_threshold) # Apply stop loss given threshold
@@ -573,7 +576,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
     # Create a sequence of periods based on the window argument (e.g., 2 years, or any other value)
     period_start <- start_date
-    period_end <- period_start %m+% years(window) - days(1)  # Flexible period based on window
+    #period_end <- period_start %m+% years(window) - days(1)  # Flexible period based on window
+    period_end <- period_start %m+% months(window * 12) - days(1)  # Flexible period based on window
 
     performance_list <- list()
 
@@ -598,8 +602,10 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
       }
 
       # Move to the next period based on the window
-      period_start <- period_start %m+% years(window)
-      period_end <- period_start %m+% years(window) - days(1)
+      #period_start <- period_start %m+% years(window)
+      period_start <- period_start %m+% months(window * 12)
+      #period_end <- period_start %m+% years(window) - days(1)
+      period_end <- period_start %m+% months(window * 12) - days(1)
     }
 
     # Combine all period performances into one data frame
@@ -781,14 +787,27 @@ plot_candles = function(ndays) {
 },
 
 # Estimate Average True Range (ATR)
-estimate_average_true_range = function(ts, n = 14) { # 14 days by default
-  atr <- ATR(HLC(ts), n)
-  atr_data <- data.frame(Date = index(atr), coredata(atr))
-  ts_data <- data.frame(Date = index(ts), coredata(ts))
-  combined_data <- merge(ts_data, atr_data, by = "Date") %>%
-    #mutate(tr_reserve = 1 - tr/atr * 100)
-    mutate(tr_reserve = tr/atr * 100)
-  return(combined_data)
+estimate_average_true_range = function(n = 14) {
+  # Calculate ATR using self$data
+  atr <- ATR(HLC(self$data), n)
+  
+  # Convert ATR and self$data to data.tables
+  atr_data <- as.data.table(data.frame(Date = index(atr), coredata(atr)))
+  ts_data <- as.data.table(data.frame(Date = index(self$data), coredata(self$data)))
+  
+  # Merge ATR data with self$data by Date
+  merged_data <- merge(ts_data, atr_data, by = "Date", all.x = TRUE)
+  
+  # Calculate tr_reserve
+  merged_data[, tr_reserve := tr / atr * 100] # Calculate tr_reserve as a percentage
+  
+  # Update self$data safely
+  for (col in c("tr", "atr", "trueHigh", "trueLow", "tr_reserve")) {
+    self$data[, (col) := merged_data[[col]]]
+  }
+  
+  # Return self$data
+  return(self$data)
 }
 
 # Money management rules (risk per trade, position sizing, diversification, profit taking, risk tolerance level) are to be added
@@ -906,8 +925,8 @@ apply_bracket = function(data, threshold, reward_ratio) {
     } else if (position[1] == -1) {
       calc_stop_loss <- Close[1] * (1 + threshold)
       calc_profit_take <- Close[1] * (1 - reward_ratio * threshold)
-    }
-    
+    } 
+
     for (i in seq_len(.N)) {
       if (!stop_loss_flag && !profit_take_flag) {
         # Trigger stop-loss
@@ -1370,9 +1389,9 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 60, ma_type = 'SMA')
+sma1 <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
 # in-sample:
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = TRUE, cut_date = as.Date("2024-01-01"), window = 1, 
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 2, 
   apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
@@ -1461,23 +1480,25 @@ res_sma1_overall_btc_bnb_eth %>%
 # More granular (split) - only for potential good candidates to check robustness
 res_sma1_granular <- sma1$run_backtest(
   symbols = c("BTC-USD", "ETH-USD", "BNB-USD"),
-  window_sizes = 25, 
-  ma_type = "WMA",
+  window_sizes = 20, 
+  ma_type = c("EMA"),
   data_type = "in_sample",
   split = TRUE,
   cut_date = as.Date("2024-01-01"),
-  from_date,
+  from_date = as.Date("2020-01-01"),
   to_date,
   slicing_years = 1,
   apply_stop_loss = TRUE,
-  stop_loss_threshold = 0.025,
-  reward_ratio = 15,
+  stop_loss_threshold = 0.015,
+  reward_ratio = 25,
   output_df = TRUE
 )
 
 # Check if a Methodology is superior based on the criteria
-superior_methodologies <- res_sma1_granular %>%
-  group_by(Methodology, Period) %>% # Group by Methodology and Period for period-wise comparison
+superior_methodologies <- res_sma1_granular %>% 
+#filter(Symbol == "BNB-USD") %>%
+  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
+  group_by(PairID) %>%
   mutate(
     Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
       ifelse(
@@ -1500,10 +1521,12 @@ superior_methodologies <- res_sma1_granular %>%
   ) %>%
   ungroup()
 
-in_sample_robustness <- superior_methodologies %>% filter(Period_Superior == "Yes") %>% nrow / nrow(superior_methodologies) * 100
+paste0("The robustness of in-sample superiority (%) is ", superior_methodologies %>% filter(Period_Superior == "Yes") %>% nrow / (nrow(superior_methodologies) / 2) * 100)
+
+# ACHIEVE ~60-70% 
 
 # OUT-OF-SAMPLE PERFORMANCE
-sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1_os <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4,
  apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
 
@@ -1532,14 +1555,14 @@ sma1_os$plot_equity_lines("SMA1", signal_flag = FALSE)
 # Overall trading profile
 res_sma1_overall_os <- sma1_os$run_backtest(
   symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = seq(35, 50, by = 5), 
-  ma_type = c("WMA", "HMA", "SMA", "EMA"),  # Add more MA types here
+  window_sizes = 20,
+  ma_type = "EMA",  # Add more MA types here
   data_type = "out_of_sample",
-  split = FALSE,
+  split = TRUE,
   cut_date = as.Date("2024-01-01"),
   from_date = as.Date("2020-01-01"),
-  to_date = as.Date("2024-01-01"),
-  slicing_years = 4,
+  to_date = Sys.Date(),
+  slicing_years = 1,
   apply_stop_loss = FALSE,
   stop_loss_threshold = 0.025,
   reward_ratio = 15,
@@ -1553,9 +1576,7 @@ res_all <- res_all %>%
   mutate(
     Meth = str_extract(Methodology, "^[^:]+")
 ) %>%
-  select(Symbol, Class, Meth, Methodology, everything(.))
-
-strategy_results <- res_all %>%
+  select(Symbol, Class, Meth, Methodology, everything(.)) %>%
   mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
   group_by(PairID) %>%
   mutate(
@@ -1568,9 +1589,20 @@ strategy_results <- res_all %>%
   ungroup()
 
 # View the updated data
-strategy_results %>% filter(Symbol == "BTC-USD" & Strategy == "Active" & Superior == "Yes") %>% arrange(desc(aR)) %>% select(Methodology) %>% unique
+res_all %>% filter(Symbol == "BTC-USD" & Strategy == "Active" & Superior == "Yes") %>% arrange(desc(aR)) %>% select(Methodology) %>% unique
 
-best_strategies <- strategy_results %>% group_by(Symbol) %>%
+best_strategies <- res_all %>% group_by(Symbol) %>%
 filter(Strategy == "Active") %>%
   filter(aR == max(aR)) %>%
   ungroup() %>% arrange(Class)
+
+res_all %>%
+ filter(Methodology == "SMA1: 40 SMA") %>%
+  select(aR) %>% 
+    summary
+
+res_sma1_overall_btc_bnb_eth %>%
+#filter(Symbol == "BTC-USD") %>%
+ filter(Methodology == "SMA1: 20 EMA" & Strategy == "Active") %>%
+  select(AnnualizedProfit) %>% 
+    summary
