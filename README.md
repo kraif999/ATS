@@ -146,7 +146,7 @@ classDiagram
     AlphaEngine --|> AlphaEngineMult
 ```
 
-Below is an example of Bitcoin's performance based on the **SMA strategy** with a Hull Moving Average (100-day window) which is superior than the passive (buy-and-hold) strategy.
+Below is an example of Bitcoin's performance based on the **SMA strategy** with a Hull Moving Average (100-day window) which is superior than the passive (buy-and-hold) strategy. Stop-loss and take-profit limits are set at 1.5% and 37.5% of the closing price throughout the entire trading period.
 
 **Key Visualization:**  
 

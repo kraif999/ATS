@@ -1526,8 +1526,8 @@ paste0("The robustness of in-sample superiority (%) is ", superior_methodologies
 # ACHIEVE ~60-70% 
 
 # OUT-OF-SAMPLE PERFORMANCE
-sma1_os <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
-sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 4,
+sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-06-01"), window = 1,
  apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
 
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
