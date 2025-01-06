@@ -42,7 +42,7 @@ assets <- c(
   "HG=F", # Commodities (copper)
   "BTC-USD", # Cryptocurrency (BTC)
   "ETH-USD" # Cryptocurrency (Ethereum)
-  )
+)
 
 # Define Data parent class (DataFetcher)
 DataFetcher <- R6Class(
@@ -517,10 +517,11 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
   # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
   self$data$eqlActive[1] <- capital
-  self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
+  #self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
+  self$data$nopActive[1] <- capital / (self$data$Close[1] / leverage)
   self$data$eqlPassive[1] <- capital
-  #self$data$nopPassive[1] <- floor(capital / (self$data$Close[1] / leverage))
-  self$data$nopPassive[1] <- floor(capital / (self$data$Close[1]))  
+  #self$data$nopPassive[1] <- floor(capital / (self$data$Close[1]))  
+  self$data$nopPassive[1] <- capital / (self$data$Close[1])  
 
   # Check if sizing columns exist
   has_L <- "nop_sizing" %in% names(self$data)
@@ -529,8 +530,10 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
   for (i in 2:nrow(self$data)) {
     # Active
     pnlActive <- self$data$pnlActive[i]
-    prev_nop_Active <- floor(self$data$nopActive[i - 1])
-    current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage)) # spot transaction given leverage (no leverage)
+    # prev_nop_Active <- floor(self$data$nopActive[i - 1])
+    # current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage)) # spot transaction given leverage (no leverage)
+    prev_nop_Active <- self$data$nopActive[i - 1]
+    current_nop_Active <- self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * stop_loss_threshold) / leverage)
     self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
 
     # Calculate nopActive based on the presence of the "L" column
@@ -552,14 +555,19 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
     # Passive
     pnlPassive <- self$data$pnlPassive[i]
-    prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
-    current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
+    # prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
+    # current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
+    prev_nop_Passive <- self$data$nopPassive[i - 1]
+    current_nop_Passive <- self$data$eqlPassive[i - 1] / (self$data$Close[i] / leverage)
+
     self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
     self$data$nopPassive[i] <- current_nop_Passive
   }
 
   self$data <- self$data %>%
     mutate(
+      cumulative_pnlActive = cumsum(pnlActive),
+      cumulative_pnlPassive = cumsum(pnlPassive),
       r_eqlActive = (eqlActive - lag(eqlActive)) / lag(eqlActive),
       r_eqlPassive = (eqlPassive - lag(eqlPassive)) / lag(eqlPassive)
     )
@@ -733,8 +741,8 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE) {
     title = paste0(
       "Asset: ", symbol, ", capital trajectory for Active (", 
       as.character(strategy_name), ") and Passive (buy-and-hold)\n",
-      "strategies with original investment of ", capital, " units ",
-      "over the period from ", self$data$Date %>% head(1), " to ", self$data$Date %>% tail(1)
+      "strategies with original investment of ", capital, " USDC ",
+      "over the period from\n ", self$data$Date %>% head(1), " to ", self$data$Date %>% tail(1)
     ),
     x = "Date",
     y = "Equity line"
@@ -1373,11 +1381,11 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
 
 ######################################################
 # Specify trading strategy parameters
-#from_date <- as.Date("2007-01-01", format = "%Y-%m-%d")
-from_date <- as.Date("2020-01-01") 
+from_date <- as.Date("2018-01-01") 
 to_date <- Sys.Date()
 symbol <- "BTC-USD"
-capital <- 100000 # USD
+#capital <- 100000 # USD
+capital <- 1000 # USDC
 leverage <- 1 # financial leverage used to calculate number of positions in estimate_performance in Strategy class
 # Also, it is assumed 100% portfolio investment (number of positions =  capital / price per unit).
 ######################################################
@@ -1389,10 +1397,10 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 # in-sample:
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 2, 
-  apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
+  apply_stop_loss = TRUE, stop_loss_threshold = 0.005, reward_ratio = 20))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1432,7 +1440,7 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   data_type = "in_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
-  from_date = as.Date("2020-01-01"),
+  from_date = as.Date("2018-01-01"),
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
   apply_stop_loss = TRUE,
@@ -1480,17 +1488,17 @@ res_sma1_overall_btc_bnb_eth %>%
 # More granular (split) - only for potential good candidates to check robustness
 res_sma1_granular <- sma1$run_backtest(
   symbols = c("BTC-USD", "ETH-USD", "BNB-USD"),
-  window_sizes = 20, 
-  ma_type = c("EMA"),
+  window_sizes = c(5, 20, 30, 50, 100), 
+  ma_type = c("SMA", "EMA", "HMA"),
   data_type = "in_sample",
   split = TRUE,
   cut_date = as.Date("2024-01-01"),
-  from_date = as.Date("2020-01-01"),
-  to_date,
+  from_date = as.Date("2018-01-01"),
+  to_date = Sys.Date(),
   slicing_years = 1,
   apply_stop_loss = TRUE,
-  stop_loss_threshold = 0.015,
-  reward_ratio = 25,
+  stop_loss_thresholds = seq(0.005, 0.025, by = 0.01),
+  reward_ratios = seq(15, 30, by = 5),
   output_df = TRUE
 )
 
@@ -1523,12 +1531,41 @@ superior_methodologies <- res_sma1_granular %>%
 
 paste0("The robustness of in-sample superiority (%) is ", superior_methodologies %>% filter(Period_Superior == "Yes") %>% nrow / (nrow(superior_methodologies) / 2) * 100)
 
+# Evaluate the robustness of each strategy across multiple periods
+ranked_strategies <- res_sma1_granular %>% 
+  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
+  group_by(PairID) %>%
+  mutate(
+    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+      ifelse(
+        Strategy == "Active" & 
+          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
+        "Yes", 
+        "No"
+      )
+    } else {
+      NA  # Set NA if either Active or Passive is missing
+    }
+  ) %>%
+  ungroup() %>%
+  filter(Symbol == "BTC-USD") %>%
+  group_by(Strategy, Methodology, Stop_Loss, Reward_Ratio) %>%
+  summarise(
+    Total_Periods = n(),  # Total number of periods
+    Superior_Periods = sum(Period_Superior == "Yes", na.rm = TRUE),  # Count superior periods
+    Robustness = (Superior_Periods / Total_Periods) * 100  # Calculate robustness as a percentage
+  ) %>%
+  arrange(desc(Robustness))  # Rank strategies by robustness in descending order
+
+# Output the ranking
+ranked_strategies
+
 # ACHIEVE ~60-70% 
 
 # OUT-OF-SAMPLE PERFORMANCE
-sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1_os <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-06-01"), window = 1,
- apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25))
+ apply_stop_loss = TRUE, stop_loss_threshold = 0.005, reward_ratio = 20))
 
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
 
@@ -1550,6 +1587,7 @@ sma1_res_out_sample_dt[, units := ifelse(
 )]
 
 sma1_os$plot_equity_lines("SMA1", signal_flag = FALSE)
+
 #trades <- sma1_os$get_trades()
 
 # Overall trading profile
