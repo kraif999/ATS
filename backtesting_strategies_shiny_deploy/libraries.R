@@ -1,0 +1,18 @@
+# Load all libraries
+
+library(shiny)
+library(data.table)
+library(R6)
+library(quantmod)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(lubridate)
+library(purrr)
+library(zoo)
+library(xts)
+library(stats)
+library(PerformanceAnalytics)
+library(plotly)
+library(DT)
