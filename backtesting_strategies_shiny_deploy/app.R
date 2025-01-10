@@ -191,11 +191,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
   self$data <- self$data %>% 
     mutate(
-      #pnlActive = c(0, diff(Close) * signal[-length(Close)]),
-      #pnlActive2 = lag(diff(Close) * position),
-      #pnlActive = c((Close - Open) * position[-1]),
-      #pnlActive = c((Close - Open) * position), 
-      pnlActive = c(0, diff(Close) * position[-1]),
+      pnlActive = c(0, diff(Close) * position[-length(position)]),
       pnlPassive = c(0, diff(Close)),
       nopActive = 0,
       nopPassive = 0,
@@ -207,57 +203,41 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
   # Entry is set to the initial amount of money invested and number of positions (no leverage) given Close price at entry point
   self$data$eqlActive[1] <- capital
-  #self$data$nopActive[1] <- floor(capital / (self$data$Close[1] / leverage))
   self$data$nopActive[1] <- capital / (self$data$Close[1] / leverage)
   self$data$eqlPassive[1] <- capital
-  #self$data$nopPassive[1] <- floor(capital / (self$data$Close[1]))  
   self$data$nopPassive[1] <- capital / (self$data$Close[1])  
 
-  # Check if sizing columns exist
-  has_L <- "nop_sizing" %in% names(self$data)
-  has_Vol <- "vol_nop_sizing" %in% names(self$data)
-
   for (i in 2:nrow(self$data)) {
-    # Active
-    pnlActive <- self$data$pnlActive[i]
-    # prev_nop_Active <- floor(self$data$nopActive[i - 1])
-    # current_nop_Active <- floor((self$data$eqlActive[i - 1]) / (self$data$Close[i] / leverage)) # spot transaction given leverage (no leverage)
-    prev_nop_Active <- self$data$nopActive[i - 1]
-    current_nop_Active <- min(self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * stop_loss_threshold) / leverage), self$data$eqlActive[i - 1] / ((self$data$Close[i] * stop_loss_threshold) / leverage))
-    self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
-
-    # Calculate nopActive based on the presence of the "L" column
-    if (has_L) {
-      self$data$nopActive[i] <- ifelse(
-        self$data$L[i], 
-        current_nop_Active * self$data$nop_sizing[i], 
-        current_nop_Active
-      )
-    } else if (has_Vol) {
-      self$data$nopActive[i] <- ifelse(
-        self$data$vol_nop_sizing[i], 
-        current_nop_Active * self$data$vol_nop_sizing[i], 
-        current_nop_Active
-      )
-    } else {
-      self$data$nopActive[i] <- current_nop_Active
+      # Active
+      pnlActive <- self$data$pnlActive[i]
+      prev_nop_Active <- self$data$nopActive[i - 1]
+      
+      # Check if a position change occurred (e.g., based on signals or any relevant criteria)
+      if (self$data$position[i] != self$data$position[i - 1]) {
+          # Recalculate nopActive only when a position change occurs
+          current_nop_Active <- self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * stop_loss_threshold) / leverage)
+          self$data$nopActive[i] <- current_nop_Active
+      } else {
+          # If no position change, carry forward the previous nopActive
+          self$data$nopActive[i] <- prev_nop_Active
+      }
+      
+      # Update active equity
+      self$data$eqlActive[i] <- self$data$eqlActive[i - 1] + prev_nop_Active * pnlActive
+      
+      # Passive
+      pnlPassive <- self$data$pnlPassive[i]
+      prev_nop_Passive <- self$data$nopPassive[i - 1]
+      current_nop_Passive <- self$data$eqlPassive[i - 1] / (self$data$Close[i] / leverage)
+      
+      self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
+      self$data$nopPassive[i] <- current_nop_Passive
     }
-
-    # Passive
-    pnlPassive <- self$data$pnlPassive[i]
-    # prev_nop_Passive <- floor(self$data$nopPassive[i - 1])
-    # current_nop_Passive <- floor((self$data$eqlPassive[i - 1]) / (self$data$Close[i] / leverage))
-    prev_nop_Passive <- self$data$nopPassive[i - 1]
-    current_nop_Passive <- self$data$eqlPassive[i - 1] / (self$data$Close[i] / leverage)
-
-    self$data$eqlPassive[i] <- self$data$eqlPassive[i - 1] + prev_nop_Passive * pnlPassive
-    self$data$nopPassive[i] <- current_nop_Passive
-  }
 
   self$data <- self$data %>%
     mutate(
-      cumulative_pnlActive = cumsum(pnlActive),
-      cumulative_pnlPassive = cumsum(pnlPassive),
+      cumulative_pnlActive = cumsum(pnlActive * nopActive),
+      cumulative_pnlPassive = cumsum(pnlPassive * nopPassive),
       r_eqlActive = (eqlActive - lag(eqlActive)) / lag(eqlActive),
       r_eqlPassive = (eqlPassive - lag(eqlPassive)) / lag(eqlPassive)
     )
@@ -274,7 +254,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
     # Create a sequence of periods based on the window argument (e.g., 2 years, or any other value)
     period_start <- start_date
-    #period_end <- period_start %m+% years(window) - days(1)  # Flexible period based on window
     period_end <- period_start %m+% months(window * 12) - days(1)  # Flexible period based on window
 
     performance_list <- list()
@@ -292,8 +271,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
               To = as.Date(ifelse(Date >= period_start & Date <= current_end, current_end, To)))
 
       if (nrow(data_period) > 0) {
-        #metrics <- private$compute_metrics(data_period)
-        metrics <- self$compute_metrics(data_period)
+        metrics <- private$compute_metrics(data_period, symbol)
         metrics$from <- period_start
         metrics$to <- current_end
         metrics$data_type <- data_type  # Add data_type column
@@ -301,26 +279,23 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
       }
 
       # Move to the next period based on the window
-      #period_start <- period_start %m+% years(window)
       period_start <- period_start %m+% months(window * 12)
-      #period_end <- period_start %m+% years(window) - days(1)
       period_end <- period_start %m+% months(window * 12) - days(1)
     }
 
     # Combine all period performances into one data frame
     performance_df <- bind_rows(performance_list) %>%
-      select(from, to, data_type, Strategy, everything())
+      select(ticker, from, to, data_type, Strategy, everything())
     return(performance_df)
   } else {
     # If split_data is FALSE, compute metrics for the entire dataset
-    #metrics <- private$compute_metrics(self$data)
-    metrics <- self$compute_metrics(self$data)
+    metrics <- private$compute_metrics(self$data, symbol)
     metrics$from <- min(self$data$Date)
     metrics$to <- max(self$data$Date)
     metrics$data_type <- data_type  # Add data_type column
     
     performance_df <- as.data.frame(metrics) %>%
-      select(from, to, data_type, Strategy, everything())
+      select(ticker, from, to, data_type, Strategy, everything())
     
     return(performance_df)
   }
@@ -372,44 +347,39 @@ plot_performance = function() {
 # Microscopic level (tabular list of all trades)
 get_trades = function() {
 
-  # Prepare trade summary
+  # Prepare trade summary with tradePnL
   trades <- self$data %>%
     mutate(
       Date = as.Date(Date),
       trade_direction = ifelse(position == -1, "Sell", "Buy"),
-      entry = ifelse(position != lag(position), Date, NA), # Entry point
+      entry = as.Date(ifelse(position != lag(position), Date, NA)), # Entry point
       entry_price = ifelse(position != lag(position), Close, NA), # Entry price
-      exit = ifelse(position != lead(position), Date, NA), # Exit point
-      exit_price = ifelse(position != lead(position), Close, NA) # Exit price
+      entry_size = ifelse(position != lag(position), nopActive, NA), # Entry size
+      exit = as.Date(ifelse(position != lead(position), Date, NA)), # Exit point
+      exit_price = ifelse(position != lead(position), Close, NA), # Exit price
+      exit_size = ifelse(position != lead(position), nopActive, NA) # Exit size
     ) %>%
-    tidyr::fill(entry, entry_price, .direction = "down") %>%
-    tidyr::fill(exit, exit_price, .direction = "up") %>%
+    tidyr::fill(entry, entry_price, entry_size, .direction = "down") %>%
+    tidyr::fill(exit, exit_price, exit_size, .direction = "up") %>%
     filter(!is.na(entry) & !is.na(exit)) %>%
     group_by(entry, exit) %>%
     summarise(
       Buy_Sell = first(trade_direction), # Trade type (Buy/Sell)
-      EntryDate = first(entry), # Entry date
-      EntrySize = 1, # Fixed size
+      EntryDate = as.Date(first(entry)), # Entry date
+      EntrySize = first(entry_size), # Correct entry size
       EntryPrice = first(entry_price), # Price at entry
-      ExitDate = first(exit), # Exit date
-      ExitSize = 1, # Fixed size
+      ExitDate = as.Date(first(exit)), # Exit date
+      ExitSize = first(exit_size), # Correct exit size
       ExitPrice = first(exit_price), # Price at exit
-      Trade_Cum_PnL = ifelse(Buy_Sell == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) # Trade profit/loss
+      Trade_Cum_PnL = ifelse(Buy_Sell == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * EntrySize # Trade profit/loss with size
     ) %>%
     ungroup() %>% # Remove grouping for calculating Running_PnL
     mutate(
       Running_PnL = cumsum(Trade_Cum_PnL), # Running cumulative PnL across all trades
       Efficiency = (Trade_Cum_PnL / abs(Running_PnL)) * 100 # Efficiency as % of Running_PnL
-    ) %>%
-    mutate(
-    EntryDate = as.Date(EntryDate, origin = "1970-01-01"),
-    ExitDate = as.Date(ExitDate, origin = "1970-01-01"),
-    entry = as.Date(entry, origin = "1970-01-01"),
-    exit = as.Date(exit, origin = "1970-01-01")
-  )
+    )
 
   return(trades)
-
 },
 
 # Calculate cumulative return (method to be removed)
@@ -509,7 +479,11 @@ estimate_average_true_range = function(n = 14) {
   
   # Return self$data
   return(self$data)
-},
+}
+
+  ),
+    
+private = list(
 
 # Function to compute metrics for the trading profile of a Strategy
 compute_metrics = function(data_subset, symbol) {
@@ -525,10 +499,12 @@ compute_metrics = function(data_subset, symbol) {
       
       # Generate a trade_id based on changes in position
       data_subset <- data_subset %>% mutate(trade_id = cumsum(position != lag(position, default = 1)))
-    
+
+      GrossProfit <- round(GrossProfit <- sum(na.omit(tail(data_subset[[eql_col]], 1)) - na.omit(data_subset[[eql_col]][1])), 0)
+
       # 1. Annualized Profit
-      AnnualizedProfit <- round(as.numeric(Return.annualized(as.numeric(na.omit(data_subset[[r_col]])), scale = 252, geometric = TRUE) * 100), 3)
-      #AnnualizedProfit <- round((prod(1 + na.omit(data_subset[[r_col]])) / 1)^(1 / (length(na.omit(data_subset[[r_col]])) / 252)) - 1, 3) * 100 
+      AnnualizedProfit <- round(as.numeric(Return.annualized(as.numeric(na.omit(data_subset[[r_col]])), scale = 252, geometric = TRUE) * 100), 2)
+      #AnnualizedProfit2 <- round((prod(1 + na.omit(data_subset[[r_col]])) / 1)^(1 / (length(na.omit(data_subset[[r_col]])) / 252)) - 1, 2) * 100 
 
       # 2. Number of Trades per Year
       NumberOfTradesPerYear <- round((if (strategy_type == "Active") sum(diff(data_subset$position) != 0) + 1 else 1) / 
@@ -672,6 +648,7 @@ compute_metrics = function(data_subset, symbol) {
       # Return the metrics as a list
       return(
         list(
+          GrossProfit = GrossProfit,
           AnnualizedProfit = AnnualizedProfit,
           NumberOfTradesPerYear = NumberOfTradesPerYear,
           PercentageOfWinningTrades = PercentageOfWinningTrades,
@@ -713,7 +690,8 @@ compute_metrics = function(data_subset, symbol) {
 
     metrics_df <- data.frame(
       Strategy = c("Active", "Passive"),
-      #ticker = symbol,
+      ticker = symbol,
+      GrossProfit = c(active$GrossProfit, passive$GrossProfit),
       AnnualizedProfit = c(active$AnnualizedProfit, passive$AnnualizedProfit),
       NumberOfTradesPerYear = c(active$NumberOfTradesPerYear, passive$NumberOfTradesPerYear),
       PercentageOfWinningTrades = c(active$PercentageOfWinningTrades, "NotApplicable"),
@@ -745,76 +723,6 @@ compute_metrics = function(data_subset, symbol) {
   
   return(metrics_df)
 
-}
-
-# Money management rules (risk per trade, position sizing, diversification, profit taking, risk tolerance level) are to be added
-
-  ),
-    
-private = list(
-
-# Private method that adds a stop loss based on the threshold
-apply_stop_loss = function(data, threshold) {
-  
-  # Convert data to data.table
-  data <- as.data.table(data)
-  
-  # Add position_group for tracking groups of positions
-  data[, position_group := cumsum(position != shift(position, type = "lag", fill = 0))]
-  
-  # Initialize columns
-  data[, `:=`(stop_loss_event = FALSE, 
-              position_modified = position, 
-              stop_loss_trigger = NA_real_, 
-              calculated_stop_loss = NA_real_)]
-  
-  # Iterate through each group
-  data[, c("stop_loss_event", "position_modified", "stop_loss_trigger", "calculated_stop_loss") := {
-    stop_loss_flag <- FALSE
-    pos_mod <- position
-    stop_loss_evt <- logical(.N)  # Initialize for current group
-    stop_loss_trig <- rep(NA_real_, .N)  # Initialize trigger price
-    calc_stop_loss <- rep(NA_real_, .N)  # Initialize calculated stop-loss price
-    
-    # Calculate stop-loss price for each position
-    if (position[1] == 1) {
-      calc_stop_loss <- Close[1] * (1 - threshold)
-    } else if (position[1] == -1) {
-      calc_stop_loss <- Close[1] * (1 + threshold)
-    }
-    
-    for (i in seq_len(.N)) {
-      if (!stop_loss_flag) {
-        # Trigger stop-loss
-        if (position[i] == 1 && Close[i] <= calc_stop_loss[1]) {
-          stop_loss_evt[i] <- TRUE
-          stop_loss_trig[i] <- Close[i]
-          stop_loss_flag <- TRUE
-        } else if (position[i] == -1 && Close[i] >= calc_stop_loss[1]) {
-          stop_loss_evt[i] <- TRUE
-          stop_loss_trig[i] <- Close[i]
-          stop_loss_flag <- TRUE
-        }
-      } else {
-        # After stop-loss, reverse position on the next day
-        if (i > 1) {
-          if (stop_loss_evt[i - 1]) {
-            pos_mod[i] <- -pos_mod[i - 1]
-          } else {
-            pos_mod[i] <- 0
-          }
-        }
-      }
-    }
-    
-    list(stop_loss_evt, pos_mod, stop_loss_trig, calc_stop_loss)
-  }, by = position_group]
-  
-  # Rename columns at the end
-  setnames(data, "position", "position_original")
-  setnames(data, "position_modified", "position")
-  
-  return(data)
 },
 
 # Private method that applies a stop loss and reward take based on the thresholds
@@ -941,7 +849,8 @@ generate_signals = function() {
       ma_func <- get(self$ma_type)
       self$data <- mutate(self$data, 
                           ma = ma_func(Close, self$window_size, align = "right", fill = NA),
-                          signal = ifelse(Close > lag(ma), 1, ifelse(Close < lag(ma), -1, 0)),
+                          #signal = ifelse(Close > lag(ma), 1, ifelse(Close < lag(ma), -1, 0)),
+                          signal = ifelse(Close > ma, 1, ifelse(Close < ma, -1, 0)),
                           position = lag(signal, default = 0)) %>% 
                             na.omit
 }
@@ -950,21 +859,36 @@ generate_signals = function() {
 )
 
 ui <- fluidPage(
-  titlePanel("Backtesting trading strategies"),
+
+    fluidRow(
+    column(
+      12, 
+      tags$div(
+        style = "margin-bottom: 10px; font-size: 16px; font-weight: bold;",
+        tags$a(
+          href = "https://github.com/kraif999/ATS",
+          "GitHub repository: https://github.com/kraif999/ATS",
+          target = "_blank" # Opens the link in a new tab
+        )
+      ),
+    )
+  ),
+  
+  titlePanel("Backtesting Trading Strategies"),
   sidebarLayout(
     sidebarPanel(
       # User input controls
       textInput("symbol", "Symbol", value = "BTC-USD"),
-      dateRangeInput("date_range", "Date Range", start = Sys.Date() - 365 * 5, end = Sys.Date()),
+      dateRangeInput("date_range", "Date Range", start = as.Date("2018-01-01"), end = Sys.Date()),
       numericInput("capital", "Capital", value = 1000),
       numericInput("leverage", "Leverage", value = 1),
       selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
-      dateInput("cut_date", "Cut-off Date", value = Sys.Date() - 365),
+      dateInput("cut_date", "Cut-off Date", value = as.Date("2024-01-01")),
       numericInput("window_size", "Window Size", value = 20),
-      selectInput("ma_type", "MA Type", choices = c("SMA", "EMA", "HMA", "WMA")),
+      selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA")),
       checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = FALSE),
       numericInput("stop_loss_threshold", "Stop Loss Threshold", value = 0.015),
-      numericInput("reward_ratio", "Reward Ratio", value = 20),
+      numericInput("reward_ratio", "Reward Ratio", value = 25),
       checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
       checkboxInput("split_data", "Split Data for Backtest?", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
@@ -1036,7 +960,7 @@ server <- function(input, output, session) {
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))
 
     trading_profile[, units := ifelse(
-      .I <= 4 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
+      .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
       ifelse(
         Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
         ifelse(
@@ -1090,4 +1014,3 @@ server <- function(input, output, session) {
 
 # Run the app
 shinyApp(ui = ui, server = server)
-
