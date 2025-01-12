@@ -147,7 +147,7 @@ classDiagram
 ```
 
 Below is an example of Bitcoin's performance based on the **SMA strategy** with a Hull Moving Average (100-day window) which is superior than the passive (buy-and-hold) strategy. Stop-loss and take-profit limits are set at 1.5% and 37.5% of the closing price throughout the entire trading period.
-Also, the approach is deployed to Shiny server: http://kraif999.shinyapps.io/backtesting_strategies
+Also, the approach is deployed to Shiny server: http://kraif999.shinyapps.io/backtesting_trading_strategies
 
 Currently, it is the Shiny prototype of SMA1 strategy, other strategies will be added as well.
 

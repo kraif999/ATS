@@ -1,0 +1,395 @@
+# Copyright (c) 2024 Oleh Bilyk
+
+# Load libraries
+source("libraries.R")
+
+# Load strategies
+source("strategies.R")
+options(scipen = 999)
+
+# UI for multiple strategies
+ui <- fluidPage(
+  fluidRow(
+    column(
+      12, 
+      tags$div(
+        style = "margin-bottom: 10px; font-size: 16px; font-weight: bold;",
+        tags$a(
+          href = "https://github.com/kraif999/ATS",
+          "GitHub repository: https://github.com/kraif999/ATS",
+          target = "_blank" # Opens the link in a new tab
+        )
+      )
+    )
+  ),
+  
+  titlePanel("Backtesting Trading Strategies"),
+  sidebarLayout(
+    sidebarPanel(
+      # User input controls
+      textInput("symbol", "Symbol", value = "BTC-USD"),
+      
+      # Dropdown menu to select a strategy
+      selectInput(
+        inputId = "strategy",
+        label = "Select a Trading Strategy:",
+        choices = c("ADX" = "adx", "ARIMA" = "arima", "BollingerBreakout" = "bollinger_breakout", "DonchianChannel" = "donchian_channel",
+         "GARCH" = "garch", "MACD" = "macd", "RSI" = "rsi", "SMA1" = "sma1", "SMA1M" = "sma1m", "SMA2" = "sma2", "SMA2M" = "sma2m",
+         "StopAndReversal" = "sar", "TurtleTrading" = "turtle_trading", "VolatilityMeanReversion" = "vol_mean_rev"
+          ),
+        selected = "sma1"
+      ),
+      
+      dateRangeInput("date_range", "Date Range", start = as.Date("2018-01-01"), end = Sys.Date()),
+      numericInput("capital", "Capital", value = 1000),
+      numericInput("leverage", "Leverage", value = 1),
+      selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
+      dateInput("cut_date", "Cut-off Date", value = as.Date("2024-01-01")),
+      
+      # Specific parameters for ADX strategy
+      conditionalPanel(
+        condition = "input.strategy == 'adx'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for ADX"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("ndx", "NDX (Number of Periods)", value = 14),
+        numericInput("trend_strength", "Trend Strength Threshold", value = 25)
+      ),
+
+      # Specific parameters for Bollinger Breakout strategy
+      conditionalPanel(
+        condition = "input.strategy == 'bollinger_breakout'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for Bollinger Breakout"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size", value = 20),
+        numericInput("sd_mult", "Standard Deviation multiplicator", value = 0.5)
+      ),
+
+      # Specific parameters for DonchianChannel strategy
+      conditionalPanel(
+        condition = "input.strategy == 'donchian_channel'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for Donchian Channel"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size", value = 20)
+      ),
+
+      # Specific parameters for MACD strategy
+      conditionalPanel(
+        condition = "input.strategy == 'macd'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for MACD"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size1", "Fast Period", value = 12),
+        numericInput("window_size2", "Slow Period", value = 26),
+        numericInput("sline", "Signal Period", value = 9)
+      ),
+
+      # Specific parameters for RSI strategy
+      conditionalPanel(
+        condition = "input.strategy == 'rsi'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for RSI"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Fast Period", value = 7),
+        numericInput("threshold_oversold", "Oversold", value = 30),
+        numericInput("threshold_overbought", "Overbought", value = 70)
+      ),
+
+      # Specific parameters for SMA1 strategy
+      conditionalPanel(
+        condition = "input.strategy == 'sma1'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for SMA1"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size", value = 20),
+        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+      ),
+
+      # Specific parameters for SMA1M strategy
+      conditionalPanel(
+        condition = "input.strategy == 'sma1m'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for SMA1M"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size", value = 20),
+        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+      ),
+
+      # Specific parameters for SMA2 strategy
+      conditionalPanel(
+        condition = "input.strategy == 'sma2'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for SMA2"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size1", "Window Size1", value = 20),
+        numericInput("window_size2", "Window Size2", value = 60),
+        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+      ),
+
+      # Specific parameters for SMA2M strategy
+      conditionalPanel(
+        condition = "input.strategy == 'sma2m'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for SMA2M"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size1", "Window Size1", value = 10),
+        numericInput("window_size2", "Window Size2", value = 200),
+        selectInput("ma_type", "MA Type", choices = c("SMA", "EMA", "HMA", "WMA"))
+      ),
+
+    # Specific parameters for StopAndReversal strategy
+      conditionalPanel(
+        condition = "input.strategy == 'sar'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for SAR"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("accel", "Acceleration", value = 0.02),
+        numericInput("accel_max", "AccelerationMax", value = 0.2)
+      ),
+
+    # Specific parameters for TurtleTrading strategy
+      conditionalPanel(
+        condition = "input.strategy == 'turtle_trading'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for Turtle Trading"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size1", "Window Size1", value = 20),
+        numericInput("window_size2", "Window Size2", value = 40)
+      ),
+
+    # Specific parameters for VolatilityMeanReverting strategy
+      conditionalPanel(
+        condition = "input.strategy == 'vol_mean_rev'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for Volatility Mean Revertung"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size1", value = 20)
+      ),
+
+      # Other parameters      
+      checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = FALSE),
+      numericInput("stop_loss_threshold", "Stop Loss Threshold", value = 0.015),
+      numericInput("reward_ratio", "Reward Ratio", value = 25),
+      checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
+      checkboxInput("split_data", "Split Data for Backtest?", value = FALSE),
+      numericInput("window", "Slice Data Into Windows (in years)", value = 1),
+      actionButton("backtest_run", "Run Backtest") # Backtest button
+
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Trading Profile", DTOutput("trading_profile")),
+        tabPanel("Performance Plot", plotOutput("performance_plot"))
+      )
+    )
+  )
+)
+
+# Server for multiple strategies
+server <- function(input, output, session) {
+  
+  # Reactive to fetch price data
+  price_data <- reactive({
+    req(input$symbol, input$date_range)  # Ensure inputs are available
+    
+    symbol <- input$symbol  # Use symbol from input
+    print(paste("Fetching data for symbol:", symbol))  # Debug print
+    
+    # Fetch price data
+    fetcher <- DataFetcher$new(symbol, input$date_range[1], input$date_range[2])
+    ts <- fetcher$download_xts_data()
+    return(ts)
+  })
+  
+  # Reactive expression for strategy instance and plot
+  strategy_reactive <- eventReactive(input$backtest_run, {
+    req(price_data(), input$window_size, input$ma_type, input$cut_date)
+    
+    symbol <- input$symbol
+    print(paste("Using symbol in strategy:", symbol))  # Debug print
+    
+    # Use switch to handle different strategies
+    strategy_instance <- switch(input$strategy,
+
+      "adx" = ADX$new(
+        data = price_data(),
+        ndx = input$ndx,
+        trend_strength = input$trend_strength
+      ),
+
+      "bollinger_breakout" = BollingerBreakout$new(
+        data = price_data(),
+        window_size = input$window_size,
+        sd_mult = input$sd_mult
+      ),
+
+      "donchian_channel" = DonchianChannel$new(
+        data = price_data(),
+        window_size = input$window_size
+      ),
+
+      "macd" = MACD$new(
+        data = price_data(),
+        window_size1 = input$window_size1,
+        window_size2 = input$window_size2,
+        sline = input$sline
+      ),
+
+      "rsi" = RSI$new(
+        data = price_data(),
+        window_size = input$window_size,
+        threshold_oversold = input$threshold_oversold,
+        threshold_overbought = input$threshold_overbought
+      ),
+
+      "sma1" = SMA1$new(
+        data = price_data(),
+        window_size = input$window_size,
+        ma_type = input$ma_type
+      ),
+
+      "sma1m" = SMA1M$new(
+        data = price_data(),
+        window_size = input$window_size,
+        ma_type = input$ma_type
+      ),
+
+      "sma2" = SMA2$new(
+        data = price_data(),
+        window_size1 = input$window_size1,
+        window_size2 = input$window_size2,
+        ma_type = input$ma_type
+      ),
+
+      "sma2m" = SMA2M$new(
+        data = price_data(),
+        window_size1 = input$window_size1,
+        window_size2 = input$window_size2,
+        ma_type = input$ma_type
+      ),
+
+
+      "sar" = StopAndReversal$new(
+        data = price_data(),
+        accel = input$accel,
+        accel_max = input$accel_max
+      ),
+
+      "turtle_trading" = TurtleTrading$new(
+        data = price_data(), 
+        window_size1 = input$window_size1, 
+        window_size2 = input$window_size2
+        ),
+
+       "vol_mean_rev" = VolatilityMeanReversion$new(
+        data = price_data(),
+        window_size = input$window_size,
+        ma_type = input$ma_type
+      )
+
+    )
+
+    # Print the selected strategy name
+    print(paste("Selected strategy/instance:", input$strategy))
+    
+    # Estimate performance
+    performance_result <- strategy_instance$estimate_performance(
+      data_type = input$data_type,
+      split = input$split_data,
+      cut_date = input$cut_date,
+      window = input$window,
+      apply_stop_loss = input$apply_stop_loss,
+      stop_loss_threshold = input$stop_loss_threshold,
+      reward_ratio = input$reward_ratio,
+      capital = input$capital,
+      leverage = input$leverage,
+      symbol = input$symbol
+    )
+    
+    trading_profile <- t(performance_result)
+
+    print(trading_profile)
+    
+    # Convert to data.table for further processing
+    trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))
+
+    trading_profile[, units := ifelse(
+      .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
+      ifelse(
+        Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
+        ifelse(
+          Metric %in% c("LengthOfLargestWin", "LengthOfLargestLoss", "LengthOfAverageWin", "LengthOfAverageLoss", 
+                        "LengthOfMaxDrawdown", "LengthOfMaxRunUp", "LengthOfTimeInLargestWinningRun", "LengthOfTimeInLargestLosingRun", 
+                        "LengthOfTimeInAverageWinningRun", "LengthOfTimeInAverageLosingRun", "LargestWinningRun", "LargestLosingRun"), "days",
+          ifelse(
+            grepl("Date", Metric), "Date", 
+            "USD"  # Default case for other rows
+          )
+        )
+      )
+    )]
+
+    # Generate and return the plot
+    p <- strategy_instance$plot_equity_lines(
+      strategy_name = toupper(input$strategy),
+      signal_flag = input$signal_flag,
+      symbol = input$symbol,
+      capital = input$capital
+    )
+    return(list(strategy = strategy_instance, plot = p, profile = trading_profile))
+  })
+  
+  # Reactive expression to generate performance metrics
+  performance_metrics <- reactive({
+    req(strategy_reactive())
+    performance_data <- strategy_reactive()$profile  # Correctly accessing the profile from strategy_reactive
+    return(performance_data)
+  })
+  
+  # Render trading profile data table
+  output$trading_profile <- renderDT({
+    req(performance_metrics())
+    performance <- performance_metrics()
+    
+    datatable(
+      as.data.frame(performance), 
+      options = list(pageLength = 100)  # Set the number of rows per page to 100
+    )
+  })
+
+  # Render performance plot
+  output$performance_plot <- renderPlot({
+    req(strategy_reactive())
+    strategy_plot <- strategy_reactive()$plot  # Correctly accessing the plot from strategy_reactive
+    print(strategy_plot)  # Render the plot
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
