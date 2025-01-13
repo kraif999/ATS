@@ -5,6 +5,7 @@ Also,the estimation of a strategy's trading profile has been introduced (see the
 Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions. Furthermore, the framework supports the application of stop-loss and profit-taking mechanisms, enabling users to manage risk and lock in profits.
 
 All strategies are architected using the R6 class system, which provides a modular and flexible framework for incorporating new features or strategies.
+Also, the approach is deployed to Shiny server: http://kraif999.shinyapps.io/backtesting_trading_strategies
 
 The design is structured as follows::
 
@@ -14,7 +15,7 @@ The design is structured as follows::
 - Following the signal generation phase, next steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
 Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
 
-Across 18 strategies around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
+Across different strategies around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
 
 The taxonomy of trading strategies implemented is as follows:
 
@@ -146,10 +147,8 @@ classDiagram
     AlphaEngine --|> AlphaEngineMult
 ```
 
-Below is an example of Bitcoin's performance based on the **SMA strategy** with a Hull Moving Average (100-day window) which is superior than the passive (buy-and-hold) strategy. Stop-loss and take-profit limits are set at 1.5% and 37.5% of the closing price throughout the entire trading period.
-Also, the approach is deployed to Shiny server: http://kraif999.shinyapps.io/backtesting_trading_strategies
-
-Currently, it is the Shiny prototype of SMA1 strategy, other strategies will be added as well.
+Below is an example of Bitcoin's trading profile based on the **SMA strategy** with a Hull Moving Average (100-day window) which is superior than the passive (buy-and-hold) strategy. 
+Stop-loss and take-profit limits are set at 1.5% and 37.5% of the Close price throughout the entire trading period.
 
 **Key Visualization:**  
 
