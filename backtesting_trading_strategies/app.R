@@ -192,15 +192,49 @@ ui <- fluidPage(
         numericInput("window_size", "Window Size1", value = 20)
       ),
 
+    # Specific parameters for GARCH based strategy
+      conditionalPanel(
+        condition = "input.strategy == 'garch'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for GARCH based strategy"
+        ),
+        tags$br(),
+        selectInput("specification", "Specification", choices = c("sGARCH", "eGARCH", "gjrGARCH")),
+        numericInput("n_start", "Start of the window", value = 126),
+        numericInput("refit_every", "The frequency of the refit", value = 126/2),
+        selectInput("refit_window", "Refit window type", choices = c("moving", "expanding")),
+        selectInput("distribution_model", "Distribution of residuals", choices = c("snorm", "norm", "nig")),
+        selectInput("realized_vol", "Realized volatility approach", choices = c("close", "garman", "gk.yz", "yang.zhang"))
+      ),
+
+    # Specific parameters for ARIMA strategy
+      conditionalPanel(
+        condition = "input.strategy == 'arima'",
+        tags$div(
+          style = "margin-top: 10px; font-weight: bold;",
+          "Specific Strategy Parameters for ARIMA"
+        ),
+        tags$br(), # Adds a blank line for spacing
+        numericInput("window_size", "Window Size", value = 20),
+        selectInput("window_type", "Window Type", choices = c("SMA", "EMA", "HMA", "WMA")),
+        checkboxInput("best_arima", "Best (auto) ARIMA ", value = FALSE),
+        selectInput("p1", "AR lag", choices = c(1,2,3,4,5,6,7,8,9,10)),
+        selectInput("d1", "Integration", choices = c(1,2)),
+        selectInput("q1", "MA lag", choices = c(1,2,3,4,5,6,7,8,9,10))
+      ),
+
       # Other parameters      
-      checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = FALSE),
+      checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = TRUE),
       numericInput("stop_loss_threshold", "Stop Loss Threshold", value = 0.015),
       numericInput("reward_ratio", "Reward Ratio", value = 25),
       checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
       checkboxInput("split_data", "Split Data for Backtest?", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
-      actionButton("backtest_run", "Run Backtest") # Backtest button
-
+      
+      # Backtest button
+      actionButton("backtest_run", "Run Backtest") 
+      
     ),
     mainPanel(
       tabsetPanel(
@@ -311,6 +345,27 @@ server <- function(input, output, session) {
         data = price_data(),
         window_size = input$window_size,
         ma_type = input$ma_type
+      ),
+
+       "garch" = GARCH$new(
+        data = price_data(),
+        specification = input$specification,
+        n_start = input$n_start,
+        refit_every = input$refit_every,
+        refit_window = input$refit_window,
+        distribution_model = input$distribution_model,
+        realized_vol = input$realized_vol,
+        cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
+      ),
+
+      "arima" = ARIMA$new(
+        data = price_data(),
+        window_size = input$window_size,
+        window_type = input$window_type,
+        best_arima <- input$best_arima,
+        p1 = input$p1,
+        d1 = input$d1,
+        q1 = input$q1
       )
 
     )
@@ -333,8 +388,6 @@ server <- function(input, output, session) {
     )
     
     trading_profile <- t(performance_result)
-
-    print(trading_profile)
     
     # Convert to data.table for further processing
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))

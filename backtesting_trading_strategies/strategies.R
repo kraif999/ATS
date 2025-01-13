@@ -162,12 +162,6 @@ convert_to_tibble = function(ts) {
                 na.omit() %>% 
                     as_tibble()
     return(ts_df)
-
-    # ts_df <- data.frame(Date = index(ts), coredata(ts)) %>%
-    #   rename_with(~ sub(".*\\.", "", .), everything()) %>%
-    #     na.omit() %>%
-    #       as_tibble()
-    # return(ts_df)
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
@@ -177,7 +171,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
   self$data <- private$slicer(self$data, cut_date, data_type)
   
   # Modify the format of Volume column
-  self$data$Volume <- format(self$data$Volume, scientific = TRUE)
+  #self$data$Volume <- format(self$data$Volume, scientific = TRUE)
 
   # Call generate_signals dynamically
   self$generate_signals()
@@ -315,49 +309,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
     
     return(performance_df)
   }
-},
-
-# Method to plot Close price and running PnL
-plot_performance = function() {
-
-    # Filter unique From and To dates
-    unique_dates <- self$data %>%
-    filter(!is.na(From) | !is.na(To)) %>%
-    select(From, To) %>%
-    distinct() %>%
-    pivot_longer(cols = c(From, To), names_to = "LineType", values_to = "Date") %>%
-    filter(!is.na(Date))
-
-    # Generate date breaks for every 2 years
-    date_breaks <- seq(from = floor_date(min(self$data$Date), "year"),
-                        to = ceiling_date(max(self$data$Date), "year"),
-                        by = "2 years")
-
-    # Plot Close price dynamics with vertical lines
-    p1 <- ggplot(self$data, aes(x = Date, y = Close)) +
-    geom_line(color = "black") +
-    geom_vline(data = unique_dates,
-                aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "blue") +
-    scale_x_date(breaks = date_breaks, date_labels = "%Y") +
-    labs(title = paste0("Historical Close Price of ", symbol),
-            x = "Date",
-            y = "Close Price") +
-    theme_minimal()
-
-    # Plot eqlActive and eqlPassive with vertical lines
-    p2 <- ggplot(self$data, aes(x = Date)) +
-    geom_line(aes(y = eqlActive), color = "red") +
-    geom_line(aes(y = eqlPassive), color = "green") +
-    geom_vline(data = unique_dates,
-                aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "blue") +
-    scale_x_date(breaks = date_breaks, date_labels = "%Y") +
-    labs(title = paste0("Running PnL for ", symbol, " for Active and Passive Strategies"),
-            x = "Date",
-            y = "Portfolio Value") +
-    theme_minimal()
-
-    # Combine plots using patchwork
-    p1 / p2
 },
 
 # Microscopic level (tabular list of all trades)
@@ -826,11 +777,23 @@ apply_bracket = function(data, threshold, reward_ratio) {
 
 # Cut the Strategy time horizon, used for the data split
 slicer = function(data, cut_date, data_type) {
-  switch(data_type,
-         "in_sample" = data %>% filter(Date <= as.Date(cut_date)),
-         "out_of_sample" = data %>% filter(Date > as.Date(cut_date)),
-         stop("Invalid data_type. Use 'in_sample' or 'out_of_sample'.")
-  )
+  if (inherits(data, c("xts", "zoo"))) {
+    # For xts/zoo, filter by the date index
+    data <- switch(data_type,
+                   "in_sample" = data[index(data) <= as.Date(cut_date), ],
+                   "out_of_sample" = data[index(data) > as.Date(cut_date), ],
+                   stop("Invalid data_type. Use 'in_sample' or 'out_of_sample'.")
+    )
+  } else {
+    # For non-xts data (data.frame/tibble), filter by 'Date' column
+    data <- switch(data_type,
+                   "in_sample" = data %>% filter(Date <= as.Date(cut_date)),
+                   "out_of_sample" = data %>% filter(Date > as.Date(cut_date)),
+                   stop("Invalid data_type. Use 'in_sample' or 'out_of_sample'.")
+    )
+  }
+  
+  return(data)
 }
 
   )
@@ -1461,7 +1424,7 @@ generate_signals = function() {
           dates[i] <- self$data$Date[i + self$window_size - 1]
         }, error = function(e) {
           # Handle errors
-          print(paste("Error in iteration", i, ":", e$message))
+          #print(paste("Error in iteration", i, ":", e$message))
         })
       }
     },
@@ -1583,7 +1546,7 @@ generate_signals = function() {
 
 # Define class for Strategy based on GARCH model
 GARCH <- R6Class(
-  "GARCHbasedStrategy",
+  "GARCH",
     inherit = Strategy,
     public = list(
     specification = NULL, 
@@ -1603,6 +1566,7 @@ initialize = function(
     distribution_model, 
     realized_vol, 
     cluster) {
+
       super$initialize(data)
       self$specification <- specification
       self$n_start <- n_start
@@ -1619,8 +1583,8 @@ estimate_realized_volatility = function(data) {
         data.frame %>%
             rename_with(~ sub(".*\\.", "", .), everything()) %>%
                 select(-Volume, -Adjusted) %>%
-                    na.omit  %>%
-                        as.matrix
+                    na.omit %>%
+                      as.matrix
 
     # Different realized volatility estimators for returns (TTR)
     histVolest <- merge(
@@ -1657,6 +1621,7 @@ signal_criteria = function(volData) {
 
 # Method to generate column of signals and positions
 generate_signals = function() {
+    #print(head(self$data))
     histVolest <- self$estimate_realized_volatility(self$data)
     instr <- self$data %>% 
         as.data.frame() %>%
