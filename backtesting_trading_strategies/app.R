@@ -33,7 +33,7 @@ ui <- fluidPage(
       selectInput(
         inputId = "strategy",
         label = "Select a Trading Strategy:",
-        choices = c("ADX" = "adx", "ARIMA" = "arima", "BollingerBreakout" = "bollinger_breakout", "DonchianChannel" = "donchian_channel",
+        choices = c("ADX" = "adx", "BollingerBreakout" = "bollinger_breakout", "DonchianChannel" = "donchian_channel",
          "GARCH" = "garch", "MACD" = "macd", "RSI" = "rsi", "SMA1" = "sma1", "SMA1M" = "sma1m", "SMA2" = "sma2", "SMA2M" = "sma2m",
          "StopAndReversal" = "sar", "TurtleTrading" = "turtle_trading", "VolatilityMeanReversion" = "vol_mean_rev"
           ),
@@ -209,20 +209,20 @@ ui <- fluidPage(
       ),
 
     # Specific parameters for ARIMA strategy
-      conditionalPanel(
-        condition = "input.strategy == 'arima'",
-        tags$div(
-          style = "margin-top: 10px; font-weight: bold;",
-          "Specific Strategy Parameters for ARIMA"
-        ),
-        tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 20),
-        selectInput("window_type", "Window Type", choices = c("SMA", "EMA", "HMA", "WMA")),
-        checkboxInput("best_arima", "Best (auto) ARIMA ", value = FALSE),
-        selectInput("p1", "AR lag", choices = c(1,2,3,4,5,6,7,8,9,10)),
-        selectInput("d1", "Integration", choices = c(1,2)),
-        selectInput("q1", "MA lag", choices = c(1,2,3,4,5,6,7,8,9,10))
-      ),
+      # conditionalPanel(
+      #   condition = "input.strategy == 'arima'",
+      #   tags$div(
+      #     style = "margin-top: 10px; font-weight: bold;",
+      #     "Specific Strategy Parameters for ARIMA"
+      #   ),
+      #   tags$br(), # Adds a blank line for spacing
+      #   numericInput("window_size", "Window Size", value = 20),
+      #   selectInput("window_type", "Window Type", choices = c("SMA", "EMA", "HMA", "WMA")),
+      #   checkboxInput("best_arima", "Best (auto) ARIMA ", value = FALSE),
+      #   selectInput("p1", "AR lag", choices = c(1,2,3,4,5,6,7,8,9,10)),
+      #   selectInput("d1", "Integration", choices = c(1,2)),
+      #   selectInput("q1", "MA lag", choices = c(1,2,3,4,5,6,7,8,9,10))
+      # ),
 
       # Other parameters      
       checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = TRUE),
@@ -347,6 +347,16 @@ server <- function(input, output, session) {
         ma_type = input$ma_type
       ),
 
+      # "arima" = ARIMA$new(
+      #   data = price_data(),
+      #   window_size = input$window_size,
+      #   window_type = input$window_type,
+      #   best_arima <- input$best_arima,
+      #   p1 = input$p1,
+      #   d1 = input$d1,
+      #   q1 = input$q1
+      # ),
+
        "garch" = GARCH$new(
         data = price_data(),
         specification = input$specification,
@@ -356,18 +366,7 @@ server <- function(input, output, session) {
         distribution_model = input$distribution_model,
         realized_vol = input$realized_vol,
         cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
-      ),
-
-      "arima" = ARIMA$new(
-        data = price_data(),
-        window_size = input$window_size,
-        window_type = input$window_type,
-        best_arima <- input$best_arima,
-        p1 = input$p1,
-        d1 = input$d1,
-        q1 = input$q1
       )
-
     )
 
     # Print the selected strategy name
