@@ -161,7 +161,7 @@ The red and green dashed vertical lines indicate short and long positions, respe
 
 **Trading Profile:**  
 
-The estimated *in_sample and out_of_sample* trading profile is as follows:
+The estimated trading profile, based on an initial investment of 1000 USDC at the beginning of the period, is as follows for both the in-sample and out-of-sample periods:
 
 | Metric                          | V1 (in-sample) | V2 (in-sample) | V3 (in-sample) | V4 (in-sample) | V1 (out-sample) | V2 (out-sample) | Units |
 |---------------------------------|----------------|----------------|----------------|----------------|-----------------|-----------------|--------------------|
