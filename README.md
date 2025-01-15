@@ -157,6 +157,8 @@ Stop-loss and take-profit limits are set at 1.5% and 37.5% of the Close price th
 
 ![BTC USD Plot](sma1_btc_usd_plot.png)
 
+The red and green dashed vertical lines indicate short and long positions, respectively.
+
 **Trading Profile:**  
 
 The estimated *in_sample and out_of_sample* trading profile is as follows:
