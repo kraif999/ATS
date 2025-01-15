@@ -228,7 +228,7 @@ ui <- fluidPage(
       checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = TRUE),
       numericInput("stop_loss_threshold", "Stop Loss Threshold", value = 0.015),
       numericInput("reward_ratio", "Reward Ratio", value = 25),
-      checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
+      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
       checkboxInput("split_data", "Split Data for Backtest?", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
       
@@ -239,7 +239,8 @@ ui <- fluidPage(
     mainPanel(
       tabsetPanel(
         tabPanel("Trading Profile", DTOutput("trading_profile")),
-        tabPanel("Performance Plot", plotOutput("performance_plot"))
+        tabPanel("Performance Plot", plotOutput("performance_plot")),
+        tabPanel("List of Trades", DTOutput("trades"))
       )
     )
   )
@@ -386,6 +387,22 @@ server <- function(input, output, session) {
       symbol = input$symbol
     )
     
+    print("Tail view:")
+    print(
+      if(input$apply_stop_loss) {
+      strategy_instance$data %>% 
+        select(Date, Close, signal, position, stop_loss_event, profit_take_event, nopActive, nopPassive, eqlActive, eqlPassive, cumulative_pnlActive, cumulative_pnlPassive, TC) %>%
+        tail(10)
+      } else {
+      strategy_instance$data %>% 
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, cumulative_pnlActive, cumulative_pnlPassive, TC) %>%
+        tail(10)
+      }
+    )
+
+    print("Last trades:")
+    print(strategy_instance$get_trades() %>% data.table %>% tail(10))
+
     trading_profile <- t(performance_result)
     
     # Convert to data.table for further processing
@@ -407,6 +424,8 @@ server <- function(input, output, session) {
       )
     )]
 
+    trades_lst <- strategy_instance$get_trades()
+
     # Generate and return the plot
     p <- strategy_instance$plot_equity_lines(
       strategy_name = toupper(input$strategy),
@@ -414,7 +433,8 @@ server <- function(input, output, session) {
       symbol = input$symbol,
       capital = input$capital
     )
-    return(list(strategy = strategy_instance, plot = p, profile = trading_profile))
+
+    return(list(strategy = strategy_instance, plot = p, profile = trading_profile, trades = trades_lst))
   })
   
   # Reactive expression to generate performance metrics
@@ -440,6 +460,16 @@ server <- function(input, output, session) {
     req(strategy_reactive())
     strategy_plot <- strategy_reactive()$plot  # Correctly accessing the plot from strategy_reactive
     print(strategy_plot)  # Render the plot
+  })
+
+  # Render trades data table
+  output$trades <- renderDT({
+    req(strategy_reactive())
+    trades <- strategy_reactive()$trades
+    datatable(
+      trades %>% data.table,
+      options = list(pageLength = 100)  # Set rows per page
+    )
   })
 }
 

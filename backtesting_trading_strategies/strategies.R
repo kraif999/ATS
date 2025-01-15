@@ -200,7 +200,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
   self$data$nopPassive[1] <- capital / (self$data$Close[1])  
 
   min_stop_loss <- 0.002 # 0.2%
-  tc_rate <- 0.001 # Transaction cost rate (0.1%)
+  tc_rate <- 0.001 # Binance transaction cost rate for non-US (0.1%)
 
   for (i in 2:nrow(self$data)) {
       # Active
@@ -211,9 +211,10 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
       if (self$data$position[i] != self$data$position[i - 1]) {
         effective_stop_loss <- max(stop_loss_threshold, min_stop_loss)
         
-        # Recalculate nopActive only when a position change occurs
+        # Recalculate nopActive only when a position change occurs (Money management rule: max loss is 1% of portfolio value)
         current_nop_Active <- min(self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * effective_stop_loss) / leverage),
-                                  self$data$eqlActive[i - 1] / ((self$data$Close[i] * effective_stop_loss) / leverage))
+                                  #self$data$eqlActive[i - 1] / ((self$data$Close[i] * effective_stop_loss) / leverage))
+                                  self$data$eqlActive[i - 1] / ((self$data$Close[i]) / leverage))
         
         self$data$nopActive[i] <- current_nop_Active
         
@@ -333,17 +334,17 @@ get_trades = function() {
     summarise(
       Buy_Sell = first(trade_direction), # Trade type (Buy/Sell)
       EntryDate = as.Date(first(entry)), # Entry date
-      EntrySize = first(entry_size), # Correct entry size
-      EntryPrice = first(entry_price), # Price at entry
+      EntrySize = round(first(entry_size), 5), # Correct entry size
+      EntryPrice = round(first(entry_price), 2), # Price at entry
       ExitDate = as.Date(first(exit)), # Exit date
-      ExitSize = first(exit_size), # Correct exit size
-      ExitPrice = first(exit_price), # Price at exit
-      Trade_Cum_PnL = ifelse(Buy_Sell == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * EntrySize # Trade profit/loss with size
+      ExitSize = round(first(exit_size), 5), # Correct exit size
+      ExitPrice = round(first(exit_price), 2), # Price at exit
+      Trade_PnL = round(ifelse(Buy_Sell == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * EntrySize, 0) # Trade profit/loss with size
     ) %>%
     ungroup() %>% # Remove grouping for calculating Running_PnL
     mutate(
-      Running_PnL = cumsum(Trade_Cum_PnL), # Running cumulative PnL across all trades
-      Efficiency = (Trade_Cum_PnL / abs(Running_PnL)) * 100 # Efficiency as % of Running_PnL
+      Running_PnL = round(cumsum(Trade_PnL), 2), # Running cumulative PnL across all trades
+      Efficiency = round((Trade_PnL / abs(Running_PnL)) * 100, 2) # Efficiency as % of Running_PnL
     )
 
   return(trades)
@@ -375,9 +376,9 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
   # Add signals if signal_flag is TRUE
   if (signal_flag) {
     p <- p +
-      geom_vline(data = self$data[self$data$signal == -1, ], 
+      geom_vline(data = self$data[self$data$position == -1, ], 
                  aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "red", alpha = 0.5) +
-      geom_vline(data = self$data[self$data$signal == 1, ], 
+      geom_vline(data = self$data[self$data$position == 1, ], 
                  aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "green", alpha = 0.5)
   }
   

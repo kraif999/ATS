@@ -1400,7 +1400,7 @@ ts <- data_fetcher$download_xts_data()
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
-  apply_stop_loss = TRUE, stop_loss_threshold = 0.005, reward_ratio = 20))
+  apply_stop_loss = TRUE, stop_loss_threshold = 0.005, reward_ratio = 20, capital, leverage, symbol))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1420,8 +1420,29 @@ sma1_res_in_sample_dt[, units := ifelse(
   )
 )]
 
-sma1$plot_equity_lines("SMA1", signal_flag = FALSE)
-#trades <- sma1$get_trades()
+sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
+trades <- sma1$get_trades()
+
+
+# Trades
+ggplot(data = data.frame(Efficiency = trades$Efficiency[is.finite(trades$Efficiency)]), aes(x = Efficiency)) +
+  geom_histogram(binwidth = diff(range(trades$Efficiency[is.finite(trades$Efficiency)])) / 20, 
+                 fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Trade Efficiency = Trade PnL / Abs(Running PnL)", 
+       x = "Efficiency", 
+       y = "Frequency") +
+  scale_x_continuous(
+    expand = c(0, 0), 
+    limits = c(min(trades$Efficiency[is.finite(trades$Efficiency)]), NA),
+    breaks = seq(floor(min(trades$Efficiency[is.finite(trades$Efficiency)])), 
+                 ceiling(max(trades$Efficiency[is.finite(trades$Efficiency)])), 
+                 by = 25)  # Adjust the 'by' value to control the spacing of ticks
+  ) + 
+  theme_minimal()
+
+
+trades$Efficiency %>% summary # % distribution
+trades$Trade_Cum_PnL %>% summary # expected PnL given 1000 USD
 
 dataset <- sma1$data
 table(dataset$position)
@@ -1449,7 +1470,7 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   output_df = TRUE
 )
 
-res_sma1_overall_btc_bnb_eth <- fread("res_sma1_overall_btc_bnb_eth.csv")
+res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/res_sma1_overall_btc_bnb_eth.csv")
 
 res_sma1_overall_btc_bnb_eth <- res_sma1_overall_btc_bnb_eth %>%
   mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows
@@ -1563,9 +1584,9 @@ ranked_strategies
 # ACHIEVE ~60-70% 
 
 # OUT-OF-SAMPLE PERFORMANCE
-sma1_os <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
-sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-06-01"), window = 1,
- apply_stop_loss = TRUE, stop_loss_threshold = 0.005, reward_ratio = 20))
+sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
+sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1,
+ apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25, capital, leverage, symbol))
 
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
 
@@ -1608,6 +1629,7 @@ res_sma1_overall_os <- sma1_os$run_backtest(
   )
 
 # All results in one df
+library(stringr)
 res_all <- fread("Run_backtest_results/res_all.csv")
 
 res_all <- res_all %>% 
@@ -1640,7 +1662,8 @@ res_all %>%
     summary
 
 res_sma1_overall_btc_bnb_eth %>%
-#filter(Symbol == "BTC-USD") %>%
- filter(Methodology == "SMA1: 20 EMA" & Strategy == "Active") %>%
-  select(AnnualizedProfit) %>% 
+filter(Symbol == "BTC-USD") %>%
+ filter(Methodology == "SMA1: 100 HMA" & Strategy == "Active") %>%
+  select(c(AnnualizedProfit, MaxDrawdown, NumberOfTradesPerYear)) %>% 
     summary
+  
