@@ -357,29 +357,29 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
   passive_line_size <- ifelse(signal_flag, 1, 0.8)
   
   p <- ggplot(self$data, aes(x = Date)) +
-  labs(
-    title = paste0(
-      "Asset: ", symbol, ", capital trajectory for Active (", 
-      as.character(strategy_name), ") and Passive (buy-and-hold)\n",
-      "strategies with original investment of ", capital, " USDC ",
-      "over the period from ", self$data$Date %>% head(1), " to ", self$data$Date %>% tail(1)
-    ),
-    x = "Date",
-    y = "Equity line"
-  ) +
-  theme_minimal()
+    labs(
+      title = paste0(
+        "Asset: ", symbol, ", capital trajectory for Active (", 
+        as.character(strategy_name), ") and Passive (buy-and-hold)\n",
+        "strategies with original investment of ", capital, " USDC ",
+        "over the period from ", self$data$Date %>% head(1), " to ", self$data$Date %>% tail(1)
+      ),
+      x = "Date",
+      y = "Equity line",
+      color = "Strategy",  # Change label to 'Strategy' for the equity lines
+      linetype = "Position"  # Change label to 'Position' for dashed lines
+    ) +
+    theme_minimal()
   
-  # Add vertical dashed lines for periods using From and To columns
-  # Extract unique From and To values and convert to data.frame
-  period_lines <- data.frame(From = unique(self$data$From), To = unique(self$data$To))
-
-  # Add signals if signal_flag is TRUE
+  # Add vertical dashed lines for positions (short and long)
   if (signal_flag) {
     p <- p +
       geom_vline(data = self$data[self$data$position == -1, ], 
-                 aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "red", alpha = 0.5) +
+                 aes(xintercept = as.numeric(Date), linetype = "Short Position"), 
+                 color = "red", alpha = 0.5) +
       geom_vline(data = self$data[self$data$position == 1, ], 
-                 aes(xintercept = as.numeric(Date)), linetype = "dashed", color = "green", alpha = 0.5)
+                 aes(xintercept = as.numeric(Date), linetype = "Long Position"), 
+                 color = "green", alpha = 0.5)
   }
   
   # Add equity lines
@@ -387,22 +387,19 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
     geom_line(aes(y = eqlActive, color = "Active Strategy"), size = active_line_size) +
     geom_line(aes(y = eqlPassive, color = "Buy and Hold Strategy"), size = passive_line_size) +
     scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "darkgreen")) +
-    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    scale_linetype_manual(values = c("Short Position" = "dashed", "Long Position" = "dashed"))  # Define line types
   
   # Add vertical lines for the From and To columns
+  period_lines <- data.frame(From = unique(self$data$From), To = unique(self$data$To))
   p <- p + 
     geom_vline(data = period_lines, aes(xintercept = as.numeric(From)), 
                linetype = "solid", color = "black", alpha = 1, size = 1) +
     geom_vline(data = period_lines, aes(xintercept = as.numeric(To)), 
                linetype = "solid", color = "black", alpha = 1, size = 1)
 
-  # Print or return the plot
-  if (signal_flag) {
-    #print(p)
-    return(p)
-  } else {
-    return(p)
-  }
+  # Return the plot
+  return(p)
 },
 
 # Plot Japanese candles for the period of latest ndays

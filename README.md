@@ -150,14 +150,12 @@ classDiagram
     AlphaEngine --|> AlphaEngineMult
 ```
 
-Below is an example of Bitcoin's trading profile based on the **SMA strategy** with a Hull Moving Average (100-day window).
+Below is an example of Bitcoin's trading profile based on the **SMA strategy** (Exponential Moving Average 20-day window).
 Stop-loss and take-profit limits are set at 1.5% and 37.5% of the Close price throughout the entire trading period.
 
 **Performance visualization:**  
 
 ![BTC USD Plot](sma1_btc_usd_plot.png)
-
-The red and green dashed vertical lines indicate short and long positions, respectively.
 
 **Trading Profile:**  
 
