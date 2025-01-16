@@ -1352,199 +1352,6 @@ generate_signals = function() {
   )
 )
 
-# Define ARIMA class
-ARIMA <- R6Class(
-  "ARIMAbased",
-  inherit = Strategy,
-  public = list(
-    window_size = NULL, # for "moving" window_type it is window_size, for "expanding" window_type it is starting window_size only (as then it expands given iterations)
-    window_type = NULL,
-    best_arima = NULL,
-    p1 = NULL,
-    d1 = NULL,
-    q1 = NULL,
-    
-initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NULL, d1 = NULL, q1 = NULL) {
-      super$initialize(data)
-      self$data <- super$convert_to_tibble(self$data)
-      self$window_size <- window_size
-      self$window_type <- window_type
-      self$best_arima <- best_arima
-      self$p1 <- p1
-      self$d1 <- d1
-      self$q1 <- q1
-},
-    
-generate_signals = function() {
-  # Register parallel backend
-  # num_cores <- parallel::detectCores() - 1 
-  # registerDoParallel(cores = num_cores)
-
-  n <- nrow(self$data)
-  # Preallocate vectors
-  forecast_values <- numeric(n - self$window_size + 1)
-  actual_values <- numeric(n - self$window_size + 1)
-  dates <- as.Date(character(n - self$window_size + 1))
-  
-  # Rolling window type
-  switch(
-    self$window_type,
-    "moving" = {
-      # Perform rolling forecasts
-      for (i in 1:(n - self$window_size + 1)) {
-      # foreach(i = 1:(n - self$window_size + 1)) %dopar% {
-
-        # Extract current window of data
-        window_data <- self$data$Close[i:(i + self$window_size - 1)]
-        
-        tryCatch({
-          if (self$best_arima) {    
-            # Fit ARIMA model
-            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
-            p <- best_arima$arma[1]
-            d <- best_arima$arma[2]
-            q <- best_arima$arma[3]
-            P <- best_arima$arma[4]
-            D <- best_arima$arma[5]
-            Q <- best_arima$arma[6]
-            
-            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
-          } else {
-            # Use provided p1, d1, q1 parameters
-            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
-          }
-          
-          # Forecast (1 day ahead)
-          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
-            data.frame %>% 
-            select(Forecast) %>% as.numeric
-          
-          # Store dates, forecast, and actual value
-          forecast_values[i] <- forecast_result
-          actual_values[i] <- self$data$Close[i + self$window_size - 1]
-          dates[i] <- self$data$Date[i + self$window_size - 1]
-        }, error = function(e) {
-          # Handle errors
-          #print(paste("Error in iteration", i, ":", e$message))
-        })
-      }
-    },
-
-    "expanding" = {
-      # Perform expanding window forecasts
-      for (i in self$window_size:n) {
-      # foreach(i = self$window_size:n) %dopar% {
-
-        # Extract current window of data
-        window_data <- self$data$Close[1:i]
-        
-        tryCatch({
-          if (self$best_arima) {    
-            # Fit ARIMA model
-            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
-            p <- best_arima$arma[1]
-            d <- best_arima$arma[2]
-            q <- best_arima$arma[3]
-            P <- best_arima$arma[4]
-            D <- best_arima$arma[5]
-            Q <- best_arima$arma[6]
-            
-            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
-          } else {
-            # Use provided p1, d1, q1 parameters
-            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
-          }
-          
-          # Forecast (1 day ahead)
-          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
-            data.frame %>% 
-            select(Forecast) %>% as.numeric
-          
-          # Store dates, forecast, and actual value
-          forecast_values[i] <- forecast_result
-          actual_values[i] <- self$data$Close[i]
-          dates[i] <- self$data$Date[i]
-        }, error = function(e) {
-          # Handle errors
-          print(paste("Error in iteration", i, ":", e$message))
-        })
-      }
-    }
-  )
-  
-  res <- data.frame(
-    Date = dates,
-    Forecast = forecast_values, 
-    Actual = actual_values
-  )
-  
-  # Compare Forecast with Actual value
-  self$data <- self$data %>%
-    left_join(res %>% select(Date, Forecast), by = "Date") %>%
-    mutate(
-      signal1 = case_when(
-        Forecast > Close ~ 1,
-        Forecast < Close ~ -1,
-        TRUE ~ 0 
-      )
-      # position = lag(signal, default = 0)
-    ) %>%
-      na.omit()
-
-  # Initialize last_long_value and last_short_value (dynamic trailing threshold)
-  last_long_value <- rep(NA, nrow(self$data))
-  last_short_value <- rep(NA, nrow(self$data))
-
-  # Loop through each row of the data frame
-  for (i in 1:nrow(self$data)) {
-      # Check if current row has signal == 1
-      if (self$data$signal1[i] == 1) {
-          # Find the index of the first previous occurrence of 1
-          first_previous_index <- NA
-          if (any(self$data$signal1[1:(i-1)] == 1)) {
-              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == 1))
-          }
-          # If a previous occurrence of 1 is found, update last_long_value
-          if (!is.na(first_previous_index)) {
-              last_long_value[i] <- self$data$Forecast[first_previous_index]
-          }
-      }
-      # Check if current row has signal1 == -1
-      if (self$data$signal1[i] == -1) {
-          # Find the index of the first previous occurrence of -1
-          first_previous_index <- NA
-          if (any(self$data$signal1[1:(i-1)] == -1)) {
-              first_previous_index <- max(which(self$data$signal1[1:(i-1)] == -1))
-          }
-          # If a previous occurrence of -1 is found, update last_short_value
-          if (!is.na(first_previous_index)) {
-              last_short_value[i] <- self$data$Forecast[first_previous_index]
-          }
-      }
-  }
-
-  # Assign last_long_value and last_short_value to the data frame
-  self$data$last_long_value <- last_long_value
-  self$data$last_short_value <- last_short_value
-
-  # Replace NA or invalid values with 0 in the last_long_value and last_short_value columns
-  self$data$last_long_value <- replace(self$data$last_long_value, !is.finite(self$data$last_long_value), 0)
-  self$data$last_short_value <- replace(self$data$last_short_value, !is.finite(self$data$last_short_value), 0)
-
-  # Compare data$Forecast[i] with the first previous value and update data$s2
-  self$data$signal <- ifelse((self$data$Forecast > self$data$last_long_value) & (self$data$Forecast > self$data$Close), 1,
-                      ifelse((self$data$Forecast < self$data$last_short_value) & (self$data$Forecast < self$data$Close), -1, 0))
-
-  # Replacing 0s by previous signal value:
-  self$data$signal <- na.locf(ifelse(self$data$signal == 0, NA, self$data$signal), fromLast = FALSE, na.rm = FALSE)
-  self$data$signal <- replace(self$data$signal, is.na(self$data$signal), 0)
-
-  self$data$position <- lag(self$data$signal, default = 0)
-}
-
-  )
-)
-
 # Define class for Strategy based on GARCH model
 GARCH <- R6Class(
   "GARCH",
@@ -1753,3 +1560,148 @@ generate_signals = function() {
 
   )
 )
+
+# Define ARIMA class
+ARIMA <- R6Class(
+  "ARIMA",
+  inherit = Strategy,
+  public = list(
+    window_size = NULL, # for "moving" window_type it is window_size, for "expanding" window_type it is starting window_size only (as then it expands given iterations)
+    window_type = NULL,
+    best_arima = NULL,
+    p1 = NULL,
+    d1 = NULL,
+    q1 = NULL,
+    
+initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NULL, d1 = NULL, q1 = NULL) {
+      super$initialize(data)
+      self$data <- super$convert_to_tibble(self$data)
+      self$window_size <- window_size
+      self$window_type <- window_type
+      self$best_arima <- best_arima
+      self$p1 <- p1
+      self$d1 <- d1
+      self$q1 <- q1
+},
+    
+generate_signals = function() {
+  # Register parallel backend
+  # num_cores <- parallel::detectCores() - 1 
+  # registerDoParallel(cores = num_cores)
+
+  n <- nrow(self$data)
+  # Preallocate vectors
+  forecast_values <- numeric(n - self$window_size + 1)
+  actual_values <- numeric(n - self$window_size + 1)
+  dates <- as.Date(character(n - self$window_size + 1))
+  
+  # Rolling window type
+  switch(
+    self$window_type,
+    "moving" = {
+      # Perform rolling forecasts
+      for (i in 1:(n - self$window_size + 1)) {
+      # foreach(i = 1:(n - self$window_size + 1)) %dopar% {
+
+        # Extract current window of data
+        window_data <- self$data$Close[i:(i + self$window_size - 1)]
+        
+        tryCatch({
+          if (self$best_arima) {    
+            # Fit ARIMA model
+            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
+            p <- best_arima$arma[1]
+            d <- best_arima$arma[2]
+            q <- best_arima$arma[3]
+            P <- best_arima$arma[4]
+            D <- best_arima$arma[5]
+            Q <- best_arima$arma[6]
+            
+            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
+          } else {
+            # Use provided p1, d1, q1 parameters
+            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
+          }
+          
+          # Forecast (1 day ahead)
+          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
+            data.frame %>% 
+            select(Forecast) %>% as.numeric
+          
+          # Store dates, forecast, and actual value
+          forecast_values[i] <- forecast_result
+          actual_values[i] <- self$data$Close[i + self$window_size - 1]
+          dates[i] <- self$data$Date[i + self$window_size - 1]
+        }, error = function(e) {
+          # Handle errors
+          print(paste("Error in iteration", i, ":", e$message))
+        })
+      }
+    },
+
+    "expanding" = {
+      # Perform expanding window forecasts
+      for (i in self$window_size:n) {
+      # foreach(i = self$window_size:n) %dopar% {
+
+        # Extract current window of data
+        window_data <- self$data$Close[1:i]
+        
+        tryCatch({
+          if (self$best_arima) {    
+            # Fit ARIMA model
+            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
+            p <- best_arima$arma[1]
+            d <- best_arima$arma[2]
+            q <- best_arima$arma[3]
+            P <- best_arima$arma[4]
+            D <- best_arima$arma[5]
+            Q <- best_arima$arma[6]
+            
+            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
+          } else {
+            # Use provided p1, d1, q1 parameters
+            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
+          }
+          
+          # Forecast (1 day ahead)
+          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
+            data.frame %>% 
+            select(Forecast) %>% as.numeric
+          
+          # Store dates, forecast, and actual value
+          forecast_values[i] <- forecast_result
+          actual_values[i] <- self$data$Close[i]
+          dates[i] <- self$data$Date[i]
+        }, error = function(e) {
+          # Handle errors
+          print(paste("Error in iteration", i, ":", e$message))
+        })
+      }
+    }
+  )
+  
+  res <- data.frame(
+    Date = dates,
+    Forecast = forecast_values, 
+    Actual = actual_values
+  )
+  
+  # Compare Forecast with Actual value
+  self$data <- self$data %>%
+    left_join(res %>% select(Date, Forecast), by = "Date") %>%
+    mutate(
+      signal = case_when(
+        Forecast > Close ~ 1,
+        Forecast < Close ~ -1,
+        TRUE ~ 0 
+      ),
+      position = lag(signal, default = 0)
+    ) %>%
+      na.omit()
+    
+}
+
+  )
+)
+

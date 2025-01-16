@@ -1657,13 +1657,24 @@ filter(Strategy == "Active") %>%
   ungroup() %>% arrange(Class)
 
 res_all %>%
- filter(Methodology == "SMA1: 40 SMA") %>%
+filter(Symbol == "BTC-USD" & Strategy == "Active") %>%
+group_by(Methodology) %>%
+ #filter(Methodology == "SMA1: 40 SMA") %>%
   select(aR) %>% 
     summary
+
+# Compute percentage of superior rows for each Methodology for a Symbol
+res_all %>%
+filter(Symbol == "ETH-USD") %>%
+  group_by(Meth) %>%
+  summarise(
+    TotalRows = n(),
+    SuperiorRows = sum(Superior == "Yes"),
+    PercentageSuperior = (SuperiorRows / TotalRows) * 100
+  ) %>% arrange(desc(PercentageSuperior))
 
 res_sma1_overall_btc_bnb_eth %>%
 filter(Symbol == "BTC-USD") %>%
  filter(Methodology == "SMA1: 100 HMA" & Strategy == "Active") %>%
   select(c(AnnualizedProfit, MaxDrawdown, NumberOfTradesPerYear)) %>% 
     summary
-  
