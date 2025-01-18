@@ -7,6 +7,9 @@ source("libraries.R")
 source("strategies.R")
 options(scipen = 999)
 
+options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
+options(shiny.timeout = 1200)  # Timeout for 20 minutes (1200 seconds)
+
 # UI for multiple strategies
 ui <- fluidPage(
   fluidRow(
@@ -221,7 +224,7 @@ ui <- fluidPage(
         selectInput("window_type", "Window Type", choices = c("expanding", "moving")),
         checkboxInput("best_arima", "Best (auto) ARIMA ", value = FALSE),
         selectInput("p1", "AR lag", choices = 1:10, selected = 1),
-        selectInput("d1", "Integration", choices = 1:2, selected = 1),
+        selectInput("d1", "Integration", choices = 1:2, selected = 2),
         selectInput("q1", "MA lag", choices = 1:10, selected = 1)
       ),
 
@@ -241,7 +244,8 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Trading Profile", DTOutput("trading_profile")),
         tabPanel("Performance Plot", plotOutput("performance_plot")),
-        tabPanel("List of Trades", DTOutput("trades"))
+        tabPanel("List of Trades", DTOutput("trades")),
+        tabPanel("Trades PnL distribution", plotOutput("pnl_hist"))
       )
     )
   )
@@ -367,7 +371,8 @@ server <- function(input, output, session) {
         refit_window = input$refit_window,
         distribution_model = input$distribution_model,
         realized_vol = input$realized_vol,
-        cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
+        #cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
+        cluster = NULL
       )
     )
 
@@ -401,9 +406,6 @@ server <- function(input, output, session) {
       }
     )
 
-    print("Last trades:")
-    print(strategy_instance$get_trades() %>% data.table %>% tail(10))
-
     trading_profile <- t(performance_result)
     
     # Convert to data.table for further processing
@@ -427,6 +429,9 @@ server <- function(input, output, session) {
 
     trades_lst <- strategy_instance$get_trades()
 
+    print("Cumulative PnL by position:")
+    print(trades_lst$trades %>% group_by(Trade) %>% summarize(PnL = sum(Trade_PnL)))
+
     # Generate and return the plot
     p <- strategy_instance$plot_equity_lines(
       strategy_name = toupper(input$strategy),
@@ -435,7 +440,7 @@ server <- function(input, output, session) {
       capital = input$capital
     )
 
-    return(list(strategy = strategy_instance, plot = p, profile = trading_profile, trades = trades_lst))
+    return(list(strategy = strategy_instance, plot = p, profile = trading_profile, trades = trades_lst$trades, pnl_hist = trades_lst$plot))
   })
   
   # Reactive expression to generate performance metrics
@@ -472,6 +477,14 @@ server <- function(input, output, session) {
       options = list(pageLength = 100)  # Set rows per page
     )
   })
+ 
+ # Render trades pnl histogram
+  output$pnl_hist <- renderPlot({
+    req(strategy_reactive())
+    pnl_hist <- strategy_reactive()$pnl_hist  # Correctly accessing the pnl_hist plot
+    print(pnl_hist)
+  })
+
 }
 
 # Run the app

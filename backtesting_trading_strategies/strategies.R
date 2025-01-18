@@ -314,7 +314,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
 
 # Microscopic level (tabular list of all trades)
 get_trades = function() {
-
   # Prepare trade summary with tradePnL
   trades <- self$data %>%
     mutate(
@@ -332,22 +331,47 @@ get_trades = function() {
     filter(!is.na(entry) & !is.na(exit)) %>%
     group_by(entry, exit) %>%
     summarise(
-      Buy_Sell = first(trade_direction), # Trade type (Buy/Sell)
+      Trade = first(trade_direction), # Trade type (Buy/Sell)
       EntryDate = as.Date(first(entry)), # Entry date
-      EntrySize = round(first(entry_size), 5), # Correct entry size
+      Size = round(first(entry_size), 5), # Correct entry size
       EntryPrice = round(first(entry_price), 2), # Price at entry
       ExitDate = as.Date(first(exit)), # Exit date
-      ExitSize = round(first(exit_size), 5), # Correct exit size
       ExitPrice = round(first(exit_price), 2), # Price at exit
-      Trade_PnL = round(ifelse(Buy_Sell == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * EntrySize, 0) # Trade profit/loss with size
+      Trade_PnL = round(ifelse(Trade == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0) # Trade profit/loss with size
     ) %>%
     ungroup() %>% # Remove grouping for calculating Running_PnL
     mutate(
       Running_PnL = round(cumsum(Trade_PnL), 2), # Running cumulative PnL across all trades
       Efficiency = round((Trade_PnL / abs(Running_PnL)) * 100, 2) # Efficiency as % of Running_PnL
+    ) %>% select(
+      Trade, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, Trade_PnL, Running_PnL, Efficiency
     )
-
-  return(trades)
+  
+  # Generate the plot
+  pnl_hist <- ggplot(data = data.frame(Trade_PnL = trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0]), 
+                    aes(x = Trade_PnL, fill = Trade_PnL < 0)) +
+    geom_histogram(binwidth = diff(range(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0])) / 100, 
+                  color = "black", alpha = 0.7) +
+    scale_fill_manual(values = c("green", "red")) +  # Green for positive, red for negative
+    labs(title = "Trade Profit and Loss (PnL) Distribution", 
+        x = "Trade PnL", 
+        y = "Frequency") +
+    scale_x_continuous(
+      expand = c(0, 0), 
+      limits = c(min(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0]), 
+                max(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0])),
+      breaks = unique(c(seq(floor(min(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0])), 
+                            ceiling(max(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0])), 
+                            by = 200), 0))
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal()
+  
+  # Return both the trades and the plot as a list
+  return(list(
+    trades = trades,
+    plot = pnl_hist
+  ))
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)

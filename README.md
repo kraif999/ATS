@@ -1,26 +1,34 @@
-This branch contains experiments involving the implementation of a wide range of trading strategies across various asset classes. 
-The performance of these strategies, referred to as 'Active,' is compared against a benchmark buy-and-hold strategy, referred to as 'Passive'.
-Additionally, there is TSA class which analyses time series patterns and various characteristics.
-Also,the estimation of a strategy's trading profile has been introduced (see the example in *estimate_trading_profile.R*). 
-Its purpose is to assess the overall risk profile of a strategy (macroscopic level) and provide a detailed list of trades (microscopic level) across multiple markets and time periods (including the choice of in-sample or out-of-sample data split) under varying market conditions. Furthermore, the framework supports the application of stop-loss and profit-taking mechanisms, enabling users to manage risk and lock in profits.
+## Motivation  
 
-All strategies are architected using the R6 class system, which provides a modular and flexible framework for incorporating new features or strategies.
+Here, I test different trading ideas based on certain rules (called 'Active' strategy) and compare them with the strategy of simply buying and holding an asset ('Passive' strategy).  
 
-Also, the approach is deployed to Shiny web server: http://kraif999.shinyapps.io/backtesting_trading_strategies
+The goal is to develop and find a superior, robust (multimarket and multiperiod) price-based system. The trading profile of a strategy is estimated using different metrics to measure return and risk.  
 
-Using Yahoo tickers any strategy (currently except ARIMA and AlphaEngine) could be applied: the outputs include a strategy's trading profile, equity curves, and the list of all trades.
+All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies](http://kraif999.shinyapps.io/backtesting_trading_strategies).  
 
-The design is structured as follows::
+Choose an instrument, a strategy, and a trading horizon, and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently invested using that strategy.  
 
-- A parent class, **DataFetcher**, which features methods for overlapping daily data retrieval from Yahoo.
-- A parent class, **Strategy**, contains a generic 'signal generation' method, subsequently overridden by child classes, thereby tailoring the signal generation engine to specific strategy implementations.
-- The child classes of the Strategy class represent specific trading strategies (based on *Technical  Indicators*, statistical models (*GARCH*, *ARIMA*), or other approaches (*AlphaEngine: coastline counter-trend trading*).
-- Following the signal generation phase, next steps involve the provision of performance metrics and equity lines (**Strategy** class methods).
-Assets used represent the following classes: *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, *Fixed Income*, *Macro*.
+There is no magical strategy combination that always guarantees highly superior returns under all market conditions (I hoped it would), therefore, the robustness conclusion is based on how a strategy's trading profile looks on average given a different set of strategy combinations.
 
-Across different strategies around **~37,000** parameters combinations were tested, refer to **'Run_backtest_results'** folder.
+---
 
-The taxonomy of trading strategies implemented is as follows:
+## Design  
+
+The process is to first check a strategy on *in_sample data* (multimarket and multiperiod), then if results are promising, check it on *out_of_sample* data.
+
+The high-level structure looks like this:  
+
+- A parent class, **DataFetcher**, has methods to retrieve data from Yahoo (using overlapping daily data).  
+- The **TSA** class analyzes data from various perspectives to understand different characteristics.  
+- A parent class for all strategies, **Strategy**, includes a generic signal generation method (overridden by specific strategies) and estimates the trading profile for both in-sample and out-of-sample data. It can also split in-sample data further to evaluate the performance under different market regimes. 
+- Child classes of the **Strategy** class represent specific trading strategies, such as:  
+  - Technical Indicators (moving averages, breakouts, etc.) 
+  - Statistical models (GARCH, ARIMA)  
+  - Other approaches (AlphaEngine: coastline counter-trend trading)  
+
+Any market instrument can be used (via Yahoo ticker). Here, I test a few across various asset classes, including *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, and *Fixed Income*. There are around ~37,000 combinations tested to identify what could be a good strategy for a particular instrument.
+
+The taxonomy of the trading strategies implemented is as follows:  
 
 ```mermaid
 %%{init: {"flowchart": {"defaultRenderer": "elk", "nodeWidth": 1000}}}%%
@@ -49,7 +57,7 @@ flowchart LR
     other --> alpha1[AlphaEngine: counter-trend trading]
 ```
 
-See below example of classes design.
+See below example of classes design in R.
 
 ```mermaid
 classDiagram
@@ -71,64 +79,28 @@ classDiagram
         + generate_signals() : Signal generation, specific to each subclass.
         + convert_to_tibble(ts) : Converts time series data to a tibble format.
         + estimate_performance() : Estimates performance for Active and Passive strategies.
-        + calculate_cumulative_return() : Calculates cumulative return (to be removed).
         + plot_equity_lines(strategy_name, signal_flag) : Visualizes equity lines for active strategy and passive (buy and hold).
+        + plot_candles() : plot Japanese candles for the period of latest ndays
+        + estimate_average_true_range() : estimate Average True Range based on the latest ndays
+        - compute_metrics() : estimates strategy's trading profile (25 metrics)
+        - apply_bracket() : applies a stop loss and reward take based on the thresholds
+        - slicer() : cuts the data into smaller equal periods
     }
-
-    class AlphaEngine {
-        +threshold
-        +profit_taking
-        +signal_generation
-        +position_sizing
-        +vol_position_sizing
-        +initialize(data, threshold, profit_taking, signal_generation = "TH", position_sizing = FALSE, vol_position_sizing = FALSE)
-        +generate_signals()
-        +plot_events(symbol)
-        +plot_dc(symbol)
-        +plotSignals(data)
-        +run_backtest(symbols, thresholds, profit_takings, signal_generations, position_sizings, vol_position_sizings, from_date, to_date, output_df = TRUE)
-    }
-    class AlphaEnginePrivate {
-        +identify_events(data, threshold)
-        +estimate_prob_surprise(data)
-        +estimate_entropies(data)
-        +calculate_sequence_lengths(h)
-        +calculate_OS_length(data)
-        +generateExitSignals(df, signal_generation = "TH")
-    }
-    AlphaEngine -- AlphaEnginePrivate
-
-    class AlphaEngineMult {
-        +estimate_rolling_correlations(symbol_list, from_date, to_date)
-        +plot_rolling_correlations(data, plot_flag = TRUE)
-        +estimate_portfolio_performance(cp, symbol_list, capital, leverage)
-        +plot_portfolio_components(df, type)
-    }
-    class AlphaEngineMultPrivate {
-        +split_data(cp, symbol_list)
-        +process_data(df)
-        +compute_performance_metrics(data)
-        +estimate_performance_bucket(data)
-    }
-    AlphaEngineMult -- AlphaEngineMultPrivate
 
     class TSA {
         original_data: any = NULL
         data: any = NULL
-        +initialize(data)
-        +estimate_stationarity(freq = "daily", plot_flag = TRUE)
-        +estimate_autocorr_rets_vol(test, freq = "daily", plot_flag = TRUE)
-        +estimate_seasonality(freq = "daily")
-        +estimate_heteroscedasticity(freq = "daily", plot_flag = TRUE)
-        +estimate_arch_effects(freq = "daily", p = 1, q = 1, plot_flag = TRUE)
-        +estimate_outliers(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5)
-        +compute_wkd_rets(freq = "daily")
-        +compute_summary_statistics(freq = "daily")
+        + initialize(data)
+        + estimate_stationarity(freq = "daily", plot_flag = TRUE)
+        + estimate_autocorr_rets_vol(test, freq = "daily", plot_flag = TRUE)
+        + estimate_seasonality(freq = "daily")
+        + estimate_heteroscedasticity(freq = "daily", plot_flag = TRUE)
+        + estimate_arch_effects(freq = "daily", p = 1, q = 1, plot_flag = TRUE)
+        + estimate_outliers(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5)
+        + compute_wkd_rets(freq = "daily")
+        + compute_summary_statistics(freq = "daily")
+        - preprosess_data()
     }
-    class TSAPrivate {
-        +preprocess_data(freq)
-    }
-    TSA -- TSAPrivate
 
     class GARCHbasedStrategy {
         + specification
@@ -144,14 +116,12 @@ classDiagram
         + run_backtest(symbols, specifications, n_starts, refits_every, refit_windows, distribution_models, realized_vols, output_df) : Runs a backtest for GARCH-based strategy.
     }
 
-
-    Strategy --|> AlphaEngine
     Strategy --|> GARCHbasedStrategy
-    AlphaEngine --|> AlphaEngineMult
+    
 ```
 
-Below is an example of Bitcoin's trading profile based on the **SMA strategy** (Exponential Moving Average 20-day window).
-Stop-loss and take-profit limits are set at 1.5% and 37.5% of the Close price throughout the entire trading period.
+Below is an example of Bitcoin's trading profile based on the *SMA strategy, in particular Exponential Moving Average (EMA) 20-day window)*.
+Stop-loss and take-profit limits are set at 1.5% and 37.5% of the close price throughout the entire trading period.
 
 **Performance visualization:**  
 
