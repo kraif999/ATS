@@ -6,9 +6,9 @@ The goal is to develop and find a superior, robust (multimarket and multiperiod)
 
 All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies](http://kraif999.shinyapps.io/backtesting_trading_strategies).  
 
-Choose an instrument, a strategy, and a trading horizon, and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently invested using that strategy.  
+Choose an instrument, a strategy, and a trading horizon, and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently and strictly invested using that strategy signals with no emotions involved. 
 
-There is no magical strategy combination that always guarantees highly superior returns under all market conditions (I hoped it would), therefore, the robustness conclusion is based on how a strategy's trading profile looks on average given a different set of strategy combinations.
+There is no magical strategy combination that always guarantees highly superior returns under all market conditions, therefore, the robustness conclusion should be based on how a strategy's trading profile looks on average given a different set of strategy combinations.
 
 ---
 

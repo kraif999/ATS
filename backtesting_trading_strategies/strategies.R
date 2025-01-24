@@ -1594,7 +1594,7 @@ ARIMA <- R6Class(
     d1 = NULL,
     q1 = NULL,
     
-initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NULL, d1 = NULL, q1 = NULL) {
+initialize = function(data, window_size, window_type, best_arima = FALSE, p1 = NULL, d1 = NULL, q1 = NULL) {
       super$initialize(data)
       self$data <- super$convert_to_tibble(self$data)
       self$window_size <- window_size
@@ -1606,96 +1606,53 @@ initialize = function(data, window_size, window_type, best_arima = TRUE, p1 = NU
 },
     
 generate_signals = function() {
-  # Register parallel backend
-  # num_cores <- parallel::detectCores() - 1 
-  # registerDoParallel(cores = num_cores)
-
   n <- nrow(self$data)
+  
   # Preallocate vectors
-  forecast_values <- numeric(n - self$window_size + 1)
-  actual_values <- numeric(n - self$window_size + 1)
-  dates <- as.Date(character(n - self$window_size + 1))
+  forecast_values <- numeric(n)
+  actual_values <- numeric(n)
+  dates <- as.Date(character(n))
+  
+  error_log <- list()
+  index <- 1
   
   # Rolling window type
   switch(
     self$window_type,
     "moving" = {
-      # Perform rolling forecasts
       for (i in 1:(n - self$window_size + 1)) {
-      # foreach(i = 1:(n - self$window_size + 1)) %dopar% {
-
-        # Extract current window of data
-        window_data <- self$data$Close[i:(i + self$window_size - 1)]
-        
+        window_data <- na.omit(self$data$Close[i:(i + self$window_size - 1)])
         tryCatch({
-          if (self$best_arima) {    
-            # Fit ARIMA model
-            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
-            p <- best_arima$arma[1]
-            d <- best_arima$arma[2]
-            q <- best_arima$arma[3]
-            P <- best_arima$arma[4]
-            D <- best_arima$arma[5]
-            Q <- best_arima$arma[6]
-            
-            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
+          fit <- if (self$best_arima) {
+            auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
           } else {
-            # Use provided p1, d1, q1 parameters
-            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
+            arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
           }
-          
-          # Forecast (1 day ahead)
-          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
-            data.frame %>% 
-            select(Forecast) %>% as.numeric
-          
-          # Store dates, forecast, and actual value
-          forecast_values[i] <- forecast_result
-          actual_values[i] <- self$data$Close[i + self$window_size - 1]
-          dates[i] <- self$data$Date[i + self$window_size - 1]
+          forecast_values[index] <- as.numeric(forecast(fit, h = 1)$mean)
+          actual_values[index] <- self$data$Close[i + self$window_size - 1]
+          dates[index] <- self$data$Date[i + self$window_size - 1]
+          index <- index + 1
         }, error = function(e) {
-          # Handle errors
+          error_log[[length(error_log) + 1]] <<- list(index = i, message = e$message)
           print(paste("Error in iteration", i, ":", e$message))
         })
       }
     },
-
     "expanding" = {
-      # Perform expanding window forecasts
       for (i in self$window_size:n) {
-      # foreach(i = self$window_size:n) %dopar% {
-
-        # Extract current window of data
-        window_data <- self$data$Close[1:i]
-        
+        window_data <- na.omit(self$data$Close[1:i])
         tryCatch({
-          if (self$best_arima) {    
-            # Fit ARIMA model
-            best_arima <- auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
-            p <- best_arima$arma[1]
-            d <- best_arima$arma[2]
-            q <- best_arima$arma[3]
-            P <- best_arima$arma[4]
-            D <- best_arima$arma[5]
-            Q <- best_arima$arma[6]
-            
-            fit <- arima(window_data, order = c(p, d, q), seasonal = list(order = c(P, D, Q)), method = "CSS-ML")
+          fit <- if (self$best_arima) {
+            auto.arima(window_data, stepwise = TRUE, approximation = TRUE)
           } else {
-            # Use provided p1, d1, q1 parameters
-            fit <- arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
+            arima(window_data, order = c(self$p1, self$d1, self$q1), method = "CSS-ML")
           }
-          
-          # Forecast (1 day ahead)
-          forecast_result <- forecast(fit, lead = 1, output = FALSE) %>%
-            data.frame %>% 
-            select(Forecast) %>% as.numeric
-          
-          # Store dates, forecast, and actual value
-          forecast_values[i] <- forecast_result
-          actual_values[i] <- self$data$Close[i]
-          dates[i] <- self$data$Date[i]
+          forecast_values[index] <- as.numeric(forecast(fit, h = 1)$mean)
+          actual_values[index] <- self$data$Close[i]
+          dates[index] <- self$data$Date[i]
+          index <- index + 1
         }, error = function(e) {
-          # Handle errors
+          error_log[[length(error_log) + 1]] <<- list(index = i, message = e$message)
           print(paste("Error in iteration", i, ":", e$message))
         })
       }
@@ -1703,24 +1660,24 @@ generate_signals = function() {
   )
   
   res <- data.frame(
-    Date = dates,
-    Forecast = forecast_values, 
-    Actual = actual_values
+    Date = dates[1:(index - 1)],
+    Forecast = forecast_values[1:(index - 1)],
+    Actual = actual_values[1:(index - 1)]
   )
   
-  # Compare Forecast with Actual value
   self$data <- self$data %>%
-    left_join(res %>% select(Date, Forecast), by = "Date") %>%
+    left_join(
+      res %>% filter(!is.na(Forecast)) %>% select(Date, Forecast),
+      by = "Date"
+    ) %>%
     mutate(
       signal = case_when(
-        Forecast > Close ~ 1,
-        Forecast < Close ~ -1,
-        TRUE ~ 0 
+        !is.na(Forecast) & Forecast > Close ~ 1,
+        !is.na(Forecast) & Forecast < Close ~ -1,
+        TRUE ~ 0
       ),
       position = lag(signal, default = 0)
-    ) %>%
-      na.omit()
-    
+    )
 }
 
   )
