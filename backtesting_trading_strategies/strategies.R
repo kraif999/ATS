@@ -212,7 +212,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_s
         effective_stop_loss <- max(stop_loss_threshold, min_stop_loss)
         
         # Recalculate nopActive only when a position change occurs (Money management rule: max loss is 1% of portfolio value)
-        current_nop_Active <- min(self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * effective_stop_loss) / leverage),
+        #current_nop_Active <- min(self$data$eqlActive[i - 1] * 0.01 / ((self$data$Close[i] * effective_stop_loss) / leverage),
+        current_nop_Active <- min(self$data$eqlActive[i - 1]  / ((self$data$Close[i] * effective_stop_loss) / leverage),
                                   #self$data$eqlActive[i - 1] / ((self$data$Close[i] * effective_stop_loss) / leverage))
                                   self$data$eqlActive[i - 1] / ((self$data$Close[i]) / leverage))
         
@@ -1118,26 +1119,6 @@ generate_signals = function() {
                       signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
                           position = lag(signal, default = 0)) %>% 
                         na.omit()
-},
-
-plot_channels = function(name) {
-  ggplot(self$data, aes(x = Date)) +
-    geom_line(aes(y = Close, color = "black"), size = 1) +
-    geom_line(aes(y = upper_channel, color = "green"), linetype = "longdash", size = 1) +
-    geom_line(aes(y = lower_channel, color = "red"), linetype = "longdash", size = 1) +
-    geom_line(aes(y = mid, color = "yellow"), linetype = "longdash", size = 1) +
-    labs(
-      title = paste0("Donchian Channel for ", name),
-      x = "Date",
-      y = "Price"
-    ) +
-    scale_y_continuous(breaks = seq(min(self$data$lower_channel, na.rm = TRUE), 
-                                  max(self$data$upper_channel, na.rm = TRUE), 
-                                  by = 20)) +
-    
-    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-    
-    theme_minimal()
 }
 
   )
@@ -1153,35 +1134,39 @@ RSI <- R6Class(
     threshold_overbought = NULL,
 
 initialize = function(data, window_size, threshold_oversold = 30, threshold_overbought = 70) {
-      super$initialize(data)
-      self$data <- super$convert_to_tibble(self$data)
+      super$initialize(data) # Call the parent class's initialize method
+      self$data <- super$convert_to_tibble(self$data) # Convert the data to tibble format
       self$window_size <- window_size
       self$threshold_oversold <- threshold_oversold
       self$threshold_overbought <- threshold_overbought
 },
 
 generate_signals = function() {
-  self$data <- mutate(self$data,
-                      avg_gain = rollmean(ifelse(Close > 0, Close, 0), k = self$window_size, align = "right", fill = NA),
-                      avg_loss = rollmean(ifelse(Close < 0, abs(Close), 0), k = self$window_size, align = "right", fill = NA),
-                      rs = avg_gain / avg_loss,
-                      rsi = 100 - (100 / (1 + rs)),
-                      signal = ifelse(rsi < self$threshold_oversold, 1, ifelse(rsi > self$threshold_overbought, -1, 0)),
-                      position = lag(signal, default = 0)) %>%
-              na.omit
-},
-
-plot_avg_gain_loss_with_equity_lines = function() {
-        ggplot(self$data, aes(x = Date)) + # include the equity lines plot from the parent Strategy class
-            geom_line(aes(y = avg_gain, color = "Average Gain")) +
-            geom_line(aes(y = avg_loss, color = "Average Loss")) +
-            #geom_line(aes(y = equity_line, color = "Equity Line")) +  # Include equity line
-            geom_line(aes(y = equity_line, color = "Equity Line")) +  # Include equity line
-            labs(title = "Average Gain, Average Loss, and Equity Line",
-                x = "Date",
-                y = "Value") +
-            scale_color_manual(values = c("Average Gain" = "blue", "Average Loss" = "red", "Equity Line" = "green")) +
-            theme_minimal()
+      
+      # Calculate RSI and generate signals
+      self$data <- self$data %>%
+        mutate(
+          # Calculate daily price changes
+          change = Close - lag(Close, default = NA),
+          gain = ifelse(change > 0, change, 0),
+          loss = ifelse(change < 0, abs(change), 0),
+          
+          # Calculate rolling average gain and loss
+          avg_gain = zoo::rollmean(gain, k = self$window_size, align = "right", fill = NA),
+          avg_loss = zoo::rollmean(loss, k = self$window_size, align = "right", fill = NA),
+          
+          # Calculate RS and RSI
+          rs = avg_gain / avg_loss,
+          rsi = 100 - (100 / (1 + rs)),
+          
+          # Generate signals: 1 = Buy, -1 = Sell, 0 = Hold
+          signal = ifelse(rsi < self$threshold_oversold, 1,
+                   ifelse(rsi > self$threshold_overbought, -1, 0)),
+          
+          # Calculate position: lagged signal to avoid lookahead bias
+          position = lag(signal, default = 0)
+        ) %>%
+        na.omit() # Remove rows with NA values
 }
 
   )
@@ -1249,20 +1234,6 @@ generate_signals = function() {
           position = lag(signal, default = 0)
         ) %>%
         na.omit()
-},
-
-plot_sar = function(name){
-  ggplot(self$data, aes(x = Date)) +
-  geom_line(aes(y = Close, color = "Price"), size = 0.5) +
-  geom_point(aes(y = SAR, color = "SAR"), size = 1) +
-  labs(
-    title = paste0("Parabolic SAR for ", name),
-    x = "Date",
-    y = "Price"
-  ) +
-  scale_color_manual(values = c("Price" = "red", "SAR" = "blue")) +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  theme_minimal()
 }
 
   )
