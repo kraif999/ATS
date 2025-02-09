@@ -1,4 +1,4 @@
-# Copyright (c) 2024 Oleh Bilyk
+# Copyright (c) 2025 Oleh Bilyk
 
 # Load libraries
 source("libraries.R")
@@ -44,7 +44,7 @@ ui <- fluidPage(
         selected = "sma1"
       ),
       
-      dateRangeInput("date_range", "Date Range", start = as.Date("2018-01-01"), end = Sys.Date()),
+      dateRangeInput("date_range", "Date Range", start = as.Date("2022-01-01"), end = Sys.Date()),
       numericInput("capital", "Capital", value = 1000),
       numericInput("leverage", "Leverage", value = 1),
       selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
@@ -229,11 +229,11 @@ ui <- fluidPage(
       ),
 
       # Other parameters      
-      checkboxInput("apply_stop_loss", "Apply Stop Loss?", value = TRUE),
-      numericInput("stop_loss_threshold", "Stop Loss Threshold", value = 0.015),
-      numericInput("reward_ratio", "Reward Ratio", value = 25),
-      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
-      checkboxInput("split_data", "Split Data for Backtest?", value = FALSE),
+      checkboxInput("apply_rm", "Apply Risk Management", value = TRUE),
+      numericInput("max_risk", "Maximum risk", value = 0.1),
+      numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
+      checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
+      checkboxInput("split_data", "Split Data for Backtest", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
       
       # Backtest button
@@ -385,8 +385,8 @@ server <- function(input, output, session) {
       split = input$split_data,
       cut_date = input$cut_date,
       window = input$window,
-      apply_stop_loss = input$apply_stop_loss,
-      stop_loss_threshold = input$stop_loss_threshold,
+      apply_rm = input$apply_rm,
+      max_risk = input$max_risk,
       reward_ratio = input$reward_ratio,
       capital = input$capital,
       leverage = input$leverage,
@@ -395,13 +395,13 @@ server <- function(input, output, session) {
     
     print("Tail view:")
     print(
-      if(input$apply_stop_loss) {
+      if(input$apply_rm) {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, stop_loss_event, profit_take_event, nopActive, nopPassive, eqlActive, eqlPassive, cumulative_pnlActive, cumulative_pnlPassive, TC) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative) %>%
         tail(10)
       } else {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, cumulative_pnlActive, cumulative_pnlPassive, TC) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative) %>%
         tail(10)
       }
     )
@@ -412,7 +412,7 @@ server <- function(input, output, session) {
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))
 
     trading_profile[, units := ifelse(
-      .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
+      .I <= 5 | Metric %in% c("max_risk", "NumberOfTradesPerYear", "reward_ratio", "Strategy"), "",
       ifelse(
         Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
         ifelse(
