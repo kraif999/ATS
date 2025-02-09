@@ -916,7 +916,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
   # Add additional metrics
   self$data <- self$data %>%
     mutate(
-      #Volume = format(Volume, scientific = TRUE),
       annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(365),
       pnlActiveCumulative = cumsum(replace_na(pnlActive, 0)),
       pnlPassiveCumulative = cumsum(replace_na(pnlPassive, 0)),
