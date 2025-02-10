@@ -20,7 +20,7 @@ The high-level structure looks like this:
 
 - A parent class, **DataFetcher**, has methods to retrieve data from Yahoo (using overlapping daily data).  
 - The **TSA** class analyzes data from various perspectives to understand different characteristics.  
-- A parent class for all strategies, **Strategy**, includes a generic signal generation method (overridden by specific strategies) and estimates the trading profile for both in-sample and out-of-sample data. It can also split in-sample data further to evaluate the performance under different market regimes. 
+- A parent class for all strategies, **Strategy**, includes a generic signal generation method (overridden by specific strategies) and estimates the trading profile for both in-sample and out-of-sample data. It can also split in-sample or out-of-sample data further to evaluate the performance under different market regimes. 
 - Child classes of the **Strategy** class represent different trading strategies, based on:
   - Technical Indicators (trend-following, mean-reverting, breakouts, etc.) 
   - Statistical approaches (GARCH, ARIMA)  
