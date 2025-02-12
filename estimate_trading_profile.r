@@ -451,7 +451,7 @@ preprocess_data = function(freq) {
   )
 )
 
-# Define parent Strategy class (modified slightly based on the ideas in Robert Parto)
+# Define parent class
 Strategy <- R6Class(
   "Strategy",
   public = list(
@@ -813,10 +813,10 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
       } else if (data$position[i] == -1) {
         stopLoss <- data$Close[i] + (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
       } else {
         stopLoss <- profitTake <- NA
       }
@@ -1174,7 +1174,7 @@ generate_signals = function() {
 },
 
 # Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1184,6 +1184,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
       for (ma_type in ma_types) {
         for(max_risk in max_risks) {
           for(reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
 
         # Fetch data using DataFetcher for the current symbol and date range
         data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -1235,7 +1236,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         }
 
         # Store the results
-        results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, sep = "_")]] <- list(
+        results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
           Methodology = paste("SMA1:", window_size, ma_type),
@@ -1243,6 +1244,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           MA_Type = ma_type,
           Max_Risk = max_risk,
           Reward_Ratio = reward_ratio,
+          #Leverage = leverage,
           Performance = performance
         )
 
@@ -1250,12 +1252,15 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           "Processed SMA1 (symbol: ", symbol, 
           ", class: ", meta$assets[[symbol]]$class, 
           ", window_size: ", window_size, 
-          ", ma_type: ", ma_type, ", split: ", split, 
-          " max_risk:", max_risk, " reward_ratio: ", reward_ratio, 
+          ", ma_type: ", ma_type, 
+          ", split: ", split, 
+          ", max_risk:", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage:", leverage,
           ")"
           )
         )
-          
+            }
           }
         }
       }
@@ -1291,6 +1296,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         MA_Type = x$MA_Type,
         Max_Risk = x$Max_Risk,
         Reward_Ratio = x$Reward_Ratio,
+        #Leverage = x$Leverage,
         performance_data
       )
     }))
@@ -1329,7 +1335,7 @@ sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
 sma1$estimate_average_true_range(n=14)
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
-  apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage, symbol))
+  apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage = 1, symbol))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1350,7 +1356,9 @@ sma1_res_in_sample_dt[, units := ifelse(
 )]
 
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
-trades <- sma1$get_trades()
+trades <- sma1$get_trades()$trades
+
+data <- sma1$data
 
 # Trades
 ggplot(data = data.frame(Efficiency = trades$Efficiency[is.finite(trades$Efficiency)]), aes(x = Efficiency)) +
@@ -1364,7 +1372,7 @@ ggplot(data = data.frame(Efficiency = trades$Efficiency[is.finite(trades$Efficie
     limits = c(min(trades$Efficiency[is.finite(trades$Efficiency)]), NA),
     breaks = seq(floor(min(trades$Efficiency[is.finite(trades$Efficiency)])), 
                  ceiling(max(trades$Efficiency[is.finite(trades$Efficiency)])), 
-                 by = 25)  # Adjust the 'by' value to control the spacing of ticks
+                 by = 100)  # Adjust the 'by' value to control the spacing of ticks
   ) + 
   theme_minimal()
 
@@ -1381,12 +1389,14 @@ sum(dataset$value > 0.05) / nrow(dataset) * 100
 
 # IN-SAMPLE (WITHOUT SPLIT)
 
+window_sizes = round(10 * (1.25 ^ (0:13)))
+
 # Overall trading profile (NO SPLIT with stop-loss)
 res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   symbols = c("BTC-USD"),
   #window_sizes = seq(10, 100, by = 5), 
-  window_sizes = round(10 * (1.25 ^ (0:13))),
-  ma_type = c("SMA", "EMA"), 
+  window_sizes = window_sizes,
+  ma_types = c("SMA", "EMA"), 
   data_type = "in_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
@@ -1396,16 +1406,21 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   apply_rm = TRUE,
   max_risks = seq(0.1, 0.3, by = 0.1),
   reward_ratios = seq(3, 6, by = 3),
+  leverages = seq(1, 2, by = 1),
   output_df = TRUE
 )
 
-ggplot(res_sma1_overall_btc_bnb_eth, aes(x = Window_Size, y = AnnualizedProfit)) +
-  geom_point(color = "blue", size = 3, alpha = 0.6) +  # Scatter plot
-  geom_smooth(method = "loess", se = FALSE, color = "red") +  # Add a smooth trend line
+ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Size, y = AnnualizedProfit)) +
+  geom_point(aes(color = MA_Type, shape = MA_Type), size = 3, alpha = 0.6) +  # Points with different shapes and colors for each MA_Type
+  geom_smooth(method = "loess", se = FALSE, color = "red") +  # Single smooth line
+  scale_color_manual(values = c("SMA" = "blue", "EMA" = "green", "WMA" = "purple")) +  # Custom colors for each MA_Type
+  scale_shape_manual(values = c("SMA" = 16, "EMA" = 15, "WMA" = 17)) +  # Circle for SMA, Square for EMA, Triangle for WMA
   labs(
-    title = paste("Annualized Profit vs Window Size for ", symbol),
+    title = paste("Annualized Profit vs Window Size for", symbol),
     x = "Window Size (Days)",
-    y = "Annualized Profit (%)"
+    y = "Annualized Profit (%)",
+    color = "MA Type",
+    shape = "MA Type"
   ) +
   scale_x_continuous(breaks = seq(min(res_sma1_overall_btc_bnb_eth$Window_Size), 
                                   max(res_sma1_overall_btc_bnb_eth$Window_Size), by = 10)) +  # Ticks every 10 days
@@ -1438,7 +1453,7 @@ res_sma1_overall_btc_bnb_eth <- res_sma1_overall_btc_bnb_eth %>%
 # Filter for Active strategies and group by strategy parameters
 res_sma1_overall_btc_bnb_eth %>%
   filter(Strategy == "Active") %>%
-  group_by(Methodology, Window_Size, MA_Type, Stop_Loss, Reward_Ratio) %>%
+  group_by(Methodology, Window_Size, MA_Type, Max_Risk, Reward_Ratio) %>%
   summarise(
     Avg_AnnualizedProfit = mean(AnnualizedProfit, na.rm = TRUE),
     .groups = 'drop'
@@ -1447,26 +1462,26 @@ res_sma1_overall_btc_bnb_eth %>%
   slice(1)
 
 # Best in-sample combinations:
-# BTC-USD, HMA 100-day 0.015 25
-# ETH-USD, WMA 25-day 0.025 15
-# BNB-USD, HMA 15-day 0.02 5
-# CANDIDATE: EMA 20 day 0.015 25
+# BTC-USD, SMA 116-day 0.3 6
+# ETH-USD
+# BNB-USD 
+# CANDIDATE:
 
 # IN-SAMPLE: HOW STRATEGY BEHAVES UNDER DIFFERENT PERIODS
 # More granular (split) - only for potential good candidates to check robustness
 res_sma1_granular <- sma1$run_backtest(
-  symbols = c("BTC-USD", "ETH-USD", "BNB-USD"),
-  window_sizes = c(5, 20, 30, 50, 100), 
-  ma_type = c("SMA", "EMA", "HMA"),
+  symbols = c("BTC-USD"),
+  window_sizes = 116, 
+  ma_type = c("SMA"),
   data_type = "in_sample",
   split = TRUE,
   cut_date = as.Date("2024-01-01"),
   from_date = as.Date("2018-01-01"),
   to_date = Sys.Date(),
   slicing_years = 1,
-  apply_stop_loss = TRUE,
-  stop_loss_thresholds = seq(0.005, 0.025, by = 0.01),
-  reward_ratios = seq(15, 30, by = 5),
+  apply_rm = TRUE,
+  max_risks = seq(0.1, 0.3, by = 0.1),
+  reward_ratios = seq(2, 5, by = 1),
   output_df = TRUE
 )
 

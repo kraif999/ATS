@@ -821,6 +821,7 @@ slicer = function(data, cut_date, data_type) {
   )
 )
 
+# Define parent class
 Strategy <- R6Class(
   "Strategy",
   public = list(
@@ -1182,10 +1183,10 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
       } else if (data$position[i] == -1) {
         stopLoss <- data$Close[i] + (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
       } else {
         stopLoss <- profitTake <- NA
       }
@@ -1891,8 +1892,10 @@ generate_signals = function() {
                       lower_channel2 = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
                       mid1 = (upper_channel1 / lower_channel1) / 2,
                       mid2 = (upper_channel2 / lower_channel2) / 2,
-                      signal1 = ifelse(Close > lag(upper_channel1) & Close > lag(upper_channel2), 1,
-                        ifelse(Close < lag(lower_channel1) & Close < lag(lower_channel2), -1, 0)),
+                      # signal1 = ifelse(Close > lag(upper_channel1) & Close > lag(upper_channel2), 1,
+                      #   ifelse(Close < lag(lower_channel1) & Close < lag(lower_channel2), -1, 0)),
+                      signal1 = ifelse(Close > upper_channel1 & Close > upper_channel2, 1,
+                        ifelse(Close < lower_channel1 & Close < lower_channel2, -1, 0)),
                       signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
                       position = lag(signal, default = 0)) %>% 
                         na.omit()

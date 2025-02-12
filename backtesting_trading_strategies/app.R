@@ -376,7 +376,7 @@ server <- function(input, output, session) {
       )
     )
 
-    strategy_instance$estimate_average_true_range(n=14)
+    #strategy_instance$estimate_average_true_range(n=14)
 
     # Print the selected strategy name
     print(paste("Selected strategy/instance:", input$strategy))
@@ -399,11 +399,14 @@ server <- function(input, output, session) {
     print(
       if(input$apply_rm) {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
+        #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, annual_vol) %>%
         tail(10)
       } else {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
+        #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, annual_vol) %>%
+        
         tail(10)
       }
     )
