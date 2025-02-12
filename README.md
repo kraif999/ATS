@@ -8,7 +8,7 @@ All strategies are built using the R6 class system, which provides a modular and
 
 Choose an instrument, a strategy, a trading horizon, specify the strategy specific parameters and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently and strictly invested using that strategy signals with no emotions involved. 
 The algorithm executes the strategy and calculates the number of positions, PnL, and equity curves based on daily positions.
-If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and more.
+If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and more, see in backtesting_trading_strategies/strategies.R).
 
 There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations.
 
