@@ -727,40 +727,56 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
   return(p)
 },
 
-# Plot Japanese candles for the period of latest ndays
-plot_candles = function(ndays) {
-  self$data <- tail(self$data, ndays)
-  fig <- self$data %>% plot_ly(x = ~Date, type= "candlestick",
-          open = ~Open, close = ~Close,
-          high = ~High, low = ~Low) 
-  fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
-  fig
+# Estimate Average True Range (ATR)
+estimate_range_potential = function(n = 14) {
+  self$data <- self$data %>% data.table
+  
+  # Calculate TR1, TR2, TR3
+  self$data[, `:=`(
+    TR1 = High - Low,
+    TR2 = abs(High - shift(Close, type = "lag")),
+    TR3 = abs(Low - shift(Close, type = "lag"))
+  )]
+  
+  # Calculate TR as the maximum of TR1, TR2, TR3
+  self$data[, TR := pmax(TR1, TR2, TR3, na.rm = TRUE)]
+  
+  # Calculate ATR as a rolling average of TR over n periods
+  self$data[, ATR := frollmean(TR, n, fill = NA)]
+  
+  # Calculate N as TR / ATR
+  self$data[, N := TR / ATR]
+  
+  # Return updated self$data
+  return(self$data)
 },
 
-# Estimate Average True Range (ATR)
-estimate_average_true_range = function(n = 14) {
+# Plot Close price and volatility (range potential)
+plot_close_vs_vol = function(ndays) {
 
-  self$data <- self$data %>% data.table
-  # Calculate ATR using self$data
-  atr <- ATR(HLC(self$data), n)
+  # Filter self$data for the last ndays
+  filtered_data <- tail(self$data, ndays)
   
-  # Convert ATR and self$data to data.tables
-  atr_data <- as.data.table(data.frame(Date = index(atr), coredata(atr)))
-  ts_data <- as.data.table(data.frame(Date = index(self$data), coredata(self$data)))
+  # First plot: Line plot of Close price
+  close <- ggplot(filtered_data, aes(x = Date, y = Close)) +
+    geom_line(color = "black") +
+    labs(title = paste0("Close Price (Last ", ndays, " days) for ", symbol), x = "Date", y = "Close") +
+    theme_minimal()
   
-  # Merge ATR data with self$data by Date
-  merged_data <- merge(ts_data, atr_data, by = "Date", all.x = TRUE)
+  # Second plot: Bar plot of N with horizontal dashed lines at 0.5 and 1
+  n <- ggplot(filtered_data, aes(x = Date, y = N)) +
+    geom_bar(stat = "identity", fill = "darkgreen") +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+    labs(title = "N = TR / ATR with thresholds", x = "Date", y = "N") +
+    theme_minimal()
   
-  # Calculate tr_reserve
-  merged_data[, tr_reserve := tr / atr * 100] # Calculate tr_reserve as a percentage
-  
-  # Update self$data safely
-  for (col in c("tr", "atr", "trueHigh", "trueLow", "tr_reserve")) {
-    self$data[, (col) := merged_data[[col]]]
-  }
-  
-  # Return self$data
-  return(self$data)
+  # Return the individual plots
+  return(list(
+    close = close,
+    n = n
+  ))
+
 }
 
   ),
@@ -1332,7 +1348,10 @@ ts <- data_fetcher$download_xts_data()
 
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
-sma1$estimate_average_true_range(n=14)
+sma1$estimate_range_potential(n=14)
+plots <- sma1$plot_close_vs_vol(30)
+grid.arrange(plots$close, plots$n, ncol = 1)
+
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
   apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage = 1, symbol))

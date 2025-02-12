@@ -414,40 +414,56 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
   return(p)
 },
 
-# Plot Japanese candles for the period of latest ndays
-plot_candles = function(ndays) {
-  self$data <- tail(self$data, ndays)
-  fig <- self$data %>% plot_ly(x = ~Date, type= "candlestick",
-          open = ~Open, close = ~Close,
-          high = ~High, low = ~Low) 
-  fig <- fig %>% layout(title = paste0("Candlestick Chart for last ", ndays, " days"))
-  fig
+# Estimate Average True Range (ATR)
+estimate_range_potential = function(n) {
+  self$data <- self$data %>% data.table
+  
+  # Calculate TR1, TR2, TR3
+  self$data[, `:=`(
+    TR1 = High - Low,
+    TR2 = abs(High - shift(Close, type = "lag")),
+    TR3 = abs(Low - shift(Close, type = "lag"))
+  )]
+  
+  # Calculate TR as the maximum of TR1, TR2, TR3
+  self$data[, TR := pmax(TR1, TR2, TR3, na.rm = TRUE)]
+  
+  # Calculate ATR as a rolling average of TR over n periods
+  self$data[, ATR := frollmean(TR, n, fill = NA)]
+  
+  # Calculate N as TR / ATR
+  self$data[, N := TR / ATR]
+  
+  # Return updated self$data
+  return(self$data)
 },
 
-# Estimate Average True Range (ATR)
-estimate_average_true_range = function(n = 14) {
+# Plot Close price and volatility (range potential)
+plot_close_vs_vol = function(ndays) {
 
-  self$data <- self$data %>% data.table
-  # Calculate ATR using self$data
-  atr <- ATR(HLC(self$data), n)
+  # Filter self$data for the last ndays
+  filtered_data <- tail(self$data, ndays)
   
-  # Convert ATR and self$data to data.tables
-  atr_data <- as.data.table(data.frame(Date = index(atr), coredata(atr)))
-  ts_data <- as.data.table(data.frame(Date = index(self$data), coredata(self$data)))
+  # First plot: Line plot of Close price
+  close <- ggplot(filtered_data, aes(x = Date, y = Close)) +
+    geom_line(color = "black") +
+    labs(title = paste0("Close Price (Last ", ndays, " days) for ", symbol), x = "Date", y = "Close") +
+    theme_minimal()
   
-  # Merge ATR data with self$data by Date
-  merged_data <- merge(ts_data, atr_data, by = "Date", all.x = TRUE)
+  # Second plot: Bar plot of N with horizontal dashed lines at 0.5 and 1
+  n <- ggplot(filtered_data, aes(x = Date, y = N)) +
+    geom_bar(stat = "identity", fill = "darkgreen") +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+    labs(title = "N = TR / ATR with thresholds", x = "Date", y = "N") +
+    theme_minimal()
   
-  # Calculate tr_reserve
-  merged_data[, tr_reserve := tr / atr * 100] # Calculate tr_reserve as a percentage
-  
-  # Update self$data safely
-  for (col in c("tr", "atr", "trueHigh", "trueLow", "tr_reserve")) {
-    self$data[, (col) := merged_data[[col]]]
-  }
-  
-  # Return self$data
-  return(self$data)
+  # Return the individual plots
+  return(list(
+    close = close,
+    n = n
+  ))
+
 }
 
   ),
@@ -1374,14 +1390,14 @@ initialize = function(data, window_size1 = 12, window_size2 = 26, sline = 9) {
 },
 
 generate_signals = function() {
-      self$data <- mutate(self$data,
-                          ma1 = EMA(Close, self$window_size1, align = "right", fill = NA),
-                          ma2 = EMA(Close, self$window_size2, align = "right", fill = NA),
-                          macd_line = ma1 - ma2,
-                          signal_line = EMA(macd_line, self$sline),
-                          signal = ifelse(macd_line > signal_line, 1, ifelse(macd_line < signal_line, -1, 0)),
-                          position = lag(signal, default = 0)) %>%
-                            na.omit()
+  self$data <- mutate(self$data,
+    ma1 = EMA(Close, self$window_size1, align = "right", fill = NA),
+    ma2 = EMA(Close, self$window_size2, align = "right", fill = NA),
+    macd_line = ma1 - ma2,
+    signal_line = EMA(macd_line, self$sline),
+    signal = ifelse(macd_line > signal_line, 1, ifelse(macd_line < signal_line, -1, 0)),
+    position = lag(signal, default = 0)) %>%
+      na.omit()
 }
 
   )
@@ -1402,13 +1418,13 @@ initialize = function(data, window_size) {
 
 generate_signals = function() {
   self$data <- mutate(self$data,
-                      upper_channel = rollapply(self$data$High, self$window_size, max, align = "right", fill = NA),
-                      lower_channel = rollapply(self$data$Low, self$window_size, min, align = "right", fill = NA),
-                      mid = (upper_channel + lower_channel) / 2, # optional
-                      signal1 = ifelse(Close > lag(upper_channel), 1, ifelse(Close < lag(lower_channel), -1, 0)),
-                      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
-                          position = lag(signal, default = 0)) %>% 
-                        na.omit()
+    upper_channel = rollapply(self$data$High, self$window_size, max, align = "right", fill = NA),
+    lower_channel = rollapply(self$data$Low, self$window_size, min, align = "right", fill = NA),
+    mid = (upper_channel + lower_channel) / 2, # optional
+    signal1 = ifelse(Close > lag(upper_channel), 1, ifelse(Close < lag(lower_channel), -1, 0)),
+    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+        position = lag(signal, default = 0)) %>% 
+      na.omit()
 }
 
   )
@@ -1433,30 +1449,58 @@ initialize = function(data, window_size, threshold_oversold = 30, threshold_over
 
 generate_signals = function() {
       
-      # Calculate RSI and generate signals
-      self$data <- self$data %>%
-        mutate(
-          # Calculate daily price changes
-          change = Close - lag(Close, default = NA),
-          gain = ifelse(change > 0, change, 0),
-          loss = ifelse(change < 0, abs(change), 0),
-          
-          # Calculate rolling average gain and loss
-          avg_gain = zoo::rollmean(gain, k = self$window_size, align = "right", fill = NA),
-          avg_loss = zoo::rollmean(loss, k = self$window_size, align = "right", fill = NA),
-          
-          # Calculate RS and RSI
-          rs = avg_gain / avg_loss,
-          rsi = 100 - (100 / (1 + rs)),
-          
-          # Generate signals: 1 = Buy, -1 = Sell, 0 = Hold
-          signal = ifelse(rsi < self$threshold_oversold, 1,
-                   ifelse(rsi > self$threshold_overbought, -1, 0)),
-          
-          # Calculate position: lagged signal to avoid lookahead bias
-          position = lag(signal, default = 0)
-        ) %>%
-        na.omit() # Remove rows with NA values
+  # Calculate RSI and generate signals
+  self$data <- self$data %>%
+    mutate(
+      # Calculate daily price changes
+      change = Close - lag(Close, default = NA),
+      gain = ifelse(change > 0, change, 0),
+      loss = ifelse(change < 0, abs(change), 0),
+      
+      # Calculate rolling average gain and loss
+      avg_gain = zoo::rollmean(gain, k = self$window_size, align = "right", fill = NA),
+      avg_loss = zoo::rollmean(loss, k = self$window_size, align = "right", fill = NA),
+      
+      # Calculate RS and RSI
+      rs = avg_gain / avg_loss,
+      rsi = 100 - (100 / (1 + rs)),
+      
+      # Generate signals: 1 = Buy, -1 = Sell, 0 = Hold
+      signal = ifelse(rsi < self$threshold_oversold, 1,
+            ifelse(rsi > self$threshold_overbought, -1, 0)),
+      
+      # Calculate position: lagged signal to avoid lookahead bias
+      position = lag(signal, default = 0)
+    ) %>%
+    na.omit() # Remove rows with NA values
+}
+
+  )
+)
+
+# Buy high, sell low
+TurtleTrading <- R6Class(
+  "TurtleTrading",
+  inherit = Strategy,
+  public = list(
+    window_size1 = NULL,
+    window_size2 = NULL,
+
+initialize = function(data, window_size1, window_size2) {
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size1 <- window_size1
+  self$window_size2 <- window_size2
+},
+
+generate_signals = function() {
+  self$data <- mutate(self$data,
+    upper_channel = rollapply(self$data$High, self$window_size1, max, align = "right", fill = NA),
+    lower_channel = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
+    signal = ifelse(Close > upper_channel, 1, 
+                    ifelse(Close < lower_channel, -1, 0)),
+    position = lag(signal, default = 0)) %>% 
+    na.omit()
 }
 
   )
@@ -1479,17 +1523,17 @@ initialize = function(data, window_size1, window_size2) {
 
 generate_signals = function() {
   self$data <- mutate(self$data,
-                      upper_channel1 = rollapply(self$data$High, self$window_size1, max, align = "right", fill = NA),
-                      upper_channel2 = rollapply(self$data$High, self$window_size2, max, align = "right", fill = NA),
-                      lower_channel1 = rollapply(self$data$Low, self$window_size1, min, align = "right", fill = NA),
-                      lower_channel2 = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
-                      mid1 = (upper_channel1 / lower_channel1) / 2,
-                      mid2 = (upper_channel2 / lower_channel2) / 2,
-                      signal1 = ifelse(Close > upper_channel1 & Close > upper_channel2, 1,
-                        ifelse(Close < lower_channel1 & Close < lower_channel2, -1, 0)),
-                      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
-                      position = lag(signal, default = 0)) %>% 
-                        na.omit()
+    upper_channel1 = rollapply(self$data$High, self$window_size1, max, align = "right", fill = NA),
+    upper_channel2 = rollapply(self$data$High, self$window_size2, max, align = "right", fill = NA),
+    lower_channel1 = rollapply(self$data$Low, self$window_size1, min, align = "right", fill = NA),
+    lower_channel2 = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
+    mid1 = (upper_channel1 / lower_channel1) / 2,
+    mid2 = (upper_channel2 / lower_channel2) / 2,
+    signal1 = ifelse(Close > upper_channel1 & Close > upper_channel2, 1,
+      ifelse(Close < lower_channel1 & Close < lower_channel2, -1, 0)),
+    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+    position = lag(signal, default = 0)) %>% 
+      na.omit()
 }
 
   )
@@ -1513,17 +1557,17 @@ initialize = function(data, accel, accel_max) {
     },
 
 generate_signals = function() {
-      self$data <- self$data %>% 
-        mutate(
-          SAR = TTR::SAR(select(., High, Low), accel = self$accel_vector),
-          signal = case_when(
-            Close > lag(SAR) ~ 1,
-            Close < lag(SAR) ~ -1,
-            TRUE ~ 0
-          ),
-          position = lag(signal, default = 0)
-        ) %>%
-        na.omit()
+  self$data <- self$data %>% 
+    mutate(
+      SAR = TTR::SAR(select(., High, Low), accel = self$accel_vector),
+      signal = case_when(
+        Close > lag(SAR) ~ 1,
+        Close < lag(SAR) ~ -1,
+        TRUE ~ 0
+      ),
+      position = lag(signal, default = 0)
+    ) %>%
+    na.omit()
 }
 
   )
@@ -1546,24 +1590,24 @@ initialize = function(data, ndx, trend_strength) {
 
 generate_signals = function() {
   self$data <- self$data %>%
-                  mutate(
-                  self$data,
-                  as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
-                  signal1 = case_when(
-                    #DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
-                    #DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
-                    DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-                    lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-                    #DIp < DIn & ADX > self$trend_strength ~ -1,
-                    #DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
-                    DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-                    lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-                    TRUE ~ 0
-                  ),
-                  signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
-                  position = lag(signal, default = 0)
-                  ) %>%
-                  na.omit()
+    mutate(
+    self$data,
+    as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
+    signal1 = case_when(
+      #DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
+      #DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
+      DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
+      lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
+      #DIp < DIn & ADX > self$trend_strength ~ -1,
+      #DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
+      DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
+      lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
+      TRUE ~ 0
+    ),
+    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+    position = lag(signal, default = 0)
+    ) %>%
+    na.omit()
                     
 }
 
@@ -1587,17 +1631,17 @@ initialize = function(data, window_size, sd_mult = 2) {
 
 generate_signals = function() {
     self$data <- mutate(self$data, 
-                        ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
-                        sd = rollapply(Close, width = self$window_size, sd, align = "right", fill = NA),
-                        upper_band = ma + self$sd_mult * sd,
-                        lower_band = ma - self$sd_mult * sd,
-                        signal = case_when(
-                          Close > lag(upper_band) ~ 1,
-                          Close < lag(lower_band) ~ -1,
-                          TRUE ~ 0
-                        ),
-                        position = lag(signal, default = 0)) %>% 
-                          na.omit
+      ma = rollmean(Close, k = self$window_size, align = "right", fill = NA),
+      sd = rollapply(Close, width = self$window_size, sd, align = "right", fill = NA),
+      upper_band = ma + self$sd_mult * sd,
+      lower_band = ma - self$sd_mult * sd,
+      signal = case_when(
+        Close > lag(upper_band) ~ 1,
+        Close < lag(lower_band) ~ -1,
+        TRUE ~ 0
+      ),
+      position = lag(signal, default = 0)) %>% 
+        na.omit
 }
 
   )
@@ -1619,16 +1663,16 @@ initialize = function(data, window_size, ma_type) {
     },
 
 generate_signals = function() {
-      # Estimate historical volatility
-      ma_func <- get(self$ma_type)
+  # Estimate historical volatility
+  ma_func <- get(self$ma_type)
 
-      # Generate signals
-      self$data <- mutate(self$data,
-                          hist_vol = rollapply(self$data$Close, width = self$window_size, sd, align = "right", fill = NA),
-                          mean_vol = ma_func(hist_vol, self$window_size, align = "right", fill = NA),
-                          signal = ifelse(hist_vol > lag(mean_vol), -1, 1),
-                          position = lag(signal, default = 0)) %>%
-                            na.omit
+  # Generate signals
+  self$data <- mutate(self$data,
+                      hist_vol = rollapply(self$data$Close, width = self$window_size, sd, align = "right", fill = NA),
+                      mean_vol = ma_func(hist_vol, self$window_size, align = "right", fill = NA),
+                      signal = ifelse(hist_vol > lag(mean_vol), -1, 1),
+                      position = lag(signal, default = 0)) %>%
+                        na.omit
 }
 
   )
@@ -1856,14 +1900,14 @@ ARIMA <- R6Class(
     q1 = NULL,
     
 initialize = function(data, window_size, window_type, best_arima = FALSE, p1 = NULL, d1 = NULL, q1 = NULL) {
-      super$initialize(data)
-      self$data <- super$convert_to_tibble(self$data)
-      self$window_size <- window_size
-      self$window_type <- window_type
-      self$best_arima <- best_arima
-      self$p1 <- p1
-      self$d1 <- d1
-      self$q1 <- q1
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size <- window_size
+  self$window_type <- window_type
+  self$best_arima <- best_arima
+  self$p1 <- p1
+  self$d1 <- d1
+  self$q1 <- q1
 },
     
 generate_signals = function() {
