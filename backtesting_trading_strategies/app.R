@@ -232,7 +232,7 @@ ui <- fluidPage(
       checkboxInput("apply_rm", "Apply Risk Management", value = TRUE),
       numericInput("max_risk", "Maximum risk", value = 0.1),
       numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
-      checkboxInput("signal_flag", "Show Signal Lines?", value = FALSE),
+      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
       checkboxInput("split_data", "Split Data for Backtest", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
       
@@ -376,6 +376,8 @@ server <- function(input, output, session) {
       )
     )
 
+    strategy_instance$estimate_average_true_range(n=14)
+
     # Print the selected strategy name
     print(paste("Selected strategy/instance:", input$strategy))
     
@@ -397,11 +399,11 @@ server <- function(input, output, session) {
     print(
       if(input$apply_rm) {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
         tail(10)
       } else {
       strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
         tail(10)
       }
     )

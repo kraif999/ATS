@@ -502,7 +502,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
         eqlActive = capital,
         eqlPassive = capital,
         From = as.Date(NA),
-        To = as.Date(NA)
+        To = as.Date(NA),
+        pnlActiveType = NA
     )
 
     self$data$position[1] <- 0
@@ -532,6 +533,14 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     eqlActive <- eqlActive + self$data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     self$data$eqlActive[i] <- eqlActive2
+
+    if (self$data$position[i] == 0) {
+      self$data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+    } else if ((self$data$position[i - 1] == 1 && self$data$position[i] == -1) || (self$data$position[i - 1] == -1 && self$data$position[i] == 1)) {
+      self$data$pnlActiveType[i] <- "R"  # Realized PnL
+    } else {
+      self$data$pnlActiveType[i] <- "U"  # Unrealized PnL
+    }
     
     # Passive strategy
     self$data$nopPassive[i] <- eqlPassive * leverage / self$data$Close[i]
@@ -730,6 +739,8 @@ plot_candles = function(ndays) {
 
 # Estimate Average True Range (ATR)
 estimate_average_true_range = function(n = 14) {
+
+  self$data <- self$data %>% data.table
   # Calculate ATR using self$data
   atr <- ATR(HLC(self$data), n)
   
@@ -758,7 +769,7 @@ private = list(
 
 # Apply stop loss and profit take
 apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital) {
-
+  
   data$position[1] <- 0
   eqlActive <- eqlActive2 <- capital
   eqlPassive <- eqlPassive2 <- capital
@@ -783,14 +794,15 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       eqlActive = capital,
       eqlPassive = capital,
       From = as.Date(NA),
-      To = as.Date(NA)
+      To = as.Date(NA),
+      pnlActiveType = NA
     )
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
-
+    
     if (flat) data$position[i] <- 0  # Stay flat after reversal
-
+    
     if (!is.na(reversed_position)) {
       data$position[i] <- reversed_position
       reversed_position <- NA
@@ -845,13 +857,21 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
     
+    if (data$position[i] == 0) {
+      data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+    } else if ((data$position[i - 1] == 1 && data$position[i] == -1) || (data$position[i - 1] == -1 && data$position[i] == 1)) {
+      data$pnlActiveType[i] <- "R"  # Realized PnL
+    } else {
+      data$pnlActiveType[i] <- "U"  # Unrealized PnL
+    }
+    
     # Passive strategy
     data$nopPassive[i] <- eqlPassive * leverage / data$Close[i]
     data$pnlPassive[i] <- (data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1]
     eqlPassive <- eqlPassive + data$pnlPassive[i]
     eqlPassive2 <- if (eqlPassive < 0) 0 else eqlPassive
     data$eqlPassive[i] <- eqlPassive2
-
+    
   }
   
   data <- data %>%
@@ -859,7 +879,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       pnlActiveCumulative = cumsum(replace_na(pnlActive, 0)),
       pnlPassiveCumulative = cumsum(replace_na(pnlPassive, 0))
     )
-
+  
   return(data)
 },
 
@@ -1305,10 +1325,11 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
+sma1$estimate_average_true_range(n=14)
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
-  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage, symbol))
+  apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage, symbol))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1330,7 +1351,6 @@ sma1_res_in_sample_dt[, units := ifelse(
 
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
 trades <- sma1$get_trades()
-
 
 # Trades
 ggplot(data = data.frame(Efficiency = trades$Efficiency[is.finite(trades$Efficiency)]), aes(x = Efficiency)) +
@@ -1383,17 +1403,21 @@ ggplot(res_sma1_overall_btc_bnb_eth, aes(x = Window_Size, y = AnnualizedProfit))
   geom_point(color = "blue", size = 3, alpha = 0.6) +  # Scatter plot
   geom_smooth(method = "loess", se = FALSE, color = "red") +  # Add a smooth trend line
   labs(
-    title = "Annualized Profit vs Window Size",
-    x = "Window Size",
+    title = paste("Annualized Profit vs Window Size for ", symbol),
+    x = "Window Size (Days)",
     y = "Annualized Profit (%)"
   ) +
+  scale_x_continuous(breaks = seq(min(res_sma1_overall_btc_bnb_eth$Window_Size), 
+                                  max(res_sma1_overall_btc_bnb_eth$Window_Size), by = 10)) +  # Ticks every 10 days
+  scale_y_continuous(breaks = seq(floor(min(res_sma1_overall_btc_bnb_eth$AnnualizedProfit, na.rm = TRUE) / 5) * 5, 
+                                  ceiling(max(res_sma1_overall_btc_bnb_eth$AnnualizedProfit, na.rm = TRUE) / 5) * 5, by = 5)) +  # Ticks every 5%
   theme_minimal() +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
     axis.title = element_text(size = 12)
   )
 
-res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/res_sma1_overall_btc_bnb_eth.csv")
+#res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/res_sma1_overall_btc_bnb_eth.csv")
 
 res_sma1_overall_btc_bnb_eth <- res_sma1_overall_btc_bnb_eth %>%
   mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows

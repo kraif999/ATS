@@ -871,7 +871,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
         eqlActive = capital,
         eqlPassive = capital,
         From = as.Date(NA),
-        To = as.Date(NA)
+        To = as.Date(NA),
+        pnlActiveType = NA
     )
 
     self$data$position[1] <- 0
@@ -901,6 +902,14 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     eqlActive <- eqlActive + self$data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     self$data$eqlActive[i] <- eqlActive2
+
+    if (self$data$position[i] == 0) {
+      self$data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+    } else if ((self$data$position[i - 1] == 1 && self$data$position[i] == -1) || (self$data$position[i - 1] == -1 && self$data$position[i] == 1)) {
+      self$data$pnlActiveType[i] <- "R"  # Realized PnL
+    } else {
+      self$data$pnlActiveType[i] <- "U"  # Unrealized PnL
+    }
     
     # Passive strategy
     self$data$nopPassive[i] <- eqlPassive * leverage / self$data$Close[i]
@@ -1099,6 +1108,8 @@ plot_candles = function(ndays) {
 
 # Estimate Average True Range (ATR)
 estimate_average_true_range = function(n = 14) {
+
+  self$data <- self$data %>% data.table
   # Calculate ATR using self$data
   atr <- ATR(HLC(self$data), n)
   
@@ -1127,7 +1138,7 @@ private = list(
 
 # Apply stop loss and profit take
 apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital) {
-
+  
   data$position[1] <- 0
   eqlActive <- eqlActive2 <- capital
   eqlPassive <- eqlPassive2 <- capital
@@ -1152,14 +1163,15 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       eqlActive = capital,
       eqlPassive = capital,
       From = as.Date(NA),
-      To = as.Date(NA)
+      To = as.Date(NA),
+      pnlActiveType = NA
     )
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
-
+    
     if (flat) data$position[i] <- 0  # Stay flat after reversal
-
+    
     if (!is.na(reversed_position)) {
       data$position[i] <- reversed_position
       reversed_position <- NA
@@ -1214,13 +1226,21 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
     
+    if (data$position[i] == 0) {
+      data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+    } else if ((data$position[i - 1] == 1 && data$position[i] == -1) || (data$position[i - 1] == -1 && data$position[i] == 1)) {
+      data$pnlActiveType[i] <- "R"  # Realized PnL
+    } else {
+      data$pnlActiveType[i] <- "U"  # Unrealized PnL
+    }
+    
     # Passive strategy
     data$nopPassive[i] <- eqlPassive * leverage / data$Close[i]
     data$pnlPassive[i] <- (data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1]
     eqlPassive <- eqlPassive + data$pnlPassive[i]
     eqlPassive2 <- if (eqlPassive < 0) 0 else eqlPassive
     data$eqlPassive[i] <- eqlPassive2
-
+    
   }
   
   data <- data %>%
@@ -1228,7 +1248,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       pnlActiveCumulative = cumsum(replace_na(pnlActive, 0)),
       pnlPassiveCumulative = cumsum(replace_na(pnlPassive, 0))
     )
-
+  
   return(data)
 },
 
