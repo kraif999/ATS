@@ -963,6 +963,7 @@ compute_metrics = function(data_subset, symbol) {
         transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
         aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
         subset(cum_pnl < 0) %>%
+        {if (nrow(.) == 0) return(NA) else .} %>%
         merge(data_subset, by = "trade_id") %>%
         aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
         with(round(mean(Date, na.rm = TRUE)))
@@ -1270,9 +1271,9 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           ", window_size: ", window_size, 
           ", ma_type: ", ma_type, 
           ", split: ", split, 
-          ", max_risk:", max_risk, 
+          ", max_risk: ", max_risk, 
           ", reward_ratio: ", reward_ratio, 
-          ", leverage:", leverage,
+          ", leverage: ", leverage,
           ")"
           )
         )
@@ -1347,13 +1348,13 @@ ts <- data_fetcher$download_xts_data()
 # Run instance of SMA1
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
+sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1$estimate_range_potential(n=14)
 plots <- sma1$plot_close_vs_vol(30)
 grid.arrange(plots$close, plots$n, ncol = 1)
 
 # in-sample:
-sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1, 
+sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 0.5, 
   apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage = 1, symbol))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
@@ -1413,7 +1414,6 @@ window_sizes = round(10 * (1.25 ^ (0:13)))
 # Overall trading profile (NO SPLIT with stop-loss)
 res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   symbols = c("BTC-USD"),
-  #window_sizes = seq(10, 100, by = 5), 
   window_sizes = window_sizes,
   ma_types = c("SMA", "EMA"), 
   data_type = "in_sample",
@@ -1424,11 +1424,14 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   slicing_years = 4,
   apply_rm = TRUE,
   max_risks = seq(0.1, 0.3, by = 0.1),
-  reward_ratios = seq(3, 6, by = 3),
+  reward_ratios = seq(2,3, by = 1),
   leverages = seq(1, 2, by = 1),
   output_df = TRUE
 )
 
+#fread(res_sma1_overall_btc_bnb_eth, "/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
+
+# Backtest visualization
 ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Size, y = AnnualizedProfit)) +
   geom_point(aes(color = MA_Type, shape = MA_Type), size = 3, alpha = 0.6) +  # Points with different shapes and colors for each MA_Type
   geom_smooth(method = "loess", se = FALSE, color = "red") +  # Single smooth line
@@ -1484,7 +1487,7 @@ res_sma1_overall_btc_bnb_eth %>%
 # BTC-USD, SMA 116-day 0.3 6
 # ETH-USD
 # BNB-USD 
-# CANDIDATE:
+# CANDIDATE: 
 
 # IN-SAMPLE: HOW STRATEGY BEHAVES UNDER DIFFERENT PERIODS
 # More granular (split) - only for potential good candidates to check robustness
@@ -1497,10 +1500,11 @@ res_sma1_granular <- sma1$run_backtest(
   cut_date = as.Date("2024-01-01"),
   from_date = as.Date("2018-01-01"),
   to_date = Sys.Date(),
-  slicing_years = 1,
+  slicing_years = 2,
   apply_rm = TRUE,
   max_risks = seq(0.1, 0.3, by = 0.1),
-  reward_ratios = seq(2, 5, by = 1),
+  reward_ratios = seq(2, 3, by = 1),
+  leverages = seq(2, 3, by = 1),
   output_df = TRUE
 )
 
@@ -1551,7 +1555,7 @@ ranked_strategies <- res_sma1_granular %>%
   ) %>%
   ungroup() %>%
   filter(Symbol == "BTC-USD") %>%
-  group_by(Strategy, Methodology, Stop_Loss, Reward_Ratio) %>%
+  group_by(Strategy, Methodology, Max_Risk, Reward_Ratio) %>%
   summarise(
     Total_Periods = n(),  # Total number of periods
     Superior_Periods = sum(Period_Superior == "Yes", na.rm = TRUE),  # Count superior periods

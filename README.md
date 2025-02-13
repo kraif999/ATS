@@ -2,7 +2,7 @@
 
 Here, I test different trading ideas based on certain rules (called 'Active' strategy) and compare them with the strategy of simply buying and holding an asset ('Passive' strategy).  
 
-The goal is to develop and find a superior, robust (multimarket and multiperiod) price-based system. The trading profile of a strategy is estimated using different metrics to measure return and risk.  
+The goal is to develop a superior, robust (asset-diverse, multimarket, multiperiod) price-based system. The trading profile of a strategy is estimated using different metrics to measure return and risk.  
 
 All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies](http://kraif999.shinyapps.io/backtesting_trading_strategies).  
 
@@ -28,7 +28,7 @@ The high-level structure looks like this:
   - Statistical approaches (GARCH, ARIMA)  
   - Other approaches (AlphaEngine: coastline counter-trend trading)  
 
-Any market instrument can be used (via Yahoo ticker). Here, I test a few across various asset classes, including *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, and *Fixed Income*. There are around ~37,000 combinations tested to identify what could be a good strategy for a particular instrument.
+Any market instrument available through a Yahoo ticker can be tested. Here, I explore several across different asset classes *FX*, *Equities*, *Commodities*, *Cryptocurrencies*, and *Fixed Income* to find potential strategy candidates for specific instruments.
 
 The taxonomy of the trading strategies implemented is as follows:  
 
@@ -80,13 +80,14 @@ classDiagram
         + initialize(data) : Initializes the Strategy object with provided data.
         + generate_signals() : Signal generation, specific to each subclass.
         + convert_to_tibble(ts) : Converts time series data to a tibble format.
-        + estimate_performance() : Estimates performance for Active and Passive strategies.
-        + plot_equity_lines(strategy_name, signal_flag) : Visualizes equity lines for active strategy and passive (buy and hold).
-        + plot_candles() : plot Japanese candles for the period of latest ndays
-        + estimate_average_true_range() : estimate Average True Range based on the latest ndays
-        - compute_metrics() : estimates strategy's trading profile (25 metrics)
-        - apply_bracket() : applies a stop loss and reward take based on the thresholds
-        - slicer() : cuts the data into smaller equal periods
+        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol) : Estimates performance for Active and Passive strategies.
+        + get_trades() : Provide the list of all trades.
+        + plot_equity_lines(strategy_name, signal_flag = FALSE, symbol, capital) : Visualizes equity lines for active strategy and passive (buy and hold).
+        + estimate_range_potential(n) : Estimate Average True Range based on the latest ndays.
+        + plot_close_vs_vol(ndays) : Plot Close price and range potential (true range / average true range).
+        - apply_risk_management(data, max_risk, reward_ratio, leverage, capital) : applies a stop loss and reward take based on the thresholds
+        - compute_metrics(data_subset, symbol) : estimates strategy's trading profile (25 metrics)
+        - slicer(data, cut_date, data_type) : cuts the data into smaller equal periods
     }
 
     class TSA {
@@ -122,7 +123,7 @@ classDiagram
     
 ```
 
-Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Exponential Moving Average (EMA) 20-day window)*. Risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost, with a reward-to-risk ratio of 3. No leverage is applied.
+Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Exponential Moving Average (EMA) 20-day window)*. Risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3. No leverage is applied.
 
 **The dynamics of invested capital:**  
 
