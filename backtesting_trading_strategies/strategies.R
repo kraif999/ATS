@@ -181,7 +181,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     mutate(
         nopActive = 0,
         nopPassive = 0,  # Initial number of passive positions (constant)
-        #nopPassive <- capital * leverage / self$data$Close[1],
         pnlActive = 0,
         pnlPassive = c(0, diff(Close)),  # Difference in close price to calculate passive pnl
         pnlActiveCumulative = 0,
@@ -212,7 +211,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     }
     
     # Compute pnlActive (profit/loss for active positions)
-    #self$data$pnlActive[i] <- (self$data$Close[i] - self$data$Close[i - 1]) * self$data$position[i-1] * self$data$nopActive[i]
     self$data$pnlActive[i] <- if (self$data$position[i] == 0) 0 else (self$data$Close[i] - self$data$Close[i - 1]) * self$data$position[i - 1] * self$data$nopActive[i - 1]
 
 
@@ -554,8 +552,14 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       flat <- FALSE
     }
     
-    #data$pnlActive[i] <- (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
-    data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    # Calculate pnlActive
+    #data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    if (!is.na(reversed_position)) {
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Open[i] - data$Open[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    } else {
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    }
+
     eqlActive <- eqlActive + data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
@@ -627,13 +631,14 @@ compute_metrics = function(data_subset, symbol) {
       AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 0)
 
       # 7. Length of Average Win
-      AverageWinLength <- data_subset %>%
-        transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-        aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
-        subset(cum_pnl > 0) %>%
-        merge(data_subset, by = "trade_id") %>%
-        aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
-        with(round(mean(Date, na.rm = TRUE)))
+      AverageWinLength <- tryCatch({data_subset %>%
+      transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
+      aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
+      subset(cum_pnl > 0) %>%
+      {if (nrow(.) == 0) return(NA) else .} %>%
+      merge(data_subset, by = "trade_id") %>%
+      aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
+      with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
       
       # 8. Largest Loss
       LargestLoss <- round(min(data_subset[[pnl_col]], na.rm = TRUE),0)
@@ -646,14 +651,14 @@ compute_metrics = function(data_subset, symbol) {
       AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE),0)
 
       # 11. Length of Average Loss
-      AverageLossLength <- data_subset %>%
+      AverageLossLength <- tryCatch({data_subset %>%
       transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
       aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
       subset(cum_pnl < 0) %>%
       {if (nrow(.) == 0) return(NA) else .} %>%
       merge(data_subset, by = "trade_id") %>%
       aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
-      with(round(mean(Date, na.rm = TRUE)))
+      with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
 
       # 12-15: Winning Runs
       is_winning <- data_subset[[pnl_col]] > 0
@@ -667,9 +672,15 @@ compute_metrics = function(data_subset, symbol) {
       LargestWinningRun <- max(winning_runs)
 
       # 14. Length of Time in Largest Winning Run
-      largest_run_start <- sum(head(rle(is_winning)$lengths, which.max(winning_runs) - 1)) + 1
-      largest_run_end <- largest_run_start + LargestWinningRun - 1
-      LengthOfTimeInLargestWinningRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
+      largest_run_start <- tryCatch({sum(head(rle(is_winning)$lengths, which.max(winning_runs) - 1)) + 1}, error = function(e) NA)
+
+      if (!is.na(largest_run_start)) {
+        largest_run_end <- largest_run_start + LargestWinningRun - 1
+        LengthOfTimeInLargestWinningRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
+      } else {
+
+        LengthOfTimeInLargestWinningRun <- NA
+      }
 
       # 15. Length of Time in Average Winning Run
       average_run_lengths <- sapply(winning_runs, function(len) {
@@ -1814,6 +1825,169 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, ma_types,
   )
 )
 
+# Define TurtleTrading (buy high, sell low)
+TurtleTrading <- R6Class(
+  "TurtleTrading",
+  inherit = Strategy,
+  public = list(
+    window_size1 = NULL,
+    window_size2 = NULL,
+
+initialize = function(data, window_size1, window_size2) {
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size1 <- window_size1
+  self$window_size2 <- window_size2
+},
+
+generate_signals = function() {
+  self$data <- mutate(self$data,
+    upper_channel = rollapply(self$data$Close, self$window_size1, max, align = "right", fill = NA),
+    lower_channel = rollapply(self$data$Close, self$window_size2, min, align = "right", fill = NA),
+    signal = ifelse(Close > upper_channel, 1, ifelse(Close < lower_channel, -1, 0)),
+    position = lag(signal, default = 0)) %>% 
+    na.omit()
+},
+
+run_backtest = function(symbols, window_sizes1, window_sizes2, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size1 in window_sizes1) {
+      for (window_size2 in window_sizes2) {
+          for(max_risk in max_risks) {
+            for(reward_ratio in reward_ratios) {
+              for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        tt_instance <- TurtleTrading$new(data, window_size1 = window_size1, window_size2 = window_size2)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- tt_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- tt_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size1:", window_size1,
+                        "window_size2:", window_size2
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size1, window_size2, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("TurtleTrading:", window_size1, window_size2),
+          Window_Size1 = window_size1,
+          Window_Size2 = window_size2,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "TurtleTrading strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size1: ", window_size1,
+          ", window_size2: ", window_size2, 
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+              
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size1 = x$Window_Size1,
+        Window_Size2 = x$Window_Size2,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
+}
+
+  )
+)
+
 # Define Donchian Channel (DC) class (also, it could be used with RSI and MACD)
 DonchianChannel <- R6Class(
   "DonchianChannel",
@@ -1884,33 +2058,6 @@ generate_signals = function() {
       position = lag(signal, default = 0)
     ) %>%
     na.omit() # Remove rows with NA values
-}
-
-  )
-)
-
-# Buy high, sell low
-TurtleTrading <- R6Class(
-  "TurtleTrading",
-  inherit = Strategy,
-  public = list(
-    window_size1 = NULL,
-    window_size2 = NULL,
-
-initialize = function(data, window_size1, window_size2) {
-  super$initialize(data)
-  self$data <- super$convert_to_tibble(self$data)
-  self$window_size1 <- window_size1
-  self$window_size2 <- window_size2
-},
-
-generate_signals = function() {
-  self$data <- mutate(self$data,
-    upper_channel = rollapply(self$data$Close, self$window_size1, max, align = "right", fill = NA),
-    lower_channel = rollapply(self$data$Close, self$window_size2, min, align = "right", fill = NA),
-    signal = ifelse(Close > upper_channel, 1, ifelse(Close < lower_channel, -1, 0)),
-    position = lag(signal, default = 0)) %>% 
-    na.omit()
 }
 
   )

@@ -23,7 +23,7 @@ load_libraries(required_libraries)
 options(scipen = 999)
 
 # Asset meta data (asset, symbol, class, description)
-meta <- jsonlite::fromJSON("instr_config.json")
+meta <- jsonlite::fromJSON("/Users/olegb/Documents/ATS/ATS/instr_config.json")
 
 # List of assets
 assets <- c(
@@ -867,8 +867,14 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       flat <- FALSE
     }
     
-    #data$pnlActive[i] <- (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
-    data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    # Calculate pnlActive
+    #data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    if (!is.na(reversed_position)) {
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Open[i] - data$Open[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    } else {
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    }
+
     eqlActive <- eqlActive + data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
@@ -1429,7 +1435,7 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   output_df = TRUE
 )
 
-#fread(res_sma1_overall_btc_bnb_eth, "/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
+res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
 
 # Backtest visualization
 ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Size, y = AnnualizedProfit)) +
