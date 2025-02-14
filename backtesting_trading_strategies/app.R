@@ -181,8 +181,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for Turtle Trading"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Window Size1", value = 20),
-        numericInput("window_size2", "Window Size2", value = 40)
+        numericInput("window_size1", "Window Size1", value = 4*7),
+        numericInput("window_size2", "Window Size2", value = 2*7)
       ),
 
     # Specific parameters for VolatilityMeanReverting strategy

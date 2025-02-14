@@ -1010,7 +1010,6 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         MA_Type = x$MA_Type,
         Max_Risk = x$Max_Risk,
         Reward_Ratio = x$Reward_Ratio,
-        #Leverage = x$Leverage,
         performance_data
       )
     }))
@@ -1348,7 +1347,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = paste("SMA1:", window_size, ma_type),
+          Methodology = paste("SMA1M:", window_size, ma_type),
           Window_Size = window_size,
           MA_Type = ma_type,
           Max_Risk = max_risk,
@@ -1569,7 +1568,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, ma_types, data_ty
         results[[paste(symbol, window_size1, window_size2, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = paste("SMA2:", window_size1, window_size2, ma_type),
+          Methodology = paste("SMA2M:", window_size1, window_size2, ma_type),
           Window_Size1 = window_size1,
           Window_Size2 = window_size2,
           MA_Type = ma_type,
@@ -1746,7 +1745,7 @@ run_backtest = function(symbols, window_sizes1, window_sizes2, slines, ma_types,
                   results[[paste(symbol, window_size1, window_size2, sline, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
                     Symbol = symbol,
                     Class = meta$assets[[symbol]]$class,
-                    Methodology = paste("SMA2:", window_size1, window_size2, ma_type),
+                    Methodology = paste("MACD:", window_size1, window_size2, sline, ma_type),
                     Window_Size1 = window_size1,
                     Window_Size2 = window_size2,
                     Sline = sline,
@@ -1842,11 +1841,17 @@ initialize = function(data, window_size1, window_size2) {
 
 generate_signals = function() {
   self$data <- mutate(self$data,
-    upper_channel = rollapply(self$data$Close, self$window_size1, max, align = "right", fill = NA),
-    lower_channel = rollapply(self$data$Close, self$window_size2, min, align = "right", fill = NA),
-    signal = ifelse(Close > upper_channel, 1, ifelse(Close < lower_channel, -1, 0)),
+    upper_channel1 = rollapply(self$data$High, self$window_size1, max, align = "right", fill = NA),
+    upper_channel2 = rollapply(self$data$High, self$window_size2, max, align = "right", fill = NA),
+    lower_channel1 = rollapply(self$data$Low, self$window_size1, min, align = "right", fill = NA),
+    lower_channel2 = rollapply(self$data$Low, self$window_size2, min, align = "right", fill = NA),
+    mid1 = (upper_channel1 / lower_channel1) / 2,
+    mid2 = (upper_channel2 / lower_channel2) / 2,
+    signal1 = ifelse(Close > lag(upper_channel1) & Close > lag(upper_channel2), 1,
+      ifelse(Close < lag(lower_channel1) & Close < lag(lower_channel2), -1, 0)),
+    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
     position = lag(signal, default = 0)) %>% 
-    na.omit()
+      na.omit()
 },
 
 run_backtest = function(symbols, window_sizes1, window_sizes2, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
@@ -2010,6 +2015,136 @@ generate_signals = function() {
     signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
         position = lag(signal, default = 0)) %>% 
       na.omit()
+},
+
+run_backtest = function(symbols, window_sizes, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+        for(max_risk in max_risks) {
+          for(reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        dc_instance <- DonchianChannel$new(data, window_size = window_size)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- dc_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- dc_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size:", window_size
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("DonchianChannel:", window_size),
+          Window_Size = window_size,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "DonchianChannel strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size: ", window_size, 
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size = x$Window_Size,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2024,7 +2159,7 @@ RSI <- R6Class(
     threshold_oversold = NULL,
     threshold_overbought = NULL,
 
-initialize = function(data, window_size, threshold_oversold = 30, threshold_overbought = 70) {
+initialize = function(data, window_size, threshold_oversold, threshold_overbought) {
       super$initialize(data) # Call the parent class's initialize method
       self$data <- super$convert_to_tibble(self$data) # Convert the data to tibble format
       self$window_size <- window_size
@@ -2058,6 +2193,145 @@ generate_signals = function() {
       position = lag(signal, default = 0)
     ) %>%
     na.omit() # Remove rows with NA values
+},
+
+run_backtest = function(symbols, window_sizes, thresholds_oversold, thresholds_overbought, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+      for (threshold_oversold in thresholds_oversold) {
+        for (threshold_overbought in thresholds_overbought) {
+        for (max_risk in max_risks) {
+          for (reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        rsi_instance <- RSI$new(data, window_size = window_size, threshold_oversold = threshold_oversold, threshold_overbought = threshold_overbought)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- rsi_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- rsi_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size:", window_size
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size, threshold_oversold, threshold_overbought, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("RSI:", window_size, threshold_oversold, threshold_overbought),
+          Window_Size = window_size,
+          Threshold_Oversold = threshold_oversold,
+          Threshold_Overbought = threshold_overbought,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "RSI strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size: ", window_size, 
+          ", threshold_oversold: ", threshold_oversold,
+          ", threshold_overbought: ", threshold_overbought,
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size = x$Window_Size,
+        Threshold_Oversold = x$Threshold_Oversold,
+        Threshold_Overbought = x$Threshold_Overbought,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2092,6 +2366,143 @@ generate_signals = function() {
       position = lag(signal, default = 0)
     ) %>%
     na.omit()
+},
+
+run_backtest = function(symbols, accels, accels_max, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (accel in accels) {
+      for (accel_max in accels_max) {
+        for (max_risk in max_risks) {
+          for (reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        sar_instance <- StopAndReversal$new(data, accel = accel, accel_max = accel_max)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- sar_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- sar_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size:", window_size
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, accel, accel_max, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("SAR:", accel, accel_max),
+          Accel = accel,
+          Accel_Max = accel_max,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "SAR strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", accel: ", accel,
+          ", accel_max: ", accel_max, 
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Accel = x$Accel,
+        Accel_Max = x$Accel_Max,
+        Threshold_Oversold = x$Threshold_Oversold,
+        Threshold_Overbought = x$Threshold_Overbought,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2118,12 +2529,8 @@ generate_signals = function() {
     self$data,
     as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
     signal1 = case_when(
-      #DIp > DIn & ADX > self$trend_strength ~ 1, # lag ?
-      #DIp > lag(DIn) & ADX > self$trend_strength ~ 1, # lag
       DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
       lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-      #DIp < DIn & ADX > self$trend_strength ~ -1,
-      #DIp < lag(DIn) & ADX > self$trend_strength ~ -1,
       DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
       lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
       TRUE ~ 0
@@ -2133,6 +2540,139 @@ generate_signals = function() {
     ) %>%
     na.omit()
                     
+},
+
+run_backtest = function(symbols, ndxs, trends_strength, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (ndx in ndxs) {
+      for (trend_strength in trends_strength) {
+        for(max_risk in max_risks) {
+          for(reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        adx_instance <- ADX$new(data, ndx = ndx, trend_strength = trend_strength)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- adx_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- adx_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, ndx, trend_strength, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("ADX:", ndx, trend_strength),
+          Ndx = ndx,
+          Trend_Strength = trend_strength,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "ADX strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", ndx: ", ndx,
+          ", trend_strength: ", trend_strength,
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Ndx = x$Ndx,
+        Trend_Strength = x$Trend_Strength,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2166,6 +2706,139 @@ generate_signals = function() {
       ),
       position = lag(signal, default = 0)) %>% 
         na.omit
+},
+
+run_backtest = function(symbols, window_sizes, sd_mults, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+      for (sd_mult in sd_mults) {
+        for(max_risk in max_risks) {
+          for(reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        bb_instance <- BollingerBreakout$new(data, window_size = window_size, sd_mult = sd_mult)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- bb_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- bb_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol
+                        ))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size, sd_mult, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("BollingerBreakout:", window_size, sd_mult),
+          Window_Size = window_size,
+          Sd_Mult = sd_mult,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "BollingerBreakout strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size: ", window_size, 
+          ", sd_mult: ", sd_mult, 
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size = x$Window_Size,
+        Sd_Mult = x$Sd_Mult,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2192,11 +2865,145 @@ generate_signals = function() {
 
   # Generate signals
   self$data <- mutate(self$data,
-                      hist_vol = rollapply(self$data$Close, width = self$window_size, sd, align = "right", fill = NA),
-                      mean_vol = ma_func(hist_vol, self$window_size, align = "right", fill = NA),
-                      signal = ifelse(hist_vol > lag(mean_vol), -1, 1),
-                      position = lag(signal, default = 0)) %>%
-                        na.omit
+    hist_vol = rollapply(self$data$Close, width = self$window_size, sd, align = "right", fill = NA),
+    mean_vol = ma_func(hist_vol, self$window_size, align = "right", fill = NA),
+    signal = ifelse(hist_vol > lag(mean_vol), -1, 1),
+    position = lag(signal, default = 0)) %>%
+      na.omit
+},
+
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+    for (window_size in window_sizes) {
+      for (ma_type in ma_types) {
+        for(max_risk in max_risks) {
+          for(reward_ratio in reward_ratios) {
+            for (leverage in leverages) {
+
+        # Fetch data using DataFetcher for the current symbol and date range
+        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+        data <- data_fetcher$download_xts_data()
+        
+        # Ensure data is not empty
+        if (nrow(data) == 0) {
+          warning(paste("No data available for symbol:", symbol))
+          next
+        }
+
+        # Create an instance of SMA1 strategy
+        vmr_instance <- VolatilityMeanReversion$new(data, window_size = window_size, ma_type = ma_type)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- vmr_instance$estimate_performance(
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      } else {
+        performance <- vmr_instance$estimate_performance(
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          apply_rm = apply_rm,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          capital = capital,
+          leverage = leverage,
+          symbol = symbol
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size:", window_size, 
+                        "ma_type:", ma_type))
+          next
+        }
+
+        # Store the results
+        results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          Methodology = paste("VMR:", window_size, ma_type),
+          Window_Size = window_size,
+          MA_Type = ma_type,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Performance = performance
+        )
+
+        print(paste0(
+          "VolatilityMeanReversion  strategy (symbol: ", symbol, 
+          ", class: ", meta$assets[[symbol]]$class, 
+          ", window_size: ", window_size, 
+          ", ma_type: ", ma_type, 
+          ", split: ", split, 
+          ", max_risk: ", max_risk, 
+          ", reward_ratio: ", reward_ratio, 
+          ", leverage: ", leverage,
+          ")"
+          )
+        )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+    res_df <- do.call(rbind, lapply(results, function(x) {
+      performance_data <- x$Performance
+
+      # Combine 'from' and 'to' into 'Period'
+      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
+        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
+      } else {
+        performance_data$Period <- "Full Period"
+      }
+
+      # Remove 'from', 'to', and 'ticker' columns
+      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+
+      # Add metadata columns
+      cbind(
+        Symbol = x$Symbol,
+        Class = x$Class,
+        Methodology = x$Methodology,
+        Window_Size = x$Window_Size,
+        MA_Type = x$MA_Type,
+        Max_Risk = x$Max_Risk,
+        Reward_Ratio = x$Reward_Ratio,
+        performance_data
+      )
+    }))
+
+    # Reset row names
+    rownames(res_df) <- 1:nrow(res_df)
+
+    return(res_df)
+  } else {
+    return(results)
+  }
 }
 
   )
@@ -2396,13 +3203,11 @@ generate_signals = function() {
     volForHistRoll <- self$signal_criteria(volForHistRoll) %>%
         mutate(Date = TradeDate) %>%
             as.tibble()
-    
-    #self$data <- copy(volForHistRoll)
 
     self$data <- as.data.frame(self$data)
     self$data <- self$data %>% rename_with(~ sub(".*\\.", "", .), everything()) %>%
                 mutate(Date = as.Date(rownames(.))) %>%
-                    select(Date, value) %>%
+                    select(Date, Open, value) %>%
                         left_join(select(volForHistRoll, Date, Close, signal, position)) %>%
                             na.omit %>%
                                 as.tibble
