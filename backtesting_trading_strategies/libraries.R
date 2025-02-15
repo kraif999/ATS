@@ -1,6 +1,8 @@
 # Load all libraries
 
 library(shiny)
+library(shinyjs)
+library(shinythemes)
 library(data.table)
 library(R6)
 library(quantmod)
