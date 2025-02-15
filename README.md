@@ -179,34 +179,6 @@ The framework allows users to select different assets, periods (including custom
 
 **Backtesting results:**
 
-Below is an illustration of backtesting results. 
-The framework is run for BTC-USD using different set of strategy combinations, risk management parameters (including leverage).
-
-The framework is flexible and the same could be done with any strategy and asset.
-
-res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
-  symbols = c("BTC-USD"),
-  window_sizes = round(10 * (1.25 ^ (0:13))),
-  ma_types = c("SMA", "EMA"), 
-  data_type = "in_sample",
-  split = FALSE,
-  cut_date = as.Date("2024-01-01"),
-  from_date = as.Date("2018-01-01"),
-  to_date = as.Date("2024-01-01"),
-  slicing_years = 4,
-  apply_rm = TRUE,
-  flats_after_event = c(TRUE, FALSE),
-  max_risks = seq(0.1, 0.3, by = 0.1),
-  reward_ratios = seq(2,3, by = 1),
-  leverages = seq(1, 2, by = 1),
-  output_df = TRUE
-)
-
-
-![Backtest results SMA1 strategy using different strategy parameters for BTC-USD](temp/sma1_res_sma1_backtest.png)
-
-**Backtesting results:**
-
 Below is an illustration of backtesting results.
 The engine is run for BTC-USD using different sets of SMA1 strategy combinations and risk management parameters (including leverage).
 In-sample data is used in order to identify good candidates, and check their performance on the out-of-sample data.
@@ -229,3 +201,4 @@ The engine is flexible, and the same approach can be applied to any strategy and
 - **Reward Ratios**: 2, 3
 - **Leverages**: 1, 2
 
+![Backtest results SMA1 strategy using different strategy parameters for BTC-USD](temp/sma1_res_sma1_backtest.png)
