@@ -164,7 +164,7 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
-estimate_performance = function(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol) {
+estimate_performance = function(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
@@ -179,7 +179,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
   ########################################################################################################################
   if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital)
+    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event)
   } else {
 
     # Initialize columns
@@ -471,7 +471,7 @@ plot_close_vs_vol = function(ndays) {
 private = list(
 
 # Apply stop loss and profit take
-apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital) {
+apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) {
   
   data$position[1] <- 0
   eqlActive <- eqlActive2 <- capital
@@ -504,16 +504,22 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
     
-    if (flat) data$position[i] <- 0  # Stay flat after reversal
-    
+    # Stay flat after reversal 
+    if (flat_after_event && flat) {
+      data$position[i] <- 0  
+    }
+
+    # Reverse the current position after stop loss or profit take event occur on the previous day
     if (!is.na(reversed_position)) {
       data$position[i] <- reversed_position
-      reversed_position <- NA
+      reversed_position <- NA # reset once updated
     }
-    
+
+    # Calculate number of positions
     if (data$position[i] != previous_position) {
       data$nopActive[i] <- eqlActive * leverage / data$Close[i]
       
+    # Calculate stop loss and profit take price levels
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
         profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
@@ -531,6 +537,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     data$stopLoss[i] <- stopLoss
     data$profitTake[i] <- profitTake
     
+    # Check if stop loss or profit take event occur 
     if (data$position[i] == 1) {
       data$eventSL[i] <- if (!is.na(stopLoss) && data$Close[i] <= stopLoss) TRUE else NA
       data$eventPT[i] <- if (!is.na(profitTake) && data$Close[i] >= profitTake) TRUE else NA
@@ -541,15 +548,19 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       data$eventSL[i] <- data$eventPT[i] <- NA
     }
     
+    # 
     if (!flat) {
       if (!is.na(data$eventSL[i]) || !is.na(data$eventPT[i])) {
-        flat <- TRUE
         reversed_position <- -data$position[i]
-      } else {
-        data$position[i] <- data$signal[i - 1]
+        
+        if (flat_after_event) {
+          flat <- TRUE # stay flat after position is reversed
+        }
+        
       }
     }
     
+    # Reset flat flag given new signal occur
     if (i > 2 && data$group[i] != data$group[i - 1]) {
       flat <- FALSE
     }
@@ -561,13 +572,15 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     } else {
       data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
     }
-
+    
+    # Update portfolio value
     eqlActive <- eqlActive + data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
     
+    # PnL type
     if (data$position[i] == 0) {
-      data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+      data$pnlActiveType[i] <- NA
     } else if ((data$position[i - 1] == 1 && data$position[i] == -1) || (data$position[i - 1] == -1 && data$position[i] == 1)) {
       data$pnlActiveType[i] <- "R"  # Realized PnL
     } else {
@@ -591,11 +604,11 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   
   # Count the number of unique year-month combinations
   # num_months <- length(unique(format(data$Date, "%Y-%m")))
-
+  
   # # Print average stop-loss and profit-take events per month
   # print(paste0("Stop Losses occur every: ", round(1 / ((sum(data$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
   # print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(data$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
-
+  
   return(data)
 },
 
@@ -897,7 +910,7 @@ generate_signals = function() {
                             na.omit
 },
 
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, flats_after_event, max_risks, reward_ratios, leverages, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -905,9 +918,10 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
   for (symbol in symbols) {
     for (window_size in window_sizes) {
       for (ma_type in ma_types) {
-        for(max_risk in max_risks) {
-          for(reward_ratio in reward_ratios) {
-            for (leverage in leverages) {
+        for (flat_after_event in flats_after_event) {
+          for(max_risk in max_risks) {
+            for(reward_ratio in reward_ratios) {
+              for (leverage in leverages) {
 
         # Fetch data using DataFetcher for the current symbol and date range
         data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -934,7 +948,8 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           reward_ratio = reward_ratio,
           capital = capital,
           leverage = leverage,
-          symbol = symbol
+          symbol = symbol,
+          flat_after_event = flat_after_event
         )
       } else {
         performance <- sma_instance$estimate_performance(
@@ -947,7 +962,8 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           reward_ratio = reward_ratio,
           capital = capital,
           leverage = leverage,
-          symbol = symbol
+          symbol = symbol,
+          flat_after_event = flat_after_event
         )
       }
         # Skip if performance is NULL
@@ -959,12 +975,13 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         }
 
         # Store the results
-        results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+        results[[paste(symbol, window_size, ma_type, flat_after_event, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
           Methodology = paste("SMA1:", window_size, ma_type),
           Window_Size = window_size,
           MA_Type = ma_type,
+          Flat = flat_after_event,
           Max_Risk = max_risk,
           Reward_Ratio = reward_ratio,
           Performance = performance
@@ -975,12 +992,14 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           ", class: ", meta$assets[[symbol]]$class, 
           ", window_size: ", window_size, 
           ", ma_type: ", ma_type, 
+          ", flat_after_event: ", flat_after_event,
           ", max_risk: ", max_risk, 
           ", reward_ratio: ", reward_ratio, 
           ", leverage: ", leverage,
           ")"
           )
         )
+              }
             }
           }
         }
@@ -1015,6 +1034,7 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         Methodology = x$Methodology,
         Window_Size = x$Window_Size,
         MA_Type = x$MA_Type,
+        Flat = x$Flat,
         Max_Risk = x$Max_Risk,
         Reward_Ratio = x$Reward_Ratio,
         performance_data

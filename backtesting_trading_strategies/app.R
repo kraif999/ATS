@@ -234,13 +234,32 @@ ui <- fluidPage(
         selectInput("q1", "MA lag", choices = 1:10, selected = 1)
       ),
 
-      # Other parameters      
-      checkboxInput("apply_rm", "Apply Risk Management", value = TRUE),
-      numericInput("max_risk", "Maximum risk", value = 0.1),
-      numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
-      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
+      # Other parameters
+
+      # Data Granularity
+      tags$div(
+        style = "margin-top: 10px; font-weight: bold;",
+        "Data Granularity"
+      ),
       checkboxInput("split_data", "Split Data for Backtest", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
+
+      # Risk Management
+      tags$div(
+        style = "margin-top: 10px; font-weight: bold;",
+        "Risk Management"
+      ),
+      checkboxInput("apply_rm", "Apply Risk Management", value = TRUE),
+      checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = TRUE),
+      numericInput("max_risk", "Maximum risk", value = 0.1),
+      numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
+
+      # Plot Setup
+      tags$div(
+        style = "margin-top: 10px; font-weight: bold;",
+        "Plot Setup"
+      ),
+      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
     
       # Backtest button
       actionButton("backtest_run", "Run Backtest") 
@@ -399,7 +418,8 @@ server <- function(input, output, session) {
       reward_ratio = input$reward_ratio,
       capital = input$capital,
       leverage = input$leverage,
-      symbol = input$symbol
+      symbol = input$symbol,
+      flat_after_event = input$flat_after_event
     )
     
     print("Tail view:")

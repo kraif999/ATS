@@ -476,7 +476,7 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
-estimate_performance = function(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol) {
+estimate_performance = function(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
@@ -491,7 +491,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
   ########################################################################################################################
   if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital)
+    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event)
   } else {
 
     # Initialize columns
@@ -783,7 +783,7 @@ plot_close_vs_vol = function(ndays) {
 private = list(
 
 # Apply stop loss and profit take
-apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital) {
+apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) {
   
   data$position[1] <- 0
   eqlActive <- eqlActive2 <- capital
@@ -816,16 +816,22 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
     
-    if (flat) data$position[i] <- 0  # Stay flat after reversal
-    
+    # Stay flat after reversal 
+    if (flat_after_event && flat) {
+      data$position[i] <- 0  
+    }
+
+    # Reverse the current position after stop loss or profit take event occur on the previous day
     if (!is.na(reversed_position)) {
       data$position[i] <- reversed_position
-      reversed_position <- NA
+      reversed_position <- NA # reset once updated
     }
-    
+
+    # Calculate number of positions
     if (data$position[i] != previous_position) {
       data$nopActive[i] <- eqlActive * leverage / data$Close[i]
       
+    # Calculate stop loss and profit take price levels
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
         profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
@@ -843,6 +849,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     data$stopLoss[i] <- stopLoss
     data$profitTake[i] <- profitTake
     
+    # Check if stop loss or profit take event occur 
     if (data$position[i] == 1) {
       data$eventSL[i] <- if (!is.na(stopLoss) && data$Close[i] <= stopLoss) TRUE else NA
       data$eventPT[i] <- if (!is.na(profitTake) && data$Close[i] >= profitTake) TRUE else NA
@@ -853,15 +860,19 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       data$eventSL[i] <- data$eventPT[i] <- NA
     }
     
+    # 
     if (!flat) {
       if (!is.na(data$eventSL[i]) || !is.na(data$eventPT[i])) {
-        flat <- TRUE
         reversed_position <- -data$position[i]
-      } else {
-        data$position[i] <- data$signal[i - 1]
+        
+        if (flat_after_event) {
+          flat <- TRUE # stay flat after position is reversed
+        }
+        
       }
     }
     
+    # Reset flat flag given new signal occur
     if (i > 2 && data$group[i] != data$group[i - 1]) {
       flat <- FALSE
     }
@@ -873,13 +884,15 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     } else {
       data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
     }
-
+    
+    # Update portfolio value
     eqlActive <- eqlActive + data$pnlActive[i]
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive2
     
+    # PnL type
     if (data$position[i] == 0) {
-      data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
+      data$pnlActiveType[i] <- NA
     } else if ((data$position[i - 1] == 1 && data$position[i] == -1) || (data$position[i - 1] == -1 && data$position[i] == 1)) {
       data$pnlActiveType[i] <- "R"  # Realized PnL
     } else {
@@ -903,11 +916,11 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   
   # Count the number of unique year-month combinations
   # num_months <- length(unique(format(data$Date, "%Y-%m")))
-
+  
   # # Print average stop-loss and profit-take events per month
   # print(paste0("Stop Losses occur every: ", round(1 / ((sum(data$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
   # print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(data$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
-
+  
   return(data)
 },
 
@@ -1374,7 +1387,7 @@ grid.arrange(plots$close, plots$n, ncol = 1)
 
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 0.5, 
-  apply_rm = TRUE, max_risk = 0.3, reward_ratio = 6, capital, leverage = 1, symbol))
+  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage = 1, symbol, flat_after_event = TRUE))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1395,13 +1408,6 @@ sma1_res_in_sample_dt[, units := ifelse(
   )
 )]
 
-sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
-trades <- sma1$get_trades()$trades
-sma1$get_trades()$plot
-
-trades$Efficiency %>% summary # % distribution
-trades$Trade_Cum_PnL %>% summary # expected PnL given 1000 USD
-
 dataset <- sma1$data
 table(dataset$position)
 
@@ -1409,14 +1415,20 @@ sum(dataset$value > 0.01) / nrow(dataset) * 100
 sum(dataset$value > 0.025) / nrow(dataset) * 100
 sum(dataset$value > 0.05) / nrow(dataset) * 100
 
+sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
+trades <- sma1$get_trades()$trades
+sma1$get_trades()$plot
+
+trades$Efficiency %>% summary # % distribution
+trades$Trade_Cum_PnL %>% summary # expected PnL given 1000 USD
+
 # IN-SAMPLE (WITHOUT SPLIT)
 
-window_sizes = round(10 * (1.25 ^ (0:13)))
-
 # Overall trading profile (NO SPLIT with stop-loss)
+sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   symbols = c("BTC-USD"),
-  window_sizes = window_sizes,
+  window_sizes = round(10 * (1.25 ^ (0:13))),
   ma_types = c("SMA", "EMA"), 
   data_type = "in_sample",
   split = FALSE,
@@ -1425,22 +1437,26 @@ res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
   to_date = as.Date("2024-01-01"),
   slicing_years = 4,
   apply_rm = TRUE,
+  flats_after_event = c(TRUE, FALSE),
   max_risks = seq(0.1, 0.3, by = 0.1),
   reward_ratios = seq(2,3, by = 1),
   leverages = seq(1, 2, by = 1),
   output_df = TRUE
 )
 
+fwrite(res_sma1_overall_btc_bnb_eth, "/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
 res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
 
 # Backtest visualization
-ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Size, y = AnnualizedProfit)) +
+ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Size, y = `Annualized Profit`)) +
   geom_point(aes(color = MA_Type, shape = MA_Type), size = 3, alpha = 0.6) +  # Points with different shapes and colors for each MA_Type
   geom_smooth(method = "loess", se = FALSE, color = "red") +  # Single smooth line
   scale_color_manual(values = c("SMA" = "blue", "EMA" = "green", "WMA" = "purple")) +  # Custom colors for each MA_Type
   scale_shape_manual(values = c("SMA" = 16, "EMA" = 15, "WMA" = 17)) +  # Circle for SMA, Square for EMA, Triangle for WMA
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1) +  # Horizontal dashed line at y = 0
+
   labs(
-    title = paste("Annualized Profit vs Window Size for", symbol),
+    title = paste("Annualized Profit vs Window Size for", unique(res_sma1_overall_btc_bnb_eth$Symbol)),
     x = "Window Size (Days)",
     y = "Annualized Profit (%)",
     color = "MA Type",
@@ -1448,15 +1464,13 @@ ggplot(res_sma1_overall_btc_bnb_eth %>% filter(leverage == 2), aes(x = Window_Si
   ) +
   scale_x_continuous(breaks = seq(min(res_sma1_overall_btc_bnb_eth$Window_Size), 
                                   max(res_sma1_overall_btc_bnb_eth$Window_Size), by = 10)) +  # Ticks every 10 days
-  scale_y_continuous(breaks = seq(floor(min(res_sma1_overall_btc_bnb_eth$AnnualizedProfit, na.rm = TRUE) / 5) * 5, 
-                                  ceiling(max(res_sma1_overall_btc_bnb_eth$AnnualizedProfit, na.rm = TRUE) / 5) * 5, by = 5)) +  # Ticks every 5%
+  scale_y_continuous(breaks = seq(floor(min(res_sma1_overall_btc_bnb_eth$`Annualized Profit`, na.rm = TRUE) / 5) * 5, 
+                                  ceiling(max(res_sma1_overall_btc_bnb_eth$`Annualized Profit`, na.rm = TRUE) / 5) * 5, by = 5)) +  # Ticks every 5%
   theme_minimal() +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
     axis.title = element_text(size = 12)
   )
-
-#res_sma1_overall_btc_bnb_eth <- fread("/Users/olegb/Documents/ATS/ATS/res_sma1_overall_btc_bnb_eth.csv")
 
 res_sma1_overall_btc_bnb_eth <- res_sma1_overall_btc_bnb_eth %>%
   mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows

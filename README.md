@@ -7,8 +7,9 @@ The goal is to develop a superior, robust (asset-diverse, multimarket, multiperi
 All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies](http://kraif999.shinyapps.io/backtesting_trading_strategies).  
 
 Choose an instrument, a strategy, a trading horizon, specify the strategy specific parameters and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently and strictly invested using that strategy signals with no emotions involved. 
-The algorithm executes the strategy and calculates the number of positions, PnL, and equity curves based on daily positions.
-If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and more, see in backtesting_trading_strategies/strategies.R).
+The algorithm executes the strategy and calculates the number of positions, PnL, and equity curves based on the daily positions.
+If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event.
+Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R).*
 
 There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations.
 
@@ -80,12 +81,12 @@ classDiagram
         + initialize(data) : Initializes the Strategy object with provided data.
         + generate_signals() : Signal generation, specific to each subclass.
         + convert_to_tibble(ts) : Converts time series data to a tibble format.
-        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol) : Estimates performance for Active and Passive strategies.
+        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event = TRUE) : Estimates performance for Active and Passive strategies.
         + get_trades() : Provide the list of all trades.
         + plot_equity_lines(strategy_name, signal_flag = FALSE, symbol, capital) : Visualizes equity lines for active strategy and passive (buy and hold).
         + estimate_range_potential(n) : Estimate Average True Range based on the latest ndays.
         + plot_close_vs_vol(ndays) : Plot Close price and range potential (true range / average true range).
-        - apply_risk_management(data, max_risk, reward_ratio, leverage, capital) : applies a stop loss and reward take based on the thresholds
+        - apply_risk_management(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) : applies a stop loss and reward take based on the thresholds
         - compute_metrics(data_subset, symbol) : estimates strategy's trading profile (25 metrics)
         - slicer(data, cut_date, data_type) : cuts the data into smaller equal periods
     }
@@ -123,56 +124,108 @@ classDiagram
     
 ```
 
-Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Exponential Moving Average (EMA) 20-day window)*. Risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3. No leverage is applied.
+Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Exponential Moving Average (SMA) 116-day window)*. Risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3. No leverage is applied.
 
 **The dynamics of invested capital:**  
 
-![BTC USD Plot](sma1_btc_usd_plot.png)
+![Performance of SMA1 strategy for BTC-USD](temp/sma1_btc_usd_plot.png)
 
-The portfolio value of the active strategy surpassed that of the passive strategy at the end of 2019 and continued to outperform until 2024. However, beginning in 2024, the passive strategy has shown dominance. Notably, the active strategy has exhibited a lower maximum drawdown compared to the passive strategy.
+Since the start of the investment, the active strategy's portfolio value remained higher than the passive strategy's, holding its lead until late 2024. However, the passive strategy has taken the lead since then. Notably, the active strategy has exhibited a lower maximum drawdown compared to the passive strategy.
 
 **Strategy trading profile:**  
 
 | Metric                          | V1 (in-sample) | V2 (in-sample) | V1 (out-sample) | V2 (out-sample) | Units |
-|---------------------------------|----------------|----------------|-----------------|-----------------|--------------------|
-| ticker                          | BTC-USD        | BTC-USD        | BTC-USD         | BTC-USD         |                    |
-| from                            | 2021-01-22     | 2021-01-22     | 2024-01-22      | 2024-01-22      |                    |
-| to                              | 2024-01-01     | 2024-01-01     | 2025-02-10      | 2025-02-10      |                    |
-| data_type                       | in_sample      | in_sample      | out_of_sample   | out_of_sample   |                    |
-| leverage                        | 1              | 1              | 1               | 1               |                    |
-| max_risk                        | 0.1            | 0.1            | 0.1             | 0.1             |                    |
-| reward_ratio                    | 3              | 3              | 3               | 3               |                    |
-| capital                         | 1000           | 1000           | 1000            | 1000            | USD                |
-| Strategy                        | Active         | Passive        | Active          | Passive         |                    |
-| GrossProfit                     | 488            | 394            | 109             | 1498            | USD                |
-| AnnualizedProfit                | 9.78           | 8.10           | 7.04            | 82.07           | %                  |
-| NumberOfTradesPerYear           | 32             | 0              | 26              | 0               |                    |
-| PercentageOfWinningTrades       | 42.19          | NotApplicable  | 44.23           | NotApplicable   | %                  |
-| AverageWin                      | 32             | 27             | 23              | 38              | USD                |
-| LengthOfAverageWin              | 10             | 9              | 8               | 8               | days               |
-| LargestWin                      | 256            | 223            | 128             | 201             | USD                |
-| LengthOfLargestWin              | 8              | 12             | 16              | 16              | days               |
-| AverageLoss                     | -31            | -25            | -22             | -33             | USD                |
-| LengthOfAverageLoss             | 6              | 8              | 7               | 7               | days               |
-| LargestLoss                     | -277           | -229           | -136            | -156            | USD                |
-| LengthOfLargestLoss             | 11             | 1              | 6               | 27              | days               |
-| AverageWinningRun               | 1.97           | 1.84           | 1.99            | 2.04            | USD                |
-| LengthOfTimeInAverageWinningRun | 2              | 2              | 2               | 2               | days               |
-| LargestWinningRun               | 10             | 10             | 6               | 8               | days               |
-| LengthOfTimeInLargestWinningRun | 10             | 10             | 6               | 8               | days               |
-| AverageLosingRun                | 2              | 1              | 1               | 1               | USD                |
-| LengthOfTimeInAverageLosingRun  | 3              | 2              | 3               | 2               | days               |
-| LargestLosingRun                | 29             | 10             | 36              | 8               | days               |
-| LengthOfTimeInLargestLosingRun  | 29             | 10             | 36              | 8               | days               |
-| MaxDrawdown                     | -56.59         | -77.05         | -31.95          | -25.37          | %                  |
-| LengthOfMaxDrawdown             | 147            | 366            | 49              | 145             | days               |
-| StartDateMaxDrawdown            | 2022-06-16     | 2021-11-08     | 2024-03-21      | 2024-03-13      | Date               |
-| EndDateMaxDrawdown              | 2022-11-10     | 2022-11-09     | 2024-05-09      | 2024-08-05      | Date               |
-| MaxRunUp                        | 199.54         | 183.23         | 63.30           | 172.19          | %                  |
-| LengthOfMaxRunUp                | 497            | 418            | 321             | 330             | days               |
-| StartDateMaxRunUp               | 2021-02-04     | 2022-11-09     | 2024-02-06      | 2024-01-22      | Date               |
-| EndDateMaxRunUp                 | 2022-06-16     | 2024-01-01     | 2024-12-23      | 2024-12-17      | Date               |
+|---------------------------------|----------------|----------------|-----------------|-----------------|-------|
+| ticker                          | BTC-USD        | BTC-USD        | BTC-USD         | BTC-USD         |       |
+| from                            | 2018-04-28     | 2018-04-28     | 2024-04-27      | 2024-04-27      |       |
+| to                              | 2024-01-01     | 2024-01-01     | 2025-02-15      | 2025-02-15      |       |
+| data_type                       | in_sample      | in_sample      | out_of_sample   | out_of_sample   |       |
+| leverage                        | 1              | 1              | 1               | 1               |       |
+| max_risk                        | 0.1            | 0.1            | 0.1             | 0.1             |       |
+| reward_ratio                    | 3              | 3              | 3               | 3               |       |
+| capital                         | 1000           | 1000           | 1000            | 1000            | USD   |
+| Strategy                        | Active         | Passive        | Active          | Passive         |       |
+| Gross Profit                    | 9176           | 4404           | -14             | 542             | USD   |
+| Annualized Profit               | 32.56          | 22.75          | -1.22           | 44.94           | %     |
+| Number of Trades Per Year       | 13             | 0              | 9               | 0               |       |
+| Percentage of Winning Trades    | 52.75          | NotApplicable  | 33.33           | NotApplicable   | %     |
+| Average Win                     | 98             | 65             | 19              | 23              | USD   |
+| Length of Average Win           | 29             | 18             | 30              | 26              | days  |
+| Largest Win                     | 1166           | 866            | 82              | 124             | USD   |
+| Length of Largest Win           | 66             | 36             | 52              | 31              | days  |
+| Average Loss                    | -93            | -64            | -17             | -20             | USD   |
+| Length of Average Loss          | 16             | 29             | 10              | 10              | days  |
+| Largest Loss                    | -924           | -887           | -112            | -96             | USD   |
+| Length of Largest Loss          | 17             | 17             | 21              | 95              | days  |
+| Average Winning Run             | 1.97           | 1.91           | 1.83            | 1.99            | days  |
+| Length of Time in Avg Win Run   | 2              | 2              | 2               | 2               | days  |
+| Largest Winning Run             | 12             | 10             | 7               | 7               | days  |
+| Length of Time in Largest Win Run | 12          | 10             | 7               | 7               | days  |
+| Average Losing Run              | 1              | 1              | 1               | 1               | days  |
+| Length of Time in Avg Lose Run  | 2              | 2              | 2               | 2               | days  |
+| Largest Losing Run              | 12             | 10             | 7               | 7               | days  |
+| Length of Time in Largest Lose Run | 12         | 10             | 7               | 7               | days  |
+| Max Drawdown                    | -42.05        | -77.05         | -39.81          | -24.84          | %     |
+| Length of Max Drawdown          | 161            | 366            | 98              | 77              | days  |
+| Start Date Max Drawdown         | 2021-04-13     | 2021-11-08     | 2024-07-07      | 2024-05-20      | Date  |
+| End Date Max Drawdown           | 2021-09-21     | 2022-11-09     | 2024-10-13      | 2024-08-05      | Date  |
+| Max Run-Up                      | 1342.71        | 2318.52        | 52.03           | 97.20           | %     |
+| Length of Max Run-Up            | 1928           | 1059           | 100             | 134             | days  |
+| Start Date Max Run-Up           | 2018-09-21     | 2018-12-15     | 2024-10-13      | 2024-08-05      | Date  |
+| End Date Max Run-Up             | 2024-01-01     | 2021-11-08     | 2025-01-21      | 2024-12-17      | Date  |
 
 While the active strategy performs better in-sample in terms of return and risk, its performance declines in the out-of-sample period. 
 The framework allows users to select different assets, periods (including custom splits for further periods), strategies, parameters, risk management applications, and leverage, providing a comprehensive strategy profile view as if it had been consistently applied. For instance, once the strategy is deployed, you may not be aware of the current winning or losing streak, but knowing this could give you valuable insights into the strategy’s performance and overall dynamics.
+
+**Backtesting results:**
+
+Below is an illustration of backtesting results. 
+The framework is run for BTC-USD using different set of strategy combinations, risk management parameters (including leverage).
+
+The framework is flexible and the same could be done with any strategy and asset.
+
+res_sma1_overall_btc_bnb_eth <- sma1$run_backtest(
+  symbols = c("BTC-USD"),
+  window_sizes = round(10 * (1.25 ^ (0:13))),
+  ma_types = c("SMA", "EMA"), 
+  data_type = "in_sample",
+  split = FALSE,
+  cut_date = as.Date("2024-01-01"),
+  from_date = as.Date("2018-01-01"),
+  to_date = as.Date("2024-01-01"),
+  slicing_years = 4,
+  apply_rm = TRUE,
+  flats_after_event = c(TRUE, FALSE),
+  max_risks = seq(0.1, 0.3, by = 0.1),
+  reward_ratios = seq(2,3, by = 1),
+  leverages = seq(1, 2, by = 1),
+  output_df = TRUE
+)
+
+
+![Backtest results SMA1 strategy using different strategy parameters for BTC-USD](temp/sma1_res_sma1_backtest.png)
+
+**Backtesting results:**
+
+Below is an illustration of backtesting results.
+The engine is run for BTC-USD using different sets of SMA1 strategy combinations and risk management parameters (including leverage).
+In-sample data is used in order to identify good candidates, and check their performance on the out-of-sample data.
+Here SMA1 with 116 days could be considered as such.
+The engine is flexible, and the same approach can be applied to any strategy and asset from the list provided above.
+
+### Parameters used in the backtest:
+- **Symbols**: BTC-USD
+- **Window Sizes**: 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146, 182
+- **Moving Average Types**: SMA, EMA
+- **Data Type**: in_sample
+- **Split**: FALSE
+- **Cut Date**: 2024-01-01
+- **From Date**: 2018-01-01
+- **To Date**: 2024-01-01
+- **Slicing Years**: 4
+- **Risk Management**: Applied
+- **Flat After Event**: TRUE, FALSE
+- **Max Risks**: 0.1, 0.2, 0.3
+- **Reward Ratios**: 2, 3
+- **Leverages**: 1, 2
 
