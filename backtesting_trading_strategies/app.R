@@ -12,6 +12,9 @@ options(shiny.timeout = 1200)  # Timeout for 20 minutes (1200 seconds)
 
 # UI for multiple strategies
 ui <- fluidPage(
+  
+  shinyjs::useShinyjs(),  # Enable shinyjs
+  theme = shinytheme("cosmo"),  # Apply the Cosmo theme
   fluidRow(
     column(
       12, 
@@ -27,6 +30,8 @@ ui <- fluidPage(
   ),
   
   titlePanel("Backtesting Trading Strategies"),
+  tags$p(style = "font-style: italic; color: #555;", 
+             "*If the display appears cluttered, try reloading the page for a better layout.*"),
   sidebarLayout(
     sidebarPanel(
       # User input controls
@@ -48,7 +53,7 @@ ui <- fluidPage(
       numericInput("capital", "Capital", value = 1000),
       numericInput("leverage", "Leverage", value = 1),
       selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
-      dateInput("cut_date", "Cut-off Date", value = as.Date("2024-01-01")),
+      dateInput("cut_date", "Cut-off Date", value = as.Date("2025-01-01")),
       
       # Specific parameters for ADX strategy
       conditionalPanel(
@@ -93,9 +98,10 @@ ui <- fluidPage(
           "Specific Strategy Parameters for MACD"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Fast Period", value = 12),
-        numericInput("window_size2", "Slow Period", value = 26),
-        numericInput("sline", "Signal Period", value = 9)
+        numericInput("window_size1", "Fast Period", value = 10),
+        numericInput("window_size2", "Slow Period", value = 20),
+        numericInput("sline", "Signal Period", value = 7),
+        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for RSI strategy
@@ -235,7 +241,7 @@ ui <- fluidPage(
       checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
       checkboxInput("split_data", "Split Data for Backtest", value = FALSE),
       numericInput("window", "Slice Data Into Windows (in years)", value = 1),
-      
+    
       # Backtest button
       actionButton("backtest_run", "Run Backtest") 
       
@@ -298,7 +304,8 @@ server <- function(input, output, session) {
         data = price_data(),
         window_size1 = input$window_size1,
         window_size2 = input$window_size2,
-        sline = input$sline
+        sline = input$sline,
+        ma_type = input$ma_type
       ),
 
       "rsi" = RSI$new(
@@ -400,16 +407,23 @@ server <- function(input, output, session) {
       if(input$apply_rm) {
       strategy_instance$data %>% 
         #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, annual_vol) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
         tail(10)
       } else {
       strategy_instance$data %>% 
         #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, annual_vol) %>%
+        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
         
         tail(10)
       }
     )
+
+    # Count the number of unique year-month combinations
+    num_months <- length(unique(format(strategy_instance$data$Date, "%Y-%m")))
+
+    # Print average stop-loss and profit-take events per month
+    print(paste0("Stop Losses occur every: ", 1 / round(sum(strategy_instance$data$eventSL, na.rm = TRUE) / num_months, 2), " month(s)"))
+    print(paste0("Average Profit Takes per Month: ", 1 / round(sum(strategy_instance$data$eventPT, na.rm = TRUE) / num_months, 2), " month(s)"))
 
     trading_profile <- t(performance_result)
     
@@ -417,13 +431,13 @@ server <- function(input, output, session) {
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))
 
     trading_profile[, units := ifelse(
-      .I <= 5 | Metric %in% c("max_risk", "NumberOfTradesPerYear", "reward_ratio", "Strategy"), "",
+      .I <= 5 | Metric %in% c("max_risk", "Strategy", "Number of Trades Per Year", "reward_ratio"), "",
       ifelse(
-        Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
+        Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run-Up"), "%",
         ifelse(
-          Metric %in% c("LengthOfLargestWin", "LengthOfLargestLoss", "LengthOfAverageWin", "LengthOfAverageLoss", 
-                        "LengthOfMaxDrawdown", "LengthOfMaxRunUp", "LengthOfTimeInLargestWinningRun", "LengthOfTimeInLargestLosingRun", 
-                        "LengthOfTimeInAverageWinningRun", "LengthOfTimeInAverageLosingRun", "LargestWinningRun", "LargestLosingRun"), "days",
+          Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                        "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", "Length of Time in Largest Losing Run", 
+                        "Length of Time in Average Winning Run", "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", "Average Winning Run", "Average Losing Run"), "days",
           ifelse(
             grepl("Date", Metric), "Date", 
             "USD"  # Default case for other rows
