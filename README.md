@@ -134,48 +134,48 @@ Since the start of the investment, the active strategy's portfolio value remaine
 
 **Strategy trading profile:**  
 
-| Metric                          | V1 (in-sample) | V2 (in-sample) | V1 (out-sample) | V2 (out-sample) | Units |
-|---------------------------------|----------------|----------------|-----------------|-----------------|-------|
-| ticker                          | BTC-USD        | BTC-USD        | BTC-USD         | BTC-USD         |       |
-| from                            | 2018-04-28     | 2018-04-28     | 2024-04-27      | 2024-04-27      |       |
-| to                              | 2024-01-01     | 2024-01-01     | 2025-02-15      | 2025-02-15      |       |
-| data_type                       | in_sample      | in_sample      | out_of_sample   | out_of_sample   |       |
-| leverage                        | 1              | 1              | 1               | 1               |       |
-| max_risk                        | 0.1            | 0.1            | 0.1             | 0.1             |       |
-| reward_ratio                    | 3              | 3              | 3               | 3               |       |
-| capital                         | 1000           | 1000           | 1000            | 1000            | USD   |
-| Strategy                        | Active         | Passive        | Active          | Passive         |       |
-| Gross Profit                    | 9176           | 4404           | -14             | 542             | USD   |
-| Annualized Profit               | 32.56          | 22.75          | -1.22           | 44.94           | %     |
-| Number of Trades Per Year       | 13             | 0              | 9               | 0               |       |
-| Percentage of Winning Trades    | 52.75          | NotApplicable  | 33.33           | NotApplicable   | %     |
-| Average Win                     | 98             | 65             | 19              | 23              | USD   |
-| Length of Average Win           | 29             | 18             | 30              | 26              | days  |
-| Largest Win                     | 1166           | 866            | 82              | 124             | USD   |
-| Length of Largest Win           | 66             | 36             | 52              | 31              | days  |
-| Average Loss                    | -93            | -64            | -17             | -20             | USD   |
-| Length of Average Loss          | 16             | 29             | 10              | 10              | days  |
-| Largest Loss                    | -924           | -887           | -112            | -96             | USD   |
-| Length of Largest Loss          | 17             | 17             | 21              | 95              | days  |
-| Average Winning Run             | 1.97           | 1.91           | 1.83            | 1.99            | days  |
-| Length of Time in Avg Win Run   | 2              | 2              | 2               | 2               | days  |
-| Largest Winning Run             | 12             | 10             | 7               | 7               | days  |
-| Length of Time in Largest Win Run | 12          | 10             | 7               | 7               | days  |
-| Average Losing Run              | 1              | 1              | 1               | 1               | days  |
-| Length of Time in Avg Lose Run  | 2              | 2              | 2               | 2               | days  |
-| Largest Losing Run              | 12             | 10             | 7               | 7               | days  |
-| Length of Time in Largest Lose Run | 12         | 10             | 7               | 7               | days  |
-| Max Drawdown                    | -42.05        | -77.05         | -39.81          | -24.84          | %     |
-| Length of Max Drawdown          | 161            | 366            | 98              | 77              | days  |
-| Start Date Max Drawdown         | 2021-04-13     | 2021-11-08     | 2024-07-07      | 2024-05-20      | Date  |
-| End Date Max Drawdown           | 2021-09-21     | 2022-11-09     | 2024-10-13      | 2024-08-05      | Date  |
-| Max Run-Up                      | 1342.71        | 2318.52        | 52.03           | 97.20           | %     |
-| Length of Max Run-Up            | 1928           | 1059           | 100             | 134             | days  |
-| Start Date Max Run-Up           | 2018-09-21     | 2018-12-15     | 2024-10-13      | 2024-08-05      | Date  |
-| End Date Max Run-Up             | 2024-01-01     | 2021-11-08     | 2025-01-21      | 2024-12-17      | Date  |
+| Metric                                   | In-Sample Active | In-Sample Passive | Out-of-Sample Active | Out-of-Sample Passive | Units |
+|------------------------------------------|------------------|-------------------|----------------------|-----------------------|-------|
+| ticker                                   | BTC-USD          | BTC-USD           | BTC-USD              | BTC-USD               |       |
+| from                                     | 2018-04-28       | 2018-04-28        | 2024-04-27           | 2024-04-27            | Date  |
+| to                                       | 2024-01-01       | 2024-01-01        | 2025-02-16           | 2025-02-16            | Date  |
+| data_type                                | in_sample        | in_sample         | out_of_sample        | out_of_sample         |       |
+| leverage                                 | 1                | 1                 | 1                    | 1                     |       |
+| max_risk                                 | 0.1              | 0.1               | 0.1                  | 0.1                   |       |
+| reward_ratio                             | 3                | 3                 | 3                    | 3                     |       |
+| capital                                  | 1000             | 1000              | 1000                 | 1000                  | USD   |
+| Strategy                                 | Active           | Passive           | Active               | Passive               |       |
+| Gross Profit                             | 14575            | 4404              | 130                  | 536                   | USD   |
+| Annualized Profit                        | 39.60            | 22.75             | 11.02                | 44.30                 | %     |
+| Number of Trades Per Year                | 14               | 0                 | 9                    | 0                     |       |
+| Percentage of Winning Trades             | 49.47            | NotApplicable     | 38.89                | NotApplicable         | %     |
+| Average Win                              | 123              | 65                | 20                   | 23                    | USD   |
+| Length of Average Win                    | 27               | 20                | 26                   | 26                    | days  |
+| Largest Win                              | 1523             | 866               | 101                  | 124                   | USD   |
+| Length of Largest Win                    | 3                | 36                | 31                   | 31                    | days  |
+| Average Loss                             | -116             | -64               | -18                  | -20                   | USD   |
+| Length of Average Loss                   | 17               | 25                | 11                   | 10                    | days  |
+| Largest Loss                             | -1140            | -887              | -115                 | -96                   | USD   |
+| Length of Largest Loss                   | 3                | 17                | 21                   | 96                    | days  |
+| Average Winning Run                      | 1.94             | 1.91              | 1.86                 | 1.99                  | days  |
+| Length of Time in Average Winning Run    | 2                | 2                 | 2                    | 2                     | days  |
+| Largest Winning Run                      | 12               | 10                | 8                    | 7                     | days  |
+| Length of Time in Largest Winning Run    | 12               | 10                | 8                    | 7                     | days  |
+| Average Losing Run                       | 1                | 1                 | 1                    | 1                     | days  |
+| Length of Time in Average Losing Run     | 2                | 2                 | 2                    | 2                     | days  |
+| Largest Losing Run                       | 12               | 10                | 8                    | 7                     | days  |
+| Length of Time in Largest Losing Run     | 12               | 10                | 8                    | 7                     | days  |
+| Max Drawdown                             | -57.10           | -77.05            | -34.95               | -24.84                | %     |
+| Length of Max Drawdown                   | 320              | 366               | 98                   | 77                    | days  |
+| Start Date Max Drawdown                  | 2019-06-26       | 2021-11-08        | 2024-07-07           | 2024-05-20            | Date  |
+| End Date Max Drawdown                    | 2020-05-11       | 2022-11-09        | 2024-10-13           | 2024-08-05            | Date  |
+| Max Run-Up                               | 1760.81          | 2318.52           | 61.42                | 97.20                 | %     |
+| Length of Max Run-Up                     | 2059             | 1059              | 100                  | 134                   | days  |
+| Start Date Max Run-Up                    | 2018-05-13       | 2018-12-15        | 2024-10-13           | 2024-08-05            | Date  |
+| End Date Max Run-Up                      | 2024-01-01       | 2021-11-08        | 2025-01-21           | 2024-12-17            | Date  |
 
 While the active strategy performs better in-sample in terms of return and risk, its performance declines in the out-of-sample period. 
-The framework allows users to select different assets, periods (including custom splits for further periods), strategies, parameters, risk management applications, and leverage, providing a comprehensive strategy profile view as if it had been consistently applied. For instance, once the strategy is deployed, you may not be aware of the current winning or losing streak, but knowing this could give you valuable insights into the strategy’s performance and overall dynamics.
+The framework allows users to select different assets, periods (including custom splits for further periods), strategies, parameters, risk management applications, and leverage, providing a comprehensive strategy profile view as if it had been consistently applied. For instance, once the strategy is deployed, you may not be aware of the current winning or losing streak, but knowing this could give you valuable insights into the strategy’s performance.
 
 **Backtesting results:**
 
@@ -185,20 +185,20 @@ In-sample data is used in order to identify good candidates, and check their per
 Here SMA1 with 116 days could be considered as such.
 The engine is flexible, and the same approach can be applied to any strategy and asset from the list provided above.
 
-### Parameters used in the backtest:
-- **Symbols**: BTC-USD
-- **Window Sizes**: 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146, 182
-- **Moving Average Types**: SMA, EMA
-- **Data Type**: in_sample
-- **Split**: FALSE
-- **Cut Date**: 2024-01-01
-- **From Date**: 2018-01-01
-- **To Date**: 2024-01-01
-- **Slicing Years**: 4
-- **Risk Management**: Applied
-- **Flat After Event**: TRUE, FALSE
-- **Max Risks**: 0.1, 0.2, 0.3
-- **Reward Ratios**: 2, 3
-- **Leverages**: 1, 2
+### Parameters Used in the Backtest:
+- **Symbols**: BTC-USD  
+- **Window Sizes**: 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146, 182  
+- **Moving Average Types**: SMA, EMA  
+- **Data Type**: in_sample  
+- **Split**: FALSE (whether the data is split into sub-periods for a more granular view under different market regimes)  
+- **Cut Date**: 2024-01-01  
+- **From Date**: 2018-01-01  
+- **To Date**: 2025-02-16  
+- **Slicing Years**: 1 (if split is TRUE, defines the slicing granularity)  
+- **Risk Management**: Applied  
+- **Flat After Event**: TRUE, FALSE (stay flat after a stop loss or profit take event until a new signal emerges OR re-enter the position)  
+- **Max Risks**: 0.1, 0.2, 0.3  
+- **Reward Ratios**: 2, 3  
+- **Leverages**: 1, 2  
 
 ![Backtest results SMA1 strategy using different strategy parameters for BTC-USD](temp/sma1_res_sma1_backtest.png)

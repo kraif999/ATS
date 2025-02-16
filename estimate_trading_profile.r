@@ -792,6 +792,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   stopLoss <- profitTake <- NA
   flat <- FALSE
   reversed_position <- NA
+  pnlActiveR <- FALSE
   
   # Initialize columns
   data <- data %>%
@@ -810,28 +811,26 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       eqlPassive = capital,
       From = as.Date(NA),
       To = as.Date(NA),
-      pnlActiveType = NA
+      pnlActiveType = "U"
     )
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
     
-    # Stay flat after reversal 
     if (flat_after_event && flat) {
-      data$position[i] <- 0  
+      data$position[i] <- 0  # Stay flat after reversal
     }
-
-    # Reverse the current position after stop loss or profit take event occur on the previous day
+    
     if (!is.na(reversed_position)) {
       data$position[i] <- reversed_position
-      reversed_position <- NA # reset once updated
-    }
-
-    # Calculate number of positions
-    if (data$position[i] != previous_position) {
+      reversed_position <- NA
+    } 
+    
+    #if (data$position[i] != previous_position || data$pnlActiveType[i-1] == "R") {
+    if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+      
       data$nopActive[i] <- eqlActive * leverage / data$Close[i]
       
-    # Calculate stop loss and profit take price levels
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
         profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
@@ -849,7 +848,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     data$stopLoss[i] <- stopLoss
     data$profitTake[i] <- profitTake
     
-    # Check if stop loss or profit take event occur 
+    # Check for stop-loss or profit-take events
     if (data$position[i] == 1) {
       data$eventSL[i] <- if (!is.na(stopLoss) && data$Close[i] <= stopLoss) TRUE else NA
       data$eventPT[i] <- if (!is.na(profitTake) && data$Close[i] >= profitTake) TRUE else NA
@@ -860,51 +859,57 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       data$eventSL[i] <- data$eventPT[i] <- NA
     }
     
-    # 
+    # Reverse position logic
     if (!flat) {
       if (!is.na(data$eventSL[i]) || !is.na(data$eventPT[i])) {
-        reversed_position <- -data$position[i]
-        
+        reversed_position <- -data$position[i]  # Store for next period
         if (flat_after_event) {
-          flat <- TRUE # stay flat after position is reversed
+          flat <- TRUE
         }
-        
       }
     }
     
-    # Reset flat flag given new signal occur
-    if (i > 2 && data$group[i] != data$group[i - 1]) {
+    if (i > 2 && data$group[i] != data$group[i - 1] && is.na(data$eventSL[i]) && is.na(data$eventPT[i])) {
+      # is.na(data$eventSL[i]) && is.na(data$eventPT[i]) : when signal changes and no pending reversals
       flat <- FALSE
     }
     
-    # Calculate pnlActive
-    #data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
-    if (!is.na(reversed_position)) {
-      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Open[i] - data$Open[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+    if (data$position[i] == 0) {
+      # If position is flat, reset PnL type to "U"
+      data$pnlActiveType[i] <- "U"
+      pnlActiveR <- FALSE  # Reset reversal flag on flat
+    } else {
+      # Check if a position reversal happened (1 to -1 or -1 to 1)
+      if (!pnlActiveR && 
+          ((data$position[i - 1] == 1 && data$position[i] == -1) || 
+           (data$position[i - 1] == -1 && data$position[i] == 1))) {
+        data$pnlActiveType[i] <- "R"  # Set PnL type to "R" on reversal
+        pnlActiveR <- TRUE  # Mark that a reversal happened
+      } else if (pnlActiveR) {
+        # After reversal, reset to "U" for the next period
+        data$pnlActiveType[i] <- "U"
+        pnlActiveR <- FALSE  # Reset reversal flag
+      } else {
+        # Default to "U" when no reversal has happened
+        data$pnlActiveType[i] <- "U"
+      }
+    }
+
+    # Active strategy portfolio value
+    if (data$pnlActiveType[i] == "R") {
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Open[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
     } else {
       data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
     }
     
-    # Update portfolio value
     eqlActive <- eqlActive + data$pnlActive[i]
-    eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
-    data$eqlActive[i] <- eqlActive2
+    data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
     
-    # PnL type
-    if (data$position[i] == 0) {
-      data$pnlActiveType[i] <- NA
-    } else if ((data$position[i - 1] == 1 && data$position[i] == -1) || (data$position[i - 1] == -1 && data$position[i] == 1)) {
-      data$pnlActiveType[i] <- "R"  # Realized PnL
-    } else {
-      data$pnlActiveType[i] <- "U"  # Unrealized PnL
-    }
-    
-    # Passive strategy
+    # Passive strategy portfolio value
     data$nopPassive[i] <- eqlPassive * leverage / data$Close[i]
     data$pnlPassive[i] <- (data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1]
     eqlPassive <- eqlPassive + data$pnlPassive[i]
-    eqlPassive2 <- if (eqlPassive < 0) 0 else eqlPassive
-    data$eqlPassive[i] <- eqlPassive2
+    data$eqlPassive[i] <- if (eqlPassive < 0) 0 else eqlPassive
     
   }
   
@@ -1387,7 +1392,7 @@ grid.arrange(plots$close, plots$n, ncol = 1)
 
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 0.5, 
-  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage = 1, symbol, flat_after_event = TRUE))
+  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage = 10, symbol, flat_after_event = FALSE))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 

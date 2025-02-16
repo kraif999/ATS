@@ -53,7 +53,7 @@ ui <- fluidPage(
       numericInput("capital", "Capital", value = 1000),
       numericInput("leverage", "Leverage", value = 1),
       selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
-      dateInput("cut_date", "Cut-off Date", value = as.Date("2025-01-01")),
+      dateInput("cut_date", "Cut-off Date", value = as.Date("2024-06-30")),
       
       # Specific parameters for ADX strategy
       conditionalPanel(
