@@ -507,13 +507,15 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
         eqlPassive = capital,
         From = as.Date(NA),
         To = as.Date(NA),
-        pnlActiveType = NA
+        pnlActiveType = "U",
+        group = cumsum(signal != shift(signal, type = "lag", fill = 0))
     )
 
     self$data$position[1] <- 0
 
     eqlActive <- eqlActive2 <- capital
     eqlPassive <- eqlPassive2 <- capital
+    pnlActiveR <- FALSE
 
     # Iterate over each row in self$data
     for (i in 2:nrow(self$data)) {
@@ -522,7 +524,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     
     # Handle position change (for active portfolio)
     if (self$data$position[i] != self$data$position[i - 1]) {
-        self$data$nopActive[i] <- eqlActive * leverage / self$data$Close[i]
+        #self$data$nopActive[i] <- eqlActive * leverage / self$data$Close[i]
+        self$data$nopActive[i] <- eqlActive * leverage / self$data$Open[i]
     } else {
         # Keep previous nopActive if position hasn't changed
         self$data$nopActive[i] <- self$data$nopActive[i - 1]
@@ -538,11 +541,24 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     self$data$eqlActive[i] <- eqlActive2
 
     if (self$data$position[i] == 0) {
-      self$data$pnlActiveType[i] <- NA  # No position, so pnlActiveType is NA
-    } else if ((self$data$position[i - 1] == 1 && self$data$position[i] == -1) || (self$data$position[i - 1] == -1 && self$data$position[i] == 1)) {
-      self$data$pnlActiveType[i] <- "R"  # Realized PnL
+      # If position is flat, reset PnL type to "U"
+      self$data$pnlActiveType[i] <- "U"
+      pnlActiveR <- FALSE  # Reset reversal flag on flat
     } else {
-      self$data$pnlActiveType[i] <- "U"  # Unrealized PnL
+      # Check if a position reversal happened (1 to -1 or -1 to 1)
+      if (!pnlActiveR && 
+          ((self$data$position[i - 1] == 1 && self$data$position[i] == -1) || 
+           (self$data$position[i - 1] == -1 && self$data$position[i] == 1))) {
+        self$data$pnlActiveType[i] <- "R"  # Set PnL type to "R" on reversal
+        pnlActiveR <- TRUE  # Mark that a reversal happened
+      } else if (pnlActiveR) {
+        # After reversal, reset to "U" for the next period
+        self$data$pnlActiveType[i] <- "U"
+        pnlActiveR <- FALSE  # Reset reversal flag
+      } else {
+        # Default to "U" when no reversal has happened
+        self$data$pnlActiveType[i] <- "U"
+      }
     }
     
     # Passive strategy
@@ -622,65 +638,71 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
 },
 
 # Microscopic level (tabular list of all trades)
-get_trades = function() {
-  # Prepare trade summary with tradePnL
+get_trades = function(apply_rm) {
+  
+  self$data$trade_id <- cumsum(c(0, diff(self$data$position) != 0))
+  
+  # Copy trade_id to trade_id_m
+  self$data$trade_id_m <- self$data$trade_id
+  
+  # Update trade_id_m where pnlActiveType == "R"
+  self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
+  
+  # Initialize event as FALSE if not already set
+  self$data$event <- ifelse(apply_rm, ifelse(self$data$eventSL | self$data$eventPT, TRUE, FALSE), NA)
+  self$data$event[is.na(self$data$event)] <- FALSE
+  
   trades <- self$data %>%
     mutate(
       Date = as.Date(Date),
-      trade_direction = ifelse(position == -1, "Sell", "Buy"),
-      entry = as.Date(ifelse(position != lag(position), Date, NA)), # Entry point
-      entry_price = ifelse(position != lag(position), Close, NA), # Entry price
-      entry_size = ifelse(position != lag(position), nopActive, NA), # Entry size
-      exit = as.Date(ifelse(position != lead(position), Date, NA)), # Exit point
-      exit_price = ifelse(position != lead(position), Close, NA), # Exit price
-      exit_size = ifelse(position != lead(position), nopActive, NA) # Exit size
+      trade_direction = if_else(position == -1, "Sell", "Buy"),
+      entry = if_else(trade_id_m != lag(trade_id_m), Date, as.Date(NA)),
+      entry_price = if_else(trade_id_m != lag(trade_id_m), Close, NA_real_),
+      entry_size = if_else(trade_id_m != lag(trade_id_m), nopActive, NA_real_),
+      exit = if_else(trade_id_m != lead(trade_id_m), Date, as.Date(NA)),
+      exit_price = if_else(trade_id_m != lead(trade_id_m), Close, NA_real_),
+      exit_price2 = if_else(trade_id_m != lead(trade_id_m), Open, NA_real_),
+      exit_size = if_else(trade_id_m != lead(trade_id_m), nopActive, NA_real_),
+      exit_account_size = if_else(trade_id_m != lead(trade_id_m), eqlActive, NA_real_)
     ) %>%
-    tidyr::fill(entry, entry_price, entry_size, .direction = "down") %>%
-    tidyr::fill(exit, exit_price, exit_size, .direction = "up") %>%
-    filter(!is.na(entry) & !is.na(exit)) %>%
+    tidyr::fill(entry, entry_price, entry_size, exit_account_size, .direction = "down") %>%
+    tidyr::fill(exit, exit_price, exit_price2, exit_size, .direction = "up") %>%
+    filter(!is.na(entry) & !is.na(exit)) %>% 
     group_by(entry, exit) %>%
-    summarise(
-      Trade = first(trade_direction), # Trade type (Buy/Sell)
-      EntryDate = as.Date(first(entry)), # Entry date
-      Size = round(first(entry_size), 5), # Correct entry size
-      EntryPrice = round(first(entry_price), 2), # Price at entry
-      ExitDate = as.Date(first(exit)), # Exit date
-      ExitPrice = round(first(exit_price), 2), # Price at exit
-      Trade_PnL = round(ifelse(Trade == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0) # Trade profit/loss with size
-    ) %>%
-    ungroup() %>% # Remove grouping for calculating Running_PnL
+    reframe(
+      Trade = first(trade_direction),
+      ExitForced = any(event),
+      EntryDate = as.Date(first(entry)),
+      Size = round(first(entry_size), 5),
+      EntryPrice = round(first(entry_price), 4),
+      ExitDate = as.Date(first(exit)),
+      ExitPrice = if_else(any(event), round(first(exit_price2), 4), round(first(exit_price), 4)),
+      TradePnL = round(if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0),
+      BalanceStart = round(first(exit_account_size), 2),
+      BalanceEnd = BalanceStart + TradePnL
+    ) %>% ungroup() %>% # Remove grouping for calculating Running_PnL
     mutate(
-      Running_PnL = round(cumsum(Trade_PnL), 2), # Running cumulative PnL across all trades
-      Efficiency = round((Trade_PnL / abs(Running_PnL)) * 100, 2) # Efficiency as % of Running_PnL
+      RunningPnL = round(cumsum(TradePnL), 2), # Running cumulative PnL across all trades
+      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2) # Efficiency as % of Running_PnL
     ) %>% select(
-      Trade, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, Trade_PnL, Running_PnL, Efficiency
+      Trade, ExitForced, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, Efficiency, BalanceStart, BalanceEnd
     )
   
-  # Generate the plot
-  range_pnl <- range(trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0])
-  # Generate 10 evenly spaced breaks between min and max
+  # Generate PnL histogram
+  range_pnl <- range(trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0], na.rm = TRUE)
   x_breaks <- seq(range_pnl[1], range_pnl[2], length.out = 11)
-
-  pnl_hist <- ggplot(data = data.frame(Trade_PnL = trades$Trade_PnL[is.finite(trades$Trade_PnL) & trades$Trade_PnL != 0]), 
-                    aes(x = Trade_PnL, fill = Trade_PnL < 0)) +
+  
+  pnl_hist <- ggplot(data = data.frame(TradePnL = trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0]),
+                     aes(x = TradePnL, fill = TradePnL < 0)) +
     geom_histogram(binwidth = diff(range_pnl) / 100, color = "black", alpha = 0.7) +
-    scale_fill_manual(values = c("green", "red")) +  # Green for positive, red for negative
-    labs(title = "Trade Profit and Loss (PnL) Distribution", 
-        x = "Trade PnL", 
-        y = "Frequency") +
-    scale_x_continuous(
-      expand = c(0, 0), 
-      limits = range_pnl,
-      breaks = x_breaks
-    ) +
+    scale_fill_manual(values = c("green", "red")) +
+    labs(title = "Trade Profit and Loss (PnL) Distribution", x = "Trade PnL", y = "Frequency") +
+    scale_x_continuous(expand = c(0, 0), limits = range_pnl, breaks = x_breaks) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal()
   
-  # Return both the trades and the plot as a list
-  return(list(
-    trades = trades,
-    plot = pnl_hist
-  ))
+  # Return both the trades and the plot
+  return(list(trades = trades, plot = pnl_hist))
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
@@ -776,6 +798,28 @@ plot_close_vs_vol = function(ndays) {
     n = n
   ))
 
+},
+
+# Plot Close price and stop loss and profit take calculated prices
+plot_rm_levels = function(ndays) {
+  
+  tail_data <- tail(self$data, ndays)
+
+  # Identify points where Close crosses stopLoss or profitTake
+  tail_data$crossSL <- ifelse(tail_data$Close <= tail_data$stopLoss, tail_data$Close, NA)
+  tail_data$crossPT <- ifelse(tail_data$Close >= tail_data$profitTake, tail_data$Close, NA)
+
+  p <- ggplot(tail_data, aes(x = Date, y = Close)) +
+    geom_line(color = "black", linewidth = 1.2) +  # Thicker close price line
+    geom_line(aes(y = stopLoss), color = "red", linetype = "dashed", linewidth = 1) +  # Stop-loss level
+    geom_line(aes(y = profitTake), color = "green", linetype = "dashed", linewidth = 1) +  # Profit-take level
+    geom_point(aes(y = crossSL), color = "red", shape = 4, size = 3, stroke = 1.5) +  # Red "X" for stop-loss hit
+    geom_point(aes(y = crossPT), color = "green", shape = 4, size = 3, stroke = 1.5) +  # Green "X" for profit-take hit
+    labs(title = paste0("Close Price (Last ", ndays, " days) for ", symbol), 
+         x = "Date", y = "Close") +
+    theme_minimal()
+
+  print(p)
 }
 
   ),
@@ -868,7 +912,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         }
       }
     }
-    
+        
     if (i > 2 && data$group[i] != data$group[i - 1] && is.na(data$eventSL[i]) && is.na(data$eventPT[i])) {
       # is.na(data$eventSL[i]) && is.na(data$eventPT[i]) : when signal changes and no pending reversals
       flat <- FALSE
@@ -929,216 +973,228 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   return(data)
 },
 
-# Function to compute metrics for the trading profile of a Strategy
+# Estimate trading profile of a strategy
+estimate_trading_profile = function(data_subset, strategy_type) {
+
+  data_subset$Date <- as.Date(data_subset$Date)
+
+  # Select appropriate columns based on strategy type
+  pnl_col <- ifelse(strategy_type == "Active", "pnlActive", "pnlPassive")
+  eql_col <- ifelse(strategy_type == "Active", "eqlActive", "eqlPassive")
+  r_col <- ifelse(strategy_type == "Active", "r_eqlActive", "r_eqlPassive")
+  
+  # Generate a trade_id based on changes in position
+  data_subset <- data_subset %>% mutate(trade_id = cumsum(position != lag(position, default = 1)))
+
+  GrossProfit <- round(GrossProfit <- sum(na.omit(tail(data_subset[[eql_col]], 1)) - na.omit(data_subset[[eql_col]][1])), 0)
+
+  # 1. Annualized Profit
+  AnnualizedProfit <- round(as.numeric(Return.annualized(as.numeric(na.omit(data_subset[[r_col]])), scale = 252, geometric = TRUE) * 100), 2)
+
+  # 2. Number of Trades per Year
+  NumberOfTradesPerYear <- round((if (strategy_type == "Active") sum(diff(data_subset$position) != 0) + 1 else 1) / 
+                                length(unique(format(data_subset$Date, "%Y"))), 0)
+
+  # 3. Percentage of Winning Trades
+  PercentageOfWinningTrades <- round(
+    sum(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)$x > 0) / 
+    nrow(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)) * 100, 2)
+
+  # 4. Largest Win
+  LargestWin <- round(max(data_subset[[pnl_col]], na.rm = TRUE), 0)
+
+  # 5. Length of Largest Win
+  LengthOfLargestWin <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.max(data_subset[[pnl_col]])], ], 
+                              as.numeric(max(Date) - min(Date) + 1))
+
+  # 6. Average Win
+  AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 0)
+
+  # 7. Length of Average Win
+  AverageWinLength <- tryCatch({data_subset %>%
+  transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
+  aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
+  subset(cum_pnl > 0) %>%
+  {if (nrow(.) == 0) return(NA) else .} %>%
+  merge(data_subset, by = "trade_id") %>%
+  aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
+  with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
+  
+  # 8. Largest Loss
+  LargestLoss <- round(min(data_subset[[pnl_col]], na.rm = TRUE),0)
+
+  # 9. Length of Largest Loss
+  LengthOfLargestLoss <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.min(data_subset[[pnl_col]])], ], 
+                              as.numeric(max(Date) - min(Date) + 1))
+
+  # 10. Average Loss
+  AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE),0)
+
+  # 11. Length of Average Loss
+  AverageLossLength <- tryCatch({data_subset %>%
+  transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
+  aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
+  subset(cum_pnl < 0) %>%
+  {if (nrow(.) == 0) return(NA) else .} %>%
+  merge(data_subset, by = "trade_id") %>%
+  aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
+  with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
+
+  # 12-15: Winning Runs
+  is_winning <- data_subset[[pnl_col]] > 0
+  winning_runs <- rle(is_winning)$lengths[rle(is_winning)$values]
+  winning_runs <- winning_runs[!is.na(winning_runs)]
+
+  # 12. Average Winning Run
+  AverageWinningRun <- round(mean(winning_runs), 2)
+
+  # 13. Largest Winning Run
+  LargestWinningRun <- max(winning_runs)
+
+  # 14. Length of Time in Largest Winning Run
+  largest_run_start <- tryCatch({sum(head(rle(is_winning)$lengths, which.max(winning_runs) - 1)) + 1}, error = function(e) NA)
+
+  if (!is.na(largest_run_start)) {
+    largest_run_end <- largest_run_start + LargestWinningRun - 1
+    LengthOfTimeInLargestWinningRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
+  } else {
+
+    LengthOfTimeInLargestWinningRun <- NA
+  }
+
+  # 15. Length of Time in Average Winning Run
+  average_run_lengths <- sapply(winning_runs, function(len) {
+    start <- sum(head(rle(is_winning)$lengths, which(winning_runs == len)[1] - 1)) + 1
+    end <- start + len - 1
+    as.numeric(diff(range(data_subset$Date[start:end]))) + 1
+  })
+  LengthOfTimeInAverageWinningRun <- round(mean(average_run_lengths), 0)
+
+  # 16-19: Losing Runs
+  is_losing <- data_subset[[pnl_col]] < 0
+  losing_runs <- rle(is_losing)$lengths[!rle(is_losing)$values]  # Identify losing runs
+  losing_runs <- losing_runs[!is.na(losing_runs)]
+
+  # 16. Average Losing Run
+  AverageLosingRun <- round(mean(losing_runs, 2))
+
+  # 17. Length of Time in Average Losing Run
+  average_run_lengths_losing <- sapply(losing_runs, function(len) {
+    start <- sum(head(rle(is_losing)$lengths, which(losing_runs == len)[1] - 1)) + 1
+    end <- start + len - 1
+    as.numeric(diff(range(data_subset$Date[start:end]))) + 1
+  })
+  LengthOfTimeInAverageLosingRun <- round(mean(average_run_lengths_losing), 0)
+
+  # 18. Largest Losing Run
+  LargestLosingRun <- max(losing_runs, na.rm = TRUE)
+
+  # 19. Length of Time in Largest Losing Run
+  largest_run_start <- sum(head(rle(is_losing)$lengths, which(losing_runs == LargestLosingRun)[1] - 1)) + 1
+  largest_run_end <- largest_run_start + LargestLosingRun - 1
+  LengthOfLargestLosingRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
+
+  # 20. Maximum equity drawdown (as a percentage)
+  MaxDrawdown <- round(min(data_subset %>%
+                      mutate(cum_max_eql = cummax(get(eql_col)),
+                              drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql) %>%
+                      pull(drawdown), na.rm = TRUE) * 100, 2)
+
+  # 21. Start and end dates of maximum drawdown
+  drawdown_data <- data_subset %>%
+    mutate(cum_max_eql = cummax(get(eql_col)), 
+          drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql)
+
+  peak_idx <- which.max(drawdown_data[[eql_col]][1:which.min(drawdown_data$drawdown)])  # Peak before max drawdown
+  trough_idx <- which.min(drawdown_data$drawdown)  # Trough for max drawdown
+
+  StartDateMaxDrawdown <- as.Date(drawdown_data$Date[peak_idx])
+  EndDateMaxDrawdown <- as.Date(drawdown_data$Date[trough_idx])
+
+  # 22. Length of maximum drawdown period (in days)
+  if (length(StartDateMaxDrawdown) == 0 || length(EndDateMaxDrawdown) == 0) {
+    LengthOfMaxDrawdown <- NA
+    StartDateMaxDrawdown <- NA
+    EndDateMaxDrawdown <- NA
+  } else {
+    LengthOfMaxDrawdown <- as.numeric(EndDateMaxDrawdown - StartDateMaxDrawdown)
+  }
+
+  # 23. Maximum equity run-up (as a percentage)
+  MaxRunUp <- round(max(data_subset %>%
+                    mutate(cum_min_eql = cummin(get(eql_col)),
+                          run_up = (get(eql_col) - cum_min_eql) / cum_min_eql) %>%
+                    pull(run_up), na.rm = TRUE) * 100,2)
+
+  # 24. Start and end dates of maximum run-up
+  run_up_data <- data_subset %>%
+    mutate(cum_min_eql = cummin(get(eql_col)),
+          run_up = (get(eql_col) - cum_min_eql) / cum_min_eql)
+
+  # Identify the peak (maximum run-up) and trough (start of run-up)
+  trough_idx_run_up <- which.min(run_up_data[[eql_col]])  # Trough before the run-up
+  peak_idx_run_up <- which.max(run_up_data$run_up)  # Peak during the run-up
+
+  # Ensure that the peak happens after the trough
+  if (peak_idx_run_up < trough_idx_run_up) {
+    peak_idx_run_up <- which.max(run_up_data$run_up[trough_idx_run_up:length(run_up_data$run_up)]) + trough_idx_run_up - 1
+  }
+
+  StartDateMaxRunUp <- as.Date(run_up_data$Date[trough_idx_run_up])
+  EndDateMaxRunUp <- as.Date(run_up_data$Date[peak_idx_run_up])
+
+  # 25. Length of maximum run-up period (in days)
+  if (length(StartDateMaxRunUp) == 0 || length(EndDateMaxRunUp) == 0) {
+    LengthOfMaxRunUp <- NA
+    StartDateMaxRunUp <- NA
+    EndDateMaxRunUp <- NA
+  } else {
+    LengthOfMaxRunUp <- as.numeric(EndDateMaxRunUp - StartDateMaxRunUp)
+  }
+
+  # Return the metrics as a list
+  return(
+    list(
+      GrossProfit = GrossProfit,
+      AnnualizedProfit = AnnualizedProfit,
+      NumberOfTradesPerYear = NumberOfTradesPerYear,
+      PercentageOfWinningTrades = PercentageOfWinningTrades,
+      AverageWin = AverageWin,
+      LengthOfAverageWin = AverageWinLength,
+      AverageLoss = AverageLoss,
+      LengthOfAverageLoss = AverageLossLength,
+      LargestWin = LargestWin,
+      LengthOfLargestWin = LengthOfLargestWin,
+      LargestLoss = LargestLoss,
+      LengthOfLargestLoss = LengthOfLargestLoss,
+      AverageWinningRun = AverageWinningRun,
+      LengthOfTimeInAverageWinningRun = LengthOfTimeInAverageWinningRun,
+      AverageLosingRun = AverageLosingRun,
+      LengthOfTimeInAverageLosingRun = LengthOfTimeInAverageLosingRun,
+      LargestWinningRun = LargestWinningRun,
+      LengthOfTimeInLargestWinningRun = LengthOfTimeInLargestWinningRun,
+      LargestLosingRun = LargestLosingRun,
+      LengthOfTimeInLargestLosingRun = LengthOfLargestLosingRun,
+      MaxDrawdown = MaxDrawdown,
+      StartDateMaxDrawdown = as.Date(StartDateMaxDrawdown),
+      EndDateMaxDrawdown = as.Date(EndDateMaxDrawdown),
+      LengthOfMaxDrawdown = LengthOfMaxDrawdown,
+      MaxRunUp = MaxRunUp,
+      StartDateMaxRunUp = as.Date(StartDateMaxRunUp),
+      EndDateMaxRunUp = as.Date(EndDateMaxRunUp),
+      LengthOfMaxRunUp = LengthOfMaxRunUp
+    )
+  )
+},
+
+# Risk and return performance metrics
 compute_metrics = function(data_subset, symbol) {
     
-  estimate_trading_profile <- function(data_subset, strategy_type) {
+  # Metrics for Active strategy
+  active <- private$estimate_trading_profile(data_subset, "Active")
 
-      data_subset$Date <- as.Date(data_subset$Date)
-
-      # Select appropriate columns based on strategy type
-      pnl_col <- ifelse(strategy_type == "Active", "pnlActive", "pnlPassive")
-      eql_col <- ifelse(strategy_type == "Active", "eqlActive", "eqlPassive")
-      r_col <- ifelse(strategy_type == "Active", "r_eqlActive", "r_eqlPassive")
-      
-      # Generate a trade_id based on changes in position
-      data_subset <- data_subset %>% mutate(trade_id = cumsum(position != lag(position, default = 1)))
-
-      GrossProfit <- round(GrossProfit <- sum(na.omit(tail(data_subset[[eql_col]], 1)) - na.omit(data_subset[[eql_col]][1])), 0)
-
-      # 1. Annualized Profit
-      AnnualizedProfit <- round(as.numeric(Return.annualized(as.numeric(na.omit(data_subset[[r_col]])), scale = 252, geometric = TRUE) * 100), 2)
-      #AnnualizedProfit2 <- round((prod(1 + na.omit(data_subset[[r_col]])) / 1)^(1 / (length(na.omit(data_subset[[r_col]])) / 252)) - 1, 2) * 100 
-
-      # 2. Number of Trades per Year
-      NumberOfTradesPerYear <- round((if (strategy_type == "Active") sum(diff(data_subset$position) != 0) + 1 else 1) / 
-                                    length(unique(format(data_subset$Date, "%Y"))), 0)
-
-      # 3. Percentage of Winning Trades
-      PercentageOfWinningTrades <- round(
-        sum(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)$x > 0) / 
-        nrow(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)) * 100, 2)
-
-      # 4. Largest Win
-      LargestWin <- round(max(data_subset[[pnl_col]], na.rm = TRUE), 0)
-
-      # 5. Length of Largest Win
-      LengthOfLargestWin <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.max(data_subset[[pnl_col]])], ], 
-                                  as.numeric(max(Date) - min(Date) + 1))
-
-      # 6. Average Win
-      AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 0)
-
-      # 7. Length of Average Win
-      AverageWinLength <- tryCatch({data_subset %>%
-      transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-      aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
-      subset(cum_pnl > 0) %>%
-      {if (nrow(.) == 0) return(NA) else .} %>%
-      merge(data_subset, by = "trade_id") %>%
-      aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
-      with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
-      
-      # 8. Largest Loss
-      LargestLoss <- round(min(data_subset[[pnl_col]], na.rm = TRUE),0)
-
-      # 9. Length of Largest Loss
-      LengthOfLargestLoss <- with(data_subset[data_subset$trade_id == data_subset$trade_id[which.min(data_subset[[pnl_col]])], ], 
-                                  as.numeric(max(Date) - min(Date) + 1))
-
-      # 10. Average Loss
-      AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE),0)
-
-      # 11. Length of Average Loss
-      AverageLossLength <- tryCatch({data_subset %>%
-      transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-      aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
-      subset(cum_pnl < 0) %>%
-      {if (nrow(.) == 0) return(NA) else .} %>%
-      merge(data_subset, by = "trade_id") %>%
-      aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
-      with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
-
-      # 12-15: Winning Runs
-      is_winning <- data_subset[[pnl_col]] > 0
-      winning_runs <- rle(is_winning)$lengths[rle(is_winning)$values]
-      winning_runs <- winning_runs[!is.na(winning_runs)]
-
-      # 12. Average Winning Run
-      AverageWinningRun <- round(mean(winning_runs), 2)
-
-      # 13. Largest Winning Run
-      LargestWinningRun <- max(winning_runs)
-
-      # 14. Length of Time in Largest Winning Run
-      largest_run_start <- tryCatch({sum(head(rle(is_winning)$lengths, which.max(winning_runs) - 1)) + 1}, error = function(e) NA)
-
-      if (!is.na(largest_run_start)) {
-        largest_run_end <- largest_run_start + LargestWinningRun - 1
-        LengthOfTimeInLargestWinningRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
-      } else {
-
-        LengthOfTimeInLargestWinningRun <- NA
-      }
-
-      # 15. Length of Time in Average Winning Run
-      average_run_lengths <- sapply(winning_runs, function(len) {
-        start <- sum(head(rle(is_winning)$lengths, which(winning_runs == len)[1] - 1)) + 1
-        end <- start + len - 1
-        as.numeric(diff(range(data_subset$Date[start:end]))) + 1
-      })
-      LengthOfTimeInAverageWinningRun <- round(mean(average_run_lengths), 0)
-
-      # 16-19: Losing Runs
-      is_losing <- data_subset[[pnl_col]] < 0
-      losing_runs <- rle(is_losing)$lengths[!rle(is_losing)$values]  # Identify losing runs
-      losing_runs <- losing_runs[!is.na(losing_runs)]
-
-      # 16. Average Losing Run
-      AverageLosingRun <- round(mean(losing_runs, 2))
-
-      # 17. Length of Time in Average Losing Run
-      average_run_lengths_losing <- sapply(losing_runs, function(len) {
-        start <- sum(head(rle(is_losing)$lengths, which(losing_runs == len)[1] - 1)) + 1
-        end <- start + len - 1
-        as.numeric(diff(range(data_subset$Date[start:end]))) + 1
-      })
-      LengthOfTimeInAverageLosingRun <- round(mean(average_run_lengths_losing), 0)
-
-      # 18. Largest Losing Run
-      LargestLosingRun <- max(losing_runs, na.rm = TRUE)
-
-      # 19. Length of Time in Largest Losing Run
-      largest_run_start <- sum(head(rle(is_losing)$lengths, which(losing_runs == LargestLosingRun)[1] - 1)) + 1
-      largest_run_end <- largest_run_start + LargestLosingRun - 1
-      LengthOfLargestLosingRun <- as.numeric(diff(range(data_subset$Date[largest_run_start:largest_run_end]))) + 1
-
-      # 20. Maximum equity drawdown (as a percentage)
-      MaxDrawdown <- round(min(data_subset %>%
-                          mutate(cum_max_eql = cummax(get(eql_col)),
-                                  drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql) %>%
-                          pull(drawdown), na.rm = TRUE) * 100, 2)
-
-      # 21. Start and end dates of maximum drawdown
-      drawdown_data <- data_subset %>%
-        mutate(cum_max_eql = cummax(get(eql_col)), 
-              drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql)
-
-      peak_idx <- which.max(drawdown_data[[eql_col]][1:which.min(drawdown_data$drawdown)])  # Peak before max drawdown
-      trough_idx <- which.min(drawdown_data$drawdown)  # Trough for max drawdown
-
-      StartDateMaxDrawdown <- as.Date(drawdown_data$Date[peak_idx])
-      EndDateMaxDrawdown <- as.Date(drawdown_data$Date[trough_idx])
-
-      # 22. Length of maximum drawdown period (in days)
-      LengthOfMaxDrawdown <- as.numeric(EndDateMaxDrawdown - StartDateMaxDrawdown)
-
-      # 23. Maximum equity run-up (as a percentage)
-      MaxRunUp <- round(max(data_subset %>%
-                        mutate(cum_min_eql = cummin(get(eql_col)),
-                              run_up = (get(eql_col) - cum_min_eql) / cum_min_eql) %>%
-                        pull(run_up), na.rm = TRUE) * 100,2)
-
-      # 24. Start and end dates of maximum run-up
-      run_up_data <- data_subset %>%
-        mutate(cum_min_eql = cummin(get(eql_col)),
-              run_up = (get(eql_col) - cum_min_eql) / cum_min_eql)
-
-      # Identify the peak (maximum run-up) and trough (start of run-up)
-      trough_idx_run_up <- which.min(run_up_data[[eql_col]])  # Trough before the run-up
-      peak_idx_run_up <- which.max(run_up_data$run_up)  # Peak during the run-up
-
-      # Ensure that the peak happens after the trough
-      if (peak_idx_run_up < trough_idx_run_up) {
-        peak_idx_run_up <- which.max(run_up_data$run_up[trough_idx_run_up:length(run_up_data$run_up)]) + trough_idx_run_up - 1
-      }
-
-      StartDateMaxRunUp <- as.Date(run_up_data$Date[trough_idx_run_up])
-      EndDateMaxRunUp <- as.Date(run_up_data$Date[peak_idx_run_up])
-
-      # 25. Length of maximum run-up period (in days)
-      LengthOfMaxRunUp <- as.numeric(EndDateMaxRunUp - StartDateMaxRunUp)
-
-      # Return the metrics as a list
-      return(
-        list(
-          GrossProfit = GrossProfit,
-          AnnualizedProfit = AnnualizedProfit,
-          NumberOfTradesPerYear = NumberOfTradesPerYear,
-          PercentageOfWinningTrades = PercentageOfWinningTrades,
-          AverageWin = AverageWin,
-          LengthOfAverageWin = AverageWinLength,
-          AverageLoss = AverageLoss,
-          LengthOfAverageLoss = AverageLossLength,
-          LargestWin = LargestWin,
-          LengthOfLargestWin = LengthOfLargestWin,
-          LargestLoss = LargestLoss,
-          LengthOfLargestLoss = LengthOfLargestLoss,
-          AverageWinningRun = AverageWinningRun,
-          LengthOfTimeInAverageWinningRun = LengthOfTimeInAverageWinningRun,
-          AverageLosingRun = AverageLosingRun,
-          LengthOfTimeInAverageLosingRun = LengthOfTimeInAverageLosingRun,
-          LargestWinningRun = LargestWinningRun,
-          LengthOfTimeInLargestWinningRun = LengthOfTimeInLargestWinningRun,
-          LargestLosingRun = LargestLosingRun,
-          LengthOfTimeInLargestLosingRun = LengthOfLargestLosingRun,
-          MaxDrawdown = MaxDrawdown,
-          StartDateMaxDrawdown = as.Date(StartDateMaxDrawdown),
-          EndDateMaxDrawdown = as.Date(EndDateMaxDrawdown),
-          LengthOfMaxDrawdown = LengthOfMaxDrawdown,
-          MaxRunUp = MaxRunUp,
-          StartDateMaxRunUp = as.Date(StartDateMaxRunUp),
-          EndDateMaxRunUp = as.Date(EndDateMaxRunUp),
-          LengthOfMaxRunUp = LengthOfMaxRunUp
-        )
-      )
-    }
-
-    # Metrics for Active strategy
-    active <- estimate_trading_profile(data_subset, "Active")
-
-    # Metrics for Passive strategy
-    passive <- estimate_trading_profile(data_subset, "Passive")
+  # Metrics for Passive strategy
+  passive <- private$estimate_trading_profile(data_subset, "Passive")
 
   # Combine metrics into a dataframe
   metrics_df <- data.frame(
@@ -1212,10 +1268,10 @@ SMA1 <- R6Class(
     ma_type = NULL,
 
 initialize = function(data, window_size, ma_type) {
-      super$initialize(data)
-      self$data <- super$convert_to_tibble(self$data)
-      self$window_size <- window_size
-      self$ma_type <- ma_type
+  super$initialize(data)
+  self$data <- super$convert_to_tibble(self$data)
+  self$window_size <- window_size
+  self$ma_type <- ma_type
 },
 
 generate_signals = function() {
@@ -1227,8 +1283,7 @@ generate_signals = function() {
                             na.omit
 },
 
-# Testing different strategy parameters given multiperiod and multimarket
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, max_risks, reward_ratios, leverages, output_df = FALSE) {
+run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, flats_after_event, max_risks, reward_ratios, leverages, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1236,9 +1291,10 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
   for (symbol in symbols) {
     for (window_size in window_sizes) {
       for (ma_type in ma_types) {
-        for(max_risk in max_risks) {
-          for(reward_ratio in reward_ratios) {
-            for (leverage in leverages) {
+        for (flat_after_event in flats_after_event) {
+          for(max_risk in max_risks) {
+            for(reward_ratio in reward_ratios) {
+              for (leverage in leverages) {
 
         # Fetch data using DataFetcher for the current symbol and date range
         data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -1265,7 +1321,8 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           reward_ratio = reward_ratio,
           capital = capital,
           leverage = leverage,
-          symbol = symbol
+          symbol = symbol,
+          flat_after_event = flat_after_event
         )
       } else {
         performance <- sma_instance$estimate_performance(
@@ -1278,7 +1335,8 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
           reward_ratio = reward_ratio,
           capital = capital,
           leverage = leverage,
-          symbol = symbol
+          symbol = symbol,
+          flat_after_event = flat_after_event
         )
       }
         # Skip if performance is NULL
@@ -1290,30 +1348,31 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
         }
 
         # Store the results
-        results[[paste(symbol, window_size, ma_type, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+        results[[paste(symbol, window_size, ma_type, flat_after_event, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
           Methodology = paste("SMA1:", window_size, ma_type),
           Window_Size = window_size,
           MA_Type = ma_type,
+          Flat = flat_after_event,
           Max_Risk = max_risk,
           Reward_Ratio = reward_ratio,
-          #Leverage = leverage,
           Performance = performance
         )
 
         print(paste0(
-          "Processed SMA1 (symbol: ", symbol, 
+          "SMA1 strategy (symbol: ", symbol, 
           ", class: ", meta$assets[[symbol]]$class, 
           ", window_size: ", window_size, 
           ", ma_type: ", ma_type, 
-          ", split: ", split, 
+          ", flat_after_event: ", flat_after_event,
           ", max_risk: ", max_risk, 
           ", reward_ratio: ", reward_ratio, 
           ", leverage: ", leverage,
           ")"
           )
         )
+              }
             }
           }
         }
@@ -1328,40 +1387,36 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
 
   # Create the final data frame if output_df is TRUE
   if (output_df) {
-    res_df <- do.call(rbind, lapply(results, function(x) {
+    res_df <- bind_rows(lapply(results, function(x) {
       performance_data <- x$Performance
 
       # Combine 'from' and 'to' into 'Period'
-      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
-        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
-      } else {
-        performance_data$Period <- "Full Period"
-      }
-
-      # Remove 'from', 'to', and 'ticker' columns
-      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+      performance_data <- performance_data %>%
+        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
+        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
 
       # Add metadata columns
-      cbind(
+      tibble(
         Symbol = x$Symbol,
         Class = x$Class,
         Methodology = x$Methodology,
         Window_Size = x$Window_Size,
         MA_Type = x$MA_Type,
+        Flat = x$Flat,
         Max_Risk = x$Max_Risk,
-        Reward_Ratio = x$Reward_Ratio,
-        #Leverage = x$Leverage,
-        performance_data
-      )
+        Reward_Ratio = x$Reward_Ratio
+      ) %>%
+        bind_cols(performance_data)
     }))
-
+    
     # Reset row names
     rownames(res_df) <- 1:nrow(res_df)
-
+    
     return(res_df)
   } else {
     return(results)
   }
+
 }
 
   )
@@ -1392,7 +1447,7 @@ grid.arrange(plots$close, plots$n, ncol = 1)
 
 # in-sample:
 sma1_res_in_sample <- t(sma1$estimate_performance(data_type = "in_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 0.5, 
-  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage = 10, symbol, flat_after_event = FALSE))
+  apply_rm = TRUE, max_risk = 0.1, reward_ratio = 3, capital, leverage = 1, symbol, flat_after_event = TRUE))
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
@@ -1414,6 +1469,8 @@ sma1_res_in_sample_dt[, units := ifelse(
 )]
 
 dataset <- sma1$data
+trades <- sma1$get_trades(apply_rm = FALSE)$trades
+sma1$plot_rm_levels()
 table(dataset$position)
 
 sum(dataset$value > 0.01) / nrow(dataset) * 100
@@ -1421,8 +1478,8 @@ sum(dataset$value > 0.025) / nrow(dataset) * 100
 sum(dataset$value > 0.05) / nrow(dataset) * 100
 
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
-trades <- sma1$get_trades()$trades
-sma1$get_trades()$plot
+
+sma1$get_trades(apply_rm = FALSE)$plot
 
 trades$Efficiency %>% summary # % distribution
 trades$Trade_Cum_PnL %>% summary # expected PnL given 1000 USD

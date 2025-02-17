@@ -70,25 +70,26 @@ classDiagram
         + from_date
         + to_date
         + type
-        + initialize(symbol, from_date, to_date, type): Initializes the DataFetcher object.
-        + convert_xts_to_wide_df(): Downloads data for multiple symbols and saves tibble data frame in wide format.
-        + download_xts_data(): Downloads xts data and computes log returns.
-        + plot_close_or_rets(type): Visualizes Close price or returns.
-        + compute_NA_close_price_ratio(): Computes missing ratio of values that are not available for Close price.
+        + initialize(symbol, from_date, to_date, type): initializes the DataFetcher object.
+        + convert_xts_to_wide_df(): fetches data for multiple symbols and saves tibble data frame in wide format.
+        + download_xts_data(): downloads xts data and computes log returns.
+        + plot_close_or_rets(type): visualizes Close price or returns.
+        + compute_NA_close_price_ratio(): computes missing ratio of values that are not available for Close price.
     }
     class Strategy {
         + data
-        + initialize(data) : Initializes the Strategy object with provided data.
-        + generate_signals() : Signal generation, specific to each subclass.
-        + convert_to_tibble(ts) : Converts time series data to a tibble format.
-        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event = TRUE) : Estimates performance for Active and Passive strategies.
-        + get_trades() : Provide the list of all trades.
-        + plot_equity_lines(strategy_name, signal_flag = FALSE, symbol, capital) : Visualizes equity lines for active strategy and passive (buy and hold).
-        + estimate_range_potential(n) : Estimate Average True Range based on the latest ndays.
-        + plot_close_vs_vol(ndays) : Plot Close price and range potential (true range / average true range).
-        - apply_risk_management(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) : applies a stop loss and reward take based on the thresholds
-        - compute_metrics(data_subset, symbol) : estimates strategy's trading profile (25 metrics)
-        - slicer(data, cut_date, data_type) : cuts the data into smaller equal periods
+        + initialize(data) : initializes the Strategy object with provided data.
+        + generate_signals() : generates trading signals, specific to each subclass (overriden by child class).
+        + convert_to_tibble(ts) : converts time series data to a tibble format.
+        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event = TRUE) : estimates performance for Active and Passive strategies.
+        + get_trades(apply_rm) : provides the list of all trades with their performance.
+        + plot_equity_lines(strategy_name, signal_flag = FALSE, symbol, capital) : visualizes equity lines for active strategy and passive (buy and hold).
+        + estimate_range_potential(n) : estimates Average True Range based on the latest ndays.
+        + plot_close_vs_vol(ndays) : plots Close price and range potential (true range / average true range).
+        - apply_risk_management(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) : applies a stop loss and reward take based on the thresholds.
+        - compute_metrics(data_subset, symbol) : computes return and risk related metrics for Active and Passive strategies.
+        - estimate_trading_profile(data_subset, strategy_type) : estimates strategy's trading profile (25 metrics)
+        - slicer(data, cut_date, data_type) : cuts the data into smaller equal periods.
     }
 
     class TSA {
