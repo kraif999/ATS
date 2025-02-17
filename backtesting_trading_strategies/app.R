@@ -466,10 +466,10 @@ server <- function(input, output, session) {
       )
     )]
 
-    trades_lst <- strategy_instance$get_trades()
+    trades_lst <- strategy_instance$get_trades(input$apply_rm)
 
     print("Cumulative PnL by position:")
-    print(trades_lst$trades %>% group_by(Trade) %>% summarize(PnL = sum(Trade_PnL)))
+    print(trades_lst$trades %>% group_by(Trade) %>% summarize(PnL = sum(TradePnL)))
 
     # Generate and return the plot
     p <- strategy_instance$plot_equity_lines(
