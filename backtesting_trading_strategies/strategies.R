@@ -327,7 +327,6 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
 
 # Microscopic level (tabular list of all trades)
 get_trades = function(apply_rm) {
-  
   self$data$trade_id <- cumsum(c(0, diff(self$data$position) != 0))
   
   # Copy trade_id to trade_id_m
@@ -337,8 +336,14 @@ get_trades = function(apply_rm) {
   self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
   
   # Initialize event as FALSE if not already set
-  self$data$event <- ifelse(apply_rm, ifelse(self$data$eventSL | self$data$eventPT, TRUE, FALSE), NA)
-  self$data$event[is.na(self$data$event)] <- FALSE
+  if (apply_rm) {
+    self$data$event <- ifelse(self$data$eventSL | self$data$eventPT, TRUE, FALSE)
+    self$data$event[is.na(self$data$event)] <- FALSE
+    self$data$eventSL[is.na(self$data$eventSL)] <- FALSE
+    self$data$eventPT[is.na(self$data$eventPT)] <- FALSE
+  } else {
+    self$data$event <- FALSE
+  }
   
   trades <- self$data %>%
     mutate(
@@ -359,7 +364,7 @@ get_trades = function(apply_rm) {
     group_by(entry, exit) %>%
     reframe(
       Trade = first(trade_direction),
-      ExitForced = any(event),
+      TradeType = if_else(apply_rm, if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", "Signal")), "Signal"),
       EntryDate = as.Date(first(entry)),
       Size = round(first(entry_size), 5),
       EntryPrice = round(first(entry_price), 4),
@@ -368,12 +373,12 @@ get_trades = function(apply_rm) {
       TradePnL = round(if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0),
       BalanceStart = round(first(exit_account_size), 2),
       BalanceEnd = BalanceStart + TradePnL
-    ) %>% ungroup() %>% # Remove grouping for calculating Running_PnL
+    ) %>% ungroup() %>%
     mutate(
-      RunningPnL = round(cumsum(TradePnL), 2), # Running cumulative PnL across all trades
-      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2) # Efficiency as % of Running_PnL
+      RunningPnL = round(cumsum(TradePnL), 2),
+      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2)
     ) %>% select(
-      Trade, ExitForced, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, Efficiency, BalanceStart, BalanceEnd
+      Trade, TradeType, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, Efficiency, BalanceStart, BalanceEnd
     )
   
   # Generate PnL histogram
@@ -389,7 +394,6 @@ get_trades = function(apply_rm) {
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal()
   
-  # Return both the trades and the plot
   return(list(trades = trades, plot = pnl_hist))
 },
 
