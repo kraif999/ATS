@@ -536,7 +536,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
 
 
     # Update active equity
-    eqlActive <- eqlActive + self$data$pnlActive[i]
+    eqlActive <- round(eqlActive + self$data$pnlActive[i], 2)
     eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
     self$data$eqlActive[i] <- eqlActive2
 
@@ -563,8 +563,8 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
     
     # Passive strategy
     self$data$nopPassive[i] <- eqlPassive * leverage / self$data$Close[i]
-    self$data$pnlPassive[i] <- (self$data$Close[i] - self$data$Close[i - 1]) * self$data$nopPassive[i - 1]
-    eqlPassive <- eqlPassive + self$data$pnlPassive[i]
+    self$data$pnlPassive[i] <- round((self$data$Close[i] - self$data$Close[i - 1]) * self$data$nopPassive[i - 1], 2)
+    eqlPassive <- round(eqlPassive + self$data$pnlPassive[i], 2)
     eqlPassive2 <- if (eqlPassive < 0) 0 else eqlPassive
     self$data$eqlPassive[i] <- eqlPassive2
 
@@ -649,13 +649,23 @@ get_trades = function(apply_rm) {
   self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
   
   # Initialize event as FALSE if not already set
-  self$data$event <- ifelse(apply_rm, ifelse(self$data$eventSL | self$data$eventPT, TRUE, FALSE), NA)
-  self$data$event[is.na(self$data$event)] <- FALSE
+  if (apply_rm) {
+    self$data$event <- ifelse(self$data$eventSL | self$data$eventPT, TRUE, FALSE)
+    self$data$event[is.na(self$data$event)] <- FALSE
+    self$data$eventSL[is.na(self$data$eventSL)] <- FALSE
+    self$data$eventPT[is.na(self$data$eventPT)] <- FALSE
+  } else {
+    self$data$event <- FALSE
+    self$data$eventSL <- FALSE
+    self$data$eventPT <- FALSE
+  }
+  
+  self$data$flat <- ifelse(self$data$position == 0, TRUE, FALSE)
   
   trades <- self$data %>%
     mutate(
       Date = as.Date(Date),
-      trade_direction = if_else(position == -1, "Sell", "Buy"),
+      trade_direction = if_else(position == -1, "Sell", if_else(position == 1, "Buy", "Flat")),
       entry = if_else(trade_id_m != lag(trade_id_m), Date, as.Date(NA)),
       entry_price = if_else(trade_id_m != lag(trade_id_m), Close, NA_real_),
       entry_size = if_else(trade_id_m != lag(trade_id_m), nopActive, NA_real_),
@@ -671,21 +681,22 @@ get_trades = function(apply_rm) {
     group_by(entry, exit) %>%
     reframe(
       Trade = first(trade_direction),
-      ExitForced = any(event),
-      EntryDate = as.Date(first(entry)),
-      Size = round(first(entry_size), 5),
+      #ExitForced = if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", "Signal")),
+      ExitForcedBy = if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", if_else(any(flat), "Flat", "Signal"))),
+      Start = as.Date(first(entry)),
+      Size = if_else(any(flat), 0, round(first(entry_size), 5)),
       EntryPrice = round(first(entry_price), 4),
-      ExitDate = as.Date(first(exit)),
-      ExitPrice = if_else(any(event), round(first(exit_price2), 4), round(first(exit_price), 4)),
-      TradePnL = round(if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0),
+      End = as.Date(first(exit)),
+      ExitPrice = if_else(any(event | pnlActiveType == "R"), round(first(exit_price2), 4), round(first(exit_price), 4)),
+      TradePnL = if_else(any(flat), 0, round(if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0)),
       BalanceStart = round(first(exit_account_size), 2),
       BalanceEnd = BalanceStart + TradePnL
-    ) %>% ungroup() %>% # Remove grouping for calculating Running_PnL
+    ) %>% ungroup() %>%
     mutate(
-      RunningPnL = round(cumsum(TradePnL), 2), # Running cumulative PnL across all trades
-      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2) # Efficiency as % of Running_PnL
+      RunningPnL = round(cumsum(TradePnL), 2),
+      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2)
     ) %>% select(
-      Trade, ExitForced, EntryDate, ExitDate, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, Efficiency, BalanceStart, BalanceEnd
+      Trade, ExitForcedBy, Start, End, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, Efficiency, BalanceStart, BalanceEnd
     )
   
   # Generate PnL histogram
@@ -701,7 +712,6 @@ get_trades = function(apply_rm) {
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal()
   
-  # Return both the trades and the plot
   return(list(trades = trades, plot = pnl_hist))
 },
 
@@ -801,33 +811,58 @@ plot_close_vs_vol = function(ndays) {
 },
 
 # Plot Close price and stop loss and profit take calculated prices
-plot_rm_levels = function(ndays) {
+plot_rm_levels = function(ndays, apply_rm) {
+  if (!apply_rm) {
+    message("apply_rm is FALSE. Skipping plot.")
+    return(NULL)
+  }
   
-  tail_data <- tail(self$data, ndays)
+  # Filter the last ndays of data
+  data_subset <- tail(self$data, ndays)
+  
+  # Ensure necessary columns exist
+  if (!all(c("eventSL", "eventPT", "position", "profitTake", "stopLoss", "Close", "Date") %in% colnames(data_subset))) {
+    stop("Missing required columns in self$data.")
+  }
+  
+  # Handle NA values properly
+  data_subset$ForcedExit <- ifelse(lag(data_subset$eventSL, default = FALSE) | 
+                                   lag(data_subset$eventPT, default = FALSE), TRUE, FALSE)
+  
+  # Ensure ForcedExit has no NA values
+  data_subset$ForcedExit[is.na(data_subset$ForcedExit)] <- FALSE
+  
+  # Convert position to character if needed
+  data_subset$position <- as.character(data_subset$position)
+  
+  # Assign position_type
+  data_subset$position_type <- ifelse((data_subset$position == "1") & !data_subset$ForcedExit, "Buy", 
+                              ifelse((data_subset$position == "-1") & !data_subset$ForcedExit, "Sell", 
+                                     ifelse(data_subset$ForcedExit, "ForcedExit", "Flat")))
 
-  # Identify points where Close crosses stopLoss or profitTake
-  tail_data$crossSL <- ifelse(tail_data$Close <= tail_data$stopLoss, tail_data$Close, NA)
-  tail_data$crossPT <- ifelse(tail_data$Close >= tail_data$profitTake, tail_data$Close, NA)
+  # Explicitly set factor levels in the correct order
+  data_subset$position_type <- factor(data_subset$position_type, levels = c("Sell", "Buy", "ForcedExit", "Flat"))
 
-  p <- ggplot(tail_data, aes(x = Date, y = Close)) +
-    geom_line(color = "black", linewidth = 1.2) +  # Thicker close price line
-    geom_line(aes(y = stopLoss), color = "red", linetype = "dashed", linewidth = 1) +  # Stop-loss level
-    geom_line(aes(y = profitTake), color = "green", linetype = "dashed", linewidth = 1) +  # Profit-take level
-    geom_point(aes(y = crossSL), color = "red", shape = 4, size = 3, stroke = 1.5) +  # Red "X" for stop-loss hit
-    geom_point(aes(y = crossPT), color = "green", shape = 4, size = 3, stroke = 1.5) +  # Green "X" for profit-take hit
-    labs(title = paste0("Close Price (Last ", ndays, " days) for ", symbol), 
-         x = "Date", y = "Close") +
+  # Create the plot
+  p <- ggplot(data_subset, aes(x = Date)) +
+    geom_line(aes(y = round(Close, 4)), color = "black", linetype = "dashed", size = 0.4) +  
+    geom_point(aes(y = round(Close, 4), color = position_type), size = 2) +  
+    geom_point(aes(y = profitTake), shape = 17, color = "green", size = 3) +  
+    geom_point(aes(y = stopLoss), shape = 4, color = "red", size = 3) +  
+    scale_color_manual(values = c("Sell" = "red", "Buy" = "green", "ForcedExit" = "blue", "Flat" = "grey")) +
+    labs(title = "Close Price with Stop Loss and Profit Take",
+         x = "Date", y = "Price", color = "Position") +
     theme_minimal()
 
   print(p)
 }
 
   ),
-    
+
 private = list(
 
 # Apply stop loss and profit take
-apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event = TRUE) {
+apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event) {
   
   data$position[1] <- 0
   eqlActive <- eqlActive2 <- capital
@@ -873,7 +908,8 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     #if (data$position[i] != previous_position || data$pnlActiveType[i-1] == "R") {
     if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
       
-      data$nopActive[i] <- eqlActive * leverage / data$Close[i]
+      #data$nopActive[i] <- eqlActive * leverage / data$Close[i]
+      data$nopActive[i] <- eqlActive * leverage / data$Open[i]
       
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
@@ -941,17 +977,17 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
 
     # Active strategy portfolio value
     if (data$pnlActiveType[i] == "R") {
-      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Open[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Open[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
     } else {
-      data$pnlActive[i] <- if (data$position[i] == 0) 0 else (data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1]
+      data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
     }
     
-    eqlActive <- eqlActive + data$pnlActive[i]
+    eqlActive <- round(eqlActive + data$pnlActive[i], 2)
     data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
     
     # Passive strategy portfolio value
     data$nopPassive[i] <- eqlPassive * leverage / data$Close[i]
-    data$pnlPassive[i] <- (data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1]
+    data$pnlPassive[i] <- round((data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1], 2)
     eqlPassive <- eqlPassive + data$pnlPassive[i]
     data$eqlPassive[i] <- if (eqlPassive < 0) 0 else eqlPassive
     
@@ -1438,7 +1474,7 @@ data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher$download_xts_data()
 
 # Run instance of SMA1
-
+source("strategies.R")
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1$estimate_range_potential(n=14)
@@ -1469,8 +1505,10 @@ sma1_res_in_sample_dt[, units := ifelse(
 )]
 
 dataset <- sma1$data
-trades <- sma1$get_trades(apply_rm = FALSE)$trades
-sma1$plot_rm_levels()
+trades <- sma1$get_trades(apply_rm = TRUE)$trades
+data.frame(head(trades,10))
+
+sma1$plot_rm_levels(65, apply_rm = TRUE)
 table(dataset$position)
 
 sum(dataset$value > 0.01) / nrow(dataset) * 100
@@ -1479,7 +1517,9 @@ sum(dataset$value > 0.05) / nrow(dataset) * 100
 
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
 
-sma1$get_trades(apply_rm = FALSE)$plot
+sma1$get_trades(apply_rm = TRUE)$plot # ensure apply_rm is consistent
+
+sma1$plot_rm_levels(40)
 
 trades$Efficiency %>% summary # % distribution
 trades$Trade_Cum_PnL %>% summary # expected PnL given 1000 USD
