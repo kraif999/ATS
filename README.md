@@ -81,7 +81,7 @@ classDiagram
         + initialize(data) : initializes the Strategy object with provided data.
         + generate_signals() : generates trading signals, specific to each subclass (overriden by child class).
         + convert_to_tibble(ts) : converts time series data to a tibble format.
-        + estimate_performance(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event = TRUE) : estimates performance for Active and Passive strategies.
+        + estimate_performance(symbol, capital, leverage, data_type, split_data, cut_date, window, apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio)  : estimates performance for Active and Passive strategies.
         + get_trades(apply_rm) : provides the list of all trades with their performance.
         + plot_equity_lines(strategy_name, signal_flag = FALSE, symbol, capital) : visualizes equity lines for active strategy and passive (buy and hold).
         + estimate_range_potential(n) : estimates Average True Range based on the latest ndays.

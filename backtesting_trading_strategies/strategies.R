@@ -164,7 +164,7 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
-estimate_performance = function(data_type, split_data, cut_date, window, apply_rm, max_risk, reward_ratio, capital, leverage, symbol, flat_after_event) {
+estimate_performance = function(symbol, capital, leverage, data_type, split_data, cut_date, window, apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
@@ -175,16 +175,17 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
   # Estimate volatility over the period of 30 days (after signal generation):
   self$estimate_range_potential(30)
 
-  ########################################################################################################################
+  ##########################################################################################################################
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
-  ########################################################################################################################
+  ##########################################################################################################################
   if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event)
+    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits = FALSE)
   } else {
 
     # Initialize columns
     self$data <- self$data %>% 
     mutate(
+        position1 = position,
         nopActive = 0,
         nopPassive = 0,  # Initial number of passive positions (constant)
         pnlActive = 0,
@@ -195,39 +196,40 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
         eqlPassive = capital,
         From = as.Date(NA),
         To = as.Date(NA),
-        pnlActiveType = "U",
-        group = cumsum(signal != shift(signal, type = "lag", fill = 0))
+        pnlActiveType = "U", # by default 'Unrealized'
+        group = cumsum(signal != shift(signal, type = "lag", fill = 0)),
+        Liquidation = FALSE # liquidation when account balance is equal to 0
     )
 
     self$data$position[1] <- 0
 
-    eqlActive <- eqlActive2 <- capital
-    eqlPassive <- eqlPassive2 <- capital
+    eqlActive <- capital
+    eqlPassive <- capital
     pnlActiveR <- FALSE
+    next_day_zero_pnl <- FALSE
 
     # Iterate over each row in self$data
     for (i in 2:nrow(self$data)) {
+
+    # No positions after liquidation
+    if (eqlActive == 0) {
+      self$data$position[i] <- 0
+      self$data$Liquidation[i] <- TRUE
+    } else {
+    self$data$Liquidation[i] <- self$data$Liquidation[i - 1]  # Carry forward liquidation status
+  }
     
     prev_nop_Active <- self$data$nopActive[i - 1]
     
     # Handle position change (for active portfolio)
     if (self$data$position[i] != self$data$position[i - 1]) {
-        #self$data$nopActive[i] <- eqlActive * leverage / self$data$Close[i]
-        self$data$nopActive[i] <- eqlActive * leverage / self$data$Open[i]
+        self$data$nopActive[i] <- max(0, eqlActive * leverage / self$data$Close[i], 0)
     } else {
         # Keep previous nopActive if position hasn't changed
-        self$data$nopActive[i] <- self$data$nopActive[i - 1]
+        self$data$nopActive[i] <- max(0, self$data$nopActive[i - 1])
     }
-    
-    # Compute pnlActive (profit/loss for active positions)
-    self$data$pnlActive[i] <- if (self$data$position[i] == 0) 0 else (self$data$Close[i] - self$data$Close[i - 1]) * self$data$position[i - 1] * self$data$nopActive[i - 1]
 
-
-    # Update active equity
-    eqlActive <- round(eqlActive + self$data$pnlActive[i], 2)
-    eqlActive2 <- if (eqlActive < 0) 0 else eqlActive
-    self$data$eqlActive[i] <- eqlActive2
-
+    # Update PnL type (Realzied or Unrealized)
     if (self$data$position[i] == 0) {
       # If position is flat, reset PnL type to "U"
       self$data$pnlActiveType[i] <- "U"
@@ -248,13 +250,31 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
         self$data$pnlActiveType[i] <- "U"
       }
     }
-    
+
+    # Active strategy portfolio value
+
+    # Handle post reversal PnL calculation
+      if (next_day_zero_pnl) {
+      self$data$pnlActive[i] <- 0
+      next_day_zero_pnl <- FALSE  # Reset flag
+      } else {
+        if (self$data$pnlActiveType[i] == "R") {
+          next_day_zero_pnl <- TRUE  # Set flag for the next period
+          self$data$pnlActive[i] <- (self$data$Close[i - 1] - self$data$Close[i]) * self$data$position[i] * self$data$nopActive[i - 1]
+        } else {
+          self$data$pnlActive[i] <- if (self$data$position[i] == 0) 0 else round((self$data$Close[i] - self$data$Close[i - 1]) * self$data$position[i - 1] * self$data$nopActive[i - 1], 2)
+        }
+      }
+
+    # Update active equity
+    eqlActive <- max(0, round(eqlActive + self$data$pnlActive[i], 2))
+    self$data$eqlActive[i] <- eqlActive
+
     # Passive strategy
-    self$data$nopPassive[i] <- eqlPassive * leverage / self$data$Close[i]
+    self$data$nopPassive[i] <- max(0, eqlPassive * leverage / self$data$Close[i])
     self$data$pnlPassive[i] <- round((self$data$Close[i] - self$data$Close[i - 1]) * self$data$nopPassive[i - 1], 2)
-    eqlPassive <- round(eqlPassive + self$data$pnlPassive[i], 2)
-    eqlPassive2 <- if (eqlPassive < 0) 0 else eqlPassive
-    self$data$eqlPassive[i] <- eqlPassive2
+    eqlPassive <- max(0, round(eqlPassive + self$data$pnlPassive[i], 2))
+    self$data$eqlPassive[i] <- eqlPassive
 
     }
 
@@ -327,7 +347,7 @@ estimate_performance = function(data_type, split_data, cut_date, window, apply_r
 
 # Microscopic level (tabular list of all trades)
 get_trades = function(apply_rm) {
-  
+
   self$data$trade_id <- cumsum(c(0, diff(self$data$position) != 0))
   
   # Copy trade_id to trade_id_m
@@ -349,45 +369,57 @@ get_trades = function(apply_rm) {
   }
   
   self$data$flat <- ifelse(self$data$position == 0, TRUE, FALSE)
-  
+  self$data$L <- lead(self$data$Liquidation)
+
   trades <- self$data %>%
-    mutate(
-      Date = as.Date(Date),
-      trade_direction = if_else(position == -1, "Sell", if_else(position == 1, "Buy", "Flat")),
-      entry = if_else(trade_id_m != lag(trade_id_m), Date, as.Date(NA)),
-      entry_price = if_else(trade_id_m != lag(trade_id_m), Close, NA_real_),
-      entry_size = if_else(trade_id_m != lag(trade_id_m), nopActive, NA_real_),
-      exit = if_else(trade_id_m != lead(trade_id_m), Date, as.Date(NA)),
-      exit_price = if_else(trade_id_m != lead(trade_id_m), Close, NA_real_),
-      exit_price2 = if_else(trade_id_m != lead(trade_id_m), Open, NA_real_),
-      exit_size = if_else(trade_id_m != lead(trade_id_m), nopActive, NA_real_),
-      exit_account_size = if_else(trade_id_m != lead(trade_id_m), eqlActive, NA_real_)
-    ) %>%
-    tidyr::fill(entry, entry_price, entry_size, exit_account_size, .direction = "down") %>%
-    tidyr::fill(exit, exit_price, exit_price2, exit_size, .direction = "up") %>%
-    filter(!is.na(entry) & !is.na(exit)) %>% 
-    group_by(entry, exit) %>%
-    reframe(
-      Trade = first(trade_direction),
-      #ExitForced = if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", "Signal")),
-      ExitForcedBy = if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", if_else(any(flat), "Flat", "Signal"))),
-      Start = as.Date(first(entry)),
-      Size = if_else(any(flat), 0, round(first(entry_size), 5)),
-      EntryPrice = round(first(entry_price), 4),
-      End = as.Date(first(exit)),
-      ExitPrice = if_else(any(event | pnlActiveType == "R"), round(first(exit_price2), 4), round(first(exit_price), 4)),
-      TradePnL = if_else(any(flat), 0, round(if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size, 0)),
-      BalanceStart = round(first(exit_account_size), 2),
-      BalanceEnd = BalanceStart + TradePnL
-    ) %>% ungroup() %>%
-    mutate(
-      RunningPnL = round(cumsum(TradePnL), 2),
-      Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 2)
-    ) %>% rename(`TradePnL/RunningPnL,%` = Efficiency) %>%
-  select(
-    Trade, ExitForcedBy, Start, End, Size, EntryPrice, ExitPrice, TradePnL, RunningPnL, `TradePnL/RunningPnL,%`, BalanceStart, BalanceEnd
-  )
+  mutate(
+    trade_direction = if_else(position == -1, "Sell", if_else(position == 1, "Buy", "Flat")),
+    # Entries
+    entry = if_else(trade_id_m != lag(trade_id_m), Date, as.Date(NA)),
+    entry_price = if_else(trade_id_m != lag(trade_id_m), Close, NA_real_),
+    entry_size = if_else(trade_id_m != lag(trade_id_m), nopActive, NA_real_),
+    entry_account_size = round(if_else(trade_id_m != lag(trade_id_m), eqlActive, NA_real_), 0),
+    # Exits
+    exit = if_else(trade_id_m != lead(trade_id_m), Date, as.Date(NA)),
+    exit_price = if_else(trade_id_m != lead(trade_id_m), Close, NA_real_),
+    exit_size = if_else(trade_id_m != lead(trade_id_m), nopActive, NA_real_),
+    exit_account_size = round(if_else(trade_id_m != lead(trade_id_m), eqlActive, NA_real_), 0)
+  ) %>%
   
+  # Fill missing values for pnl and entry/exit details
+  tidyr::fill(entry, entry_price, entry_size, entry_account_size, .direction = "down") %>%
+  tidyr::fill(exit, exit_price, exit_size, exit_account_size, .direction = "up") %>%
+  
+  filter(!is.na(entry) & !is.na(exit)) %>%
+  
+  group_by(entry, exit) %>%
+  reframe(
+    Trade = first(trade_direction),
+    ExitBy = if_else(any(L), "Liquidation", if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", if_else(any(flat), "Flat", "Signal")))),
+    Start = as.Date(first(entry)),
+    Size = if_else(any(flat), 0, round(first(entry_size), 5)),
+    EntryPrice = round(first(entry_price), 4),
+    End = as.Date(first(exit)),
+    ExitPrice = round(first(exit_price), 4),
+    # Compute trade PnL
+    TradePnL = round(if_else(any(flat), 0, if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size), 0),
+    # Account
+    BalanceStart = round(first(entry_account_size), 0),
+    BalanceEnd = BalanceStart + TradePnL
+  ) %>%
+  
+  ungroup() %>%
+  mutate(
+    RunningPnL = round(cumsum(TradePnL), 0),
+    Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 0)
+  ) %>%
+  
+  rename(`TradePnL/RunningPnL,%` = Efficiency) %>%
+  
+  select(
+    Trade, ExitBy, Start, End, Size, EntryPrice, ExitPrice, BalanceStart, TradePnL, BalanceEnd, RunningPnL, `TradePnL/RunningPnL,%`
+  )
+
   # Generate PnL histogram
   range_pnl <- range(trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0], na.rm = TRUE)
   x_breaks <- seq(range_pnl[1], range_pnl[2], length.out = 11)
@@ -401,7 +433,8 @@ get_trades = function(apply_rm) {
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal()
   
-  return(list(trades = trades, plot = pnl_hist))
+  return(list(trades = trades, plot = pnl_hist))  
+
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
@@ -551,16 +584,17 @@ plot_rm_levels = function(ndays, apply_rm) {
 private = list(
 
 # Apply stop loss and profit take
-apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event) {
+apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits) {
   
   data$position[1] <- 0
-  eqlActive <- eqlActive2 <- capital
-  eqlPassive <- eqlPassive2 <- capital
+  eqlActive <- capital
+  eqlPassive <- capital
   previous_position <- 0
   stopLoss <- profitTake <- NA
   flat <- FALSE
   reversed_position <- NA
   pnlActiveR <- FALSE
+  next_day_zero_pnl <- FALSE # after position liquidation
   
   # Initialize columns
   data <- data %>%
@@ -579,11 +613,20 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       eqlPassive = capital,
       From = as.Date(NA),
       To = as.Date(NA),
-      pnlActiveType = "U"
+      pnlActiveType = "U",
+      Liquidation = FALSE # liquidation when account balance is equal to 0
     )
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
+
+    # No positions after liquidation
+    if (eqlActive == 0) {
+      data$position[i] <- 0  # Force position to 0 if equity is depleted
+      data$Liquidation[i] <- TRUE  # Mark liquidation
+    } else {
+      data$Liquidation[i] <- data$Liquidation[i - 1]  # Carry forward liquidation status
+    }
     
     if (flat_after_event && flat) {
       data$position[i] <- 0  # Stay flat after reversal
@@ -594,11 +637,9 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       reversed_position <- NA
     } 
     
-    #if (data$position[i] != previous_position || data$pnlActiveType[i-1] == "R") {
-    if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
-      
-      #data$nopActive[i] <- eqlActive * leverage / data$Close[i]
-      data$nopActive[i] <- eqlActive * leverage / data$Open[i]
+      #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+      if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+      data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
       
       if (data$position[i] == 1) {
         stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
@@ -611,7 +652,28 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       }
       previous_position <- data$position[i]
     } else {
+      # Carry forward previous values
       data$nopActive[i] <- data$nopActive[i - 1]
+
+      # Apply dynamic updates if enabled
+      if (dynamic_limits) {
+
+      # Compute rm_update dynamically
+      rm_update <- data$eqlActive[i] / data$eqlActive[i - 1]
+
+      # Ensure no division by zero or extreme values
+      rm_update <- ifelse(is.na(rm_update) | rm_update <= 0, 1, rm_update)
+
+      # Only adjust SL/PT if equity increased (favorable move)
+      if (data$position[i] == 1) {  # Long
+        stopLoss <- max(stopLoss, data$Close[i] - (rm_update * max_risk * eqlActive / data$nopActive[i]))
+        profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves up
+      } else if (data$position[i] == -1) {  # Short
+        stopLoss <- min(stopLoss, data$Close[i] + (rm_update * max_risk * eqlActive / data$nopActive[i]))
+        profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves down
+      }
+
+      }
     }
     
     data$stopLoss[i] <- stopLoss
@@ -665,20 +727,29 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     }
 
     # Active strategy portfolio value
-    if (data$pnlActiveType[i] == "R") {
-      data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Open[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
+
+    # Post reversal PnL calculation
+    if (next_day_zero_pnl) {
+    data$pnlActive[i] <- 0
+    next_day_zero_pnl <- FALSE  # Reset flag
     } else {
-      data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
+      if (data$pnlActiveType[i] == "R") {
+        next_day_zero_pnl <- TRUE  # Set flag for the next period
+        data$pnlActive[i] <- (data$Close[i - 1] - data$Close[i]) * data$position[i] * data$nopActive[i - 1]
+      } else {
+        data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
+      }
     }
-    
+
     eqlActive <- round(eqlActive + data$pnlActive[i], 2)
     data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
-    
+    data$eqlActive[i] <- eqlActive
+
     # Passive strategy portfolio value
-    data$nopPassive[i] <- eqlPassive * leverage / data$Close[i]
+    data$nopPassive[i] <- max(0, eqlPassive * leverage / data$Close[i])
     data$pnlPassive[i] <- round((data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1], 2)
-    eqlPassive <- eqlPassive + data$pnlPassive[i]
-    data$eqlPassive[i] <- if (eqlPassive < 0) 0 else eqlPassive
+    eqlPassive <- max(0, eqlPassive + data$pnlPassive[i])
+    data$eqlPassive[i] <- eqlPassive
     
   }
   
@@ -1008,7 +1079,7 @@ generate_signals = function() {
                             na.omit
 },
 
-run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_date, from_date, to_date, slicing_years, apply_rm, flats_after_event, max_risks, reward_ratios, leverages, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date,  ma_types,  window_sizes, leverages, apply_rm, flats_after_event, max_risks, reward_ratios, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1021,47 +1092,49 @@ run_backtest = function(symbols, window_sizes, ma_types, data_type, split, cut_d
             for(reward_ratio in reward_ratios) {
               for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
+      # Fetch data using DataFetcher for the current symbol and date range
+      data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+      data <- data_fetcher$download_xts_data()
+      
+      # Ensure data is not empty
+      if (nrow(data) == 0) {
+        warning(paste("No data available for symbol:", symbol))
+        next
+      }
 
-        # Create an instance of SMA1 strategy
-        sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
+      # Create an instance of SMA1 strategy
+      sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
         
       # Estimate performance based on the split argument
       if (split) {
         performance <- sma_instance$estimate_performance(
+          symbol = symbol,
+          capital = capital,
+          leverage = leverage,
           data_type = data_type,
           split_data = TRUE,
           cut_date = cut_date,
           window = slicing_years,
           apply_rm = apply_rm,
+          flat_after_event = flat_after_event,
+          dynamic_limits = FALSE,
           max_risk = max_risk,
-          reward_ratio = reward_ratio,
-          capital = capital,
-          leverage = leverage,
-          symbol = symbol,
-          flat_after_event = flat_after_event
+          reward_ratio = reward_ratio
         )
       } else {
         performance <- sma_instance$estimate_performance(
+        symbol = symbol,
+          capital = capital,
+          leverage = leverage,
           data_type = data_type,
           split_data = FALSE,
           cut_date = cut_date,
           window = slicing_years,
           apply_rm = apply_rm,
+          flat_after_event = flat_after_event,
+          dynamic_limits = FALSE,
           max_risk = max_risk,
-          reward_ratio = reward_ratio,
-          capital = capital,
-          leverage = leverage,
-          symbol = symbol,
-          flat_after_event = flat_after_event
+          reward_ratio = reward_ratio
         )
       }
         # Skip if performance is NULL
@@ -3429,3 +3502,273 @@ generate_signals = function() {
   )
 )
 
+# Time series Analysis class to estimate time series patterns (stationarity, autocorrelation, seasonality, heteroscedasticity, ARCH effects, outliers, returns patterns)
+TSA <- R6Class(
+  "TSA",
+  public = list(
+    original_data = NULL,
+    data = NULL,
+
+initialize = function(data) {
+      self$original_data <- data
+      self$data <- private$preprocess_data(freq = "daily")
+},
+    
+estimate_stationarity = function(freq = "daily", plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      adf <- aTSA::adf.test(self$data$value, output = FALSE)[["type1"]] %>% data.frame()
+      
+      # Plot values
+      if (plot_flag) {
+        print(
+          ggplot(self$data, aes(x = Date, y = value)) +
+            geom_line() +
+            labs(title = "Stationarity (ADF test)") +
+            scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+            theme_minimal()
+        )
+      }
+      return(adf)
+},
+    
+estimate_autocorr_rets_vol = function(test, freq = "daily", plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      switch(test,
+             "rets" = {
+               # ACF test for returns  
+               acf <- acf(self$data$value, main = "Autocorrelation", plot = TRUE)
+               return(list(acf = acf))
+             },
+             "vol" = {
+               # ACF test for squared returns
+               acf2 <- acf(self$data$value^2, main = "Volatility clustering", plot = TRUE)
+               return(list(acf = acf2))
+             }
+      )
+},
+    
+estimate_seasonality = function(freq = "daily") {
+      self$data <- private$preprocess_data(freq)
+      self$data <- ts(self$data$value, frequency = ifelse(freq == "daily", 26, 52))
+      # Decompose the time series
+      decomposed_data <- decompose(self$data) # decompose into 1) original ts, 2) trend component, 3) seasonal component, 4) residual component
+      # Plot the decomposed components
+      plot(decomposed_data)
+},
+    
+estimate_heteroscedasticity = function(freq = "daily", plot_flag = TRUE) {
+      self$data <- private$preprocess_data(freq)
+      
+      # Fit a linear regression model to the squared log returns
+      model <- lm(self$data$value^2 ~ self$data$value, data = data.frame(value = self$data$value))
+      
+      # Perform Breusch-Pagan test and print results
+      bp_test <- bptest(model)
+      print(bp_test)
+      
+      # Get the residuals from the linear regression model
+      residuals <- residuals(model)
+      
+      # Create a data frame for the residuals
+      residual_df <- data.frame(Residuals = residuals, Observation = 1:length(residuals))
+      
+      # Plot using ggplot
+      if (plot_flag) {
+        print(
+          ggplot(residual_df, aes(x = Observation, y = Residuals)) +
+            geom_point() +
+            geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+            labs(title = "Residuals from Linear Regression Model",
+                 x = "Observation Number",
+                 y = "Residuals") +
+            theme_minimal()
+        )
+      }
+},
+
+estimate_arch_effects = function(freq = "daily", p = 1, q = 1, plot_flag = TRUE) {
+  
+  self$data <- private$preprocess_data(freq)
+  
+  # Fit an ARIMA model
+  fit <- arima(self$data$value, order=c(p,0,q))
+  
+  # Engle's ARCH test
+  arch <- aTSA::arch.test(fit)
+  return(arch)
+},
+
+estimate_outliers = function(test, freq = "daily", plot_flag = TRUE, q1 = NULL, q3 = NULL, threshold = 1.5) {
+  self$data <- private$preprocess_data(freq)
+  switch(
+    test,
+    # Super smoothing
+    "supsmu" = {  
+    ts_rets <- ts(self$data$value, frequency = 1)
+
+    # Clean the time series using tsclean
+    clean_ts <- tsclean(ts_rets)
+
+    # Identify outliers using tsoutliers
+    outliers <- tsoutliers(ts_rets)
+
+    # Plot the original time series, cleaned time series, and outliers
+    if (plot_flag) {
+      print(
+        autoplot(clean_ts, series = "Cleaned", color = 'red', lwd = 0.9) +
+        autolayer(ts_rets, series = "Original", color = 'gray', lwd = 1) +
+        geom_point(data = outliers %>% as.data.frame(),
+        aes(x = index, y = replacements), col = 'blue') +
+        labs(x = "Date", y = "Close Price", title = "Time Series with Outliers Highlighted (via SuperSmoothing 'tsoutliers' function)")
+        )
+      }
+    
+    # Create a data frame from the outliers list
+    outliers_df <- data.frame(
+      index = outliers$index,
+      replacements = outliers$replacements
+    )
+    return(outliers_df)
+    },
+
+    "zscore" = {
+    ts_rets <- ts(self$data$value, frequency = 1)
+     # Calculate Modified Z-scores
+     median_val <- median(ts_rets)
+     mad_val <- mad(ts_rets)
+
+     modified_z_scores <- abs(0.6745 * (ts_rets - median_val) / mad_val)
+
+     # Identify outliers (e.g., Modified Z-score > 3.5)
+     outliers_modified <- which(modified_z_scores > 3.5)
+
+     # Plot outliers
+      if (plot_flag) {
+        print(
+          ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
+            geom_line() +
+            geom_point(data = data.frame(Date = time(ts_rets)[outliers_modified], Value = ts_rets[outliers_modified]), aes(x = Date, y = Value), color = "red") +
+            labs(title = "Time Series Data with Outliers Identified by Modified Z-Score")
+        )
+      }
+
+      # Create a data frame from the outliers list
+      outliers_df <- data.frame(
+        index = time(ts_rets)[outliers_modified],
+        replacements = ts_rets[outliers_modified]
+      )
+      return(outliers_df)
+        },
+      
+    "fences" = {
+    ts_rets <- ts(self$data$value, frequency = 1)
+    # Calculate IQR
+    Q1 <- quantile(ts_rets, q1)
+    Q3 <- quantile(ts_rets, q3)
+    IQR_val <- Q3 - Q1
+
+    # Identify outliers (e.g., values < Q1 - 1.5 * IQR or values > Q3 + 1.5 * IQR)
+    outliers_tukey <- which(ts_rets < (Q1 - threshold * IQR_val) | ts_rets > (Q3 + threshold * IQR_val))
+
+    # Plot outliers
+    if (plot_flag) {
+      print(
+    ggplot(data.frame(Date = time(ts_rets), Value = as.numeric(ts_rets)), aes(x = Date, y = Value)) +
+        geom_line() +
+        geom_point(data = data.frame(Date = time(ts_rets)[outliers_tukey], Value = ts_rets[outliers_tukey]), aes(x = Date, y = Value), color = "red", size = 2) +
+        labs(title = "Time Series Data with Outliers Identified by Tukey's Fences")
+            )   
+          }
+        }
+      )
+},
+
+compute_wkd_rets = function(freq = "daily") {
+  self$data <- private$preprocess_data(freq)
+  self$data <- self$data %>%
+    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) 
+
+  # Compute average return on weekdays
+  avg_wkd_rets <- self$data %>%
+    group_by(weekday) %>%
+      summarize(avg_return = mean(value, na.rm = TRUE)) %>%
+        arrange(weekday)
+  
+  # Compute longest consequtive streak of positive and negative weekday returns
+  positive <- self$data %>%
+    group_by(weekday) %>%
+      summarise(longest_series_weekdays = max(rle(value > 0)$lengths * (rle(value > 0)$values))) %>%
+          ungroup()
+
+  negative <- self$data %>%
+    mutate(weekday = wday(Date, label = TRUE, abbr = TRUE)) %>%
+      group_by(weekday) %>%
+        summarise(longest_series_weekdays = max(rle(value < 0)$lengths * (rle(value < 0)$values))) %>%
+            ungroup()
+
+  res_longest <- merge(positive, negative, by = "weekday", all = TRUE) %>%
+    rename(longest_positive = longest_series_weekdays.x, longest_negative = longest_series_weekdays.y) %>% 
+      arrange(weekday)
+
+  # Test hypothesis if any weekday return is statistically different from rets mean return
+
+  # Overall mean return
+  overall_mean <- mean(self$data$value)
+
+  # Perform Wilcoxon signed-rank test for each weekday
+  avg_wkd_rets <- avg_wkd_rets %>%
+    rowwise() %>%
+      mutate(
+    test_statistic = wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$statistic,
+    p_value = format(wilcox.test(self$data$value, mu = avg_return, alternative = "two.sided")$p.value, nsmall = 5)
+  )
+
+  return(list(avg_wkd_rets = avg_wkd_rets, res_longest = res_longest))
+},
+
+compute_summary_statistics = function(freq = "daily") {
+  self$data <- private$preprocess_data(freq)
+  summary_stats <- self$data %>%
+    summarise(
+      mean_return = mean(value),
+      median_return = median(value),
+      sd_return = sd(value),
+      skewness = skewness(value),
+      kurtosis = kurtosis(value)
+    )
+  
+  return(summary_stats)
+}
+
+  ), # end of public list arguments
+  
+private = list(
+
+preprocess_data = function(freq) {
+      # Convert xts data into tibble 
+      data <- data.frame(self$original_data)  
+      data <- data %>%
+        rename_with(~ sub(".*\\.", "", .), everything()) %>%
+        mutate(Date = as.Date(rownames(data))) %>%
+        select(Date, everything()) %>%
+        na.omit() %>%
+        as.tibble()
+      
+      # Choose values frequency: daily overlapping values or bi-weekly non-overlapping 
+      switch(
+        freq,
+        "daily" = {
+          data <- data
+        },
+        "biweekly" = {
+          bdates <- seq.Date(
+            from = (from_date + 0:6)[weekdays(from_date + 0:6) %in% "Wednesday"], 
+            to = (to_date - 0:6)[weekdays(to_date - 0:6) %in% "Wednesday"], by = 14)
+            data <- data %>% filter(Date %in% bdates)
+        },
+        stop("Invalid value for 'freq' argument. Choose 'daily' or 'biweekly'.")
+      )
+      return(data)
+    }
+  )
+)
