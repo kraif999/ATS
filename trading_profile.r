@@ -4,20 +4,6 @@ source("backtesting_trading_strategies/libraries.R")
 source("backtesting_trading_strategies/strategies.R")
 options(scipen = 999)
 
-# Specify the following strategy parameters
-from_date <- as.Date("2022-01-01") 
-to_date <- Sys.Date()
-symbol <- "BTC-USD"
-capital <- 1000 # USDC
-leverage <- 1
-apply_rm <- TRUE
-flat_after_event <- TRUE
-
-# Download data from Yahoo (instances of DataFetcher class)
-data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-ts <- data_fetcher$download_xts_data()
-
-
 # Define parent class
 Strategy <- R6Class(
   "Strategy",
@@ -1100,6 +1086,20 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
   )
 )
 
+# Specify the following strategy parameters
+from_date <- as.Date("2022-01-01") 
+to_date <- Sys.Date()
+symbol <- "BTC-USD"
+capital <- 1000 # USDC
+leverage <- 1
+apply_rm <- TRUE
+flat_after_event <- TRUE
+dynamic_limits <- TRUE
+
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
 # Example of Strategy instance (SMA1)
 source("strategies.R")
 # IN-SAMPLE (WITHOUT SPLIT)
@@ -1118,7 +1118,7 @@ sma1_res_in_sample <- t(
   window = 0.5, 
   apply_rm = apply_rm, 
   flat_after_event = flat_after_event,
-  dynamic_limits = FALSE,
+  dynamic_limits = dynamic_limits,
   max_risk = 0.1, 
   reward_ratio = 3
     )
