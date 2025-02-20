@@ -179,7 +179,7 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
   ##########################################################################################################################
   if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits = FALSE)
+    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
   } else {
 
     # Initialize columns
@@ -212,7 +212,7 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
     for (i in 2:nrow(self$data)) {
 
     # No positions after liquidation
-    if (eqlActive == 0) {
+    if (eqlActive <= 0) {
       self$data$position[i] <- 0
       self$data$Liquidation[i] <- TRUE
     } else {
@@ -583,7 +583,7 @@ plot_rm_levels = function(ndays, apply_rm) {
 
 private = list(
 
-# Apply stop loss and profit take
+# Apply stop loss and profit take (also, there is an option to jump out of trend and shift stop loss or profit take limits when prices goes in a favourable direction)
 apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits) {
   
   data$position[1] <- 0
@@ -603,14 +603,19 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       group = cumsum(signal != shift(signal, type = "lag", fill = 0)),
       stopLoss = NA,
       profitTake = NA,
+      oldStopLoss = NA,
+      oldProfitTake = NA,
       eventSL = NA,
       eventPT = NA,
+      eventSLShift = NA,
+      eventPTShift= NA,
       nopActive = 0,
       nopPassive = capital / Close[1] * leverage,  # Initial passive number of positions
       pnlActive = 0,
       pnlPassive = 0,
       eqlActive = capital,
       eqlPassive = capital,
+      equity_growth_factor = 0,
       From = as.Date(NA),
       To = as.Date(NA),
       pnlActiveType = "U",
@@ -619,9 +624,9 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
-
+    
     # No positions after liquidation
-    if (eqlActive == 0) {
+    if (eqlActive <= 0) {
       data$position[i] <- 0  # Force position to 0 if equity is depleted
       data$Liquidation[i] <- TRUE  # Mark liquidation
     } else {
@@ -637,8 +642,8 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       reversed_position <- NA
     } 
     
-      #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
-      if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+    #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+    if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
       data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
       
       if (data$position[i] == 1) {
@@ -654,25 +659,47 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     } else {
       # Carry forward previous values
       data$nopActive[i] <- data$nopActive[i - 1]
-
+      
       # Apply dynamic updates if enabled
       if (dynamic_limits) {
-
-      # Compute rm_update dynamically
-      rm_update <- data$eqlActive[i] / data$eqlActive[i - 1]
-
-      # Ensure no division by zero or extreme values
-      rm_update <- ifelse(is.na(rm_update) | rm_update <= 0, 1, rm_update)
-
-      # Only adjust SL/PT if equity increased (favorable move)
-      if (data$position[i] == 1) {  # Long
-        stopLoss <- max(stopLoss, data$Close[i] - (rm_update * max_risk * eqlActive / data$nopActive[i]))
-        profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves up
-      } else if (data$position[i] == -1) {  # Short
-        stopLoss <- min(stopLoss, data$Close[i] + (rm_update * max_risk * eqlActive / data$nopActive[i]))
-        profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves down
-      }
-
+        
+        # Compute rm_update dynamically
+        data$equity_growth_factor[i] <- ifelse(is.na(data$eqlActive[i] / data$eqlActive[i - 1]) | data$eqlActive[i] <= 0, 
+                                               1, 
+                                               data$eqlActive[i] / data$eqlActive[i - 1])
+        
+        # Initialize shift indicators as FALSE
+        data$eventSLShift[i] <- FALSE
+        data$eventPTShift[i] <- FALSE
+        
+        # Store old stop-loss and profit-take before updating
+        data$oldStopLoss[i] <- stopLoss
+        data$oldProfitTake[i] <- profitTake
+        
+        # Only adjust SL/PT if equity increased (favorable move)
+        if (data$position[i] == 1) {  # Long
+          new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves up
+          
+          # Check if SL or PT were updated
+          data$eventSLShift[i] <- (new_stopLoss != stopLoss)
+          data$eventPTShift[i] <- (new_profitTake != profitTake)
+          
+          stopLoss <- new_stopLoss
+          profitTake <- new_profitTake
+          
+        } else if (data$position[i] == -1) {  # Short
+          new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves down
+          
+          # Check if SL or PT were updated
+          data$eventSLShift[i] <- (new_stopLoss != stopLoss)
+          data$eventPTShift[i] <- (new_profitTake != profitTake)
+          
+          stopLoss <- new_stopLoss
+          profitTake <- new_profitTake
+        }
+        
       }
     }
     
@@ -699,7 +726,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         }
       }
     }
-        
+    
     if (i > 2 && data$group[i] != data$group[i - 1] && is.na(data$eventSL[i]) && is.na(data$eventPT[i])) {
       # is.na(data$eventSL[i]) && is.na(data$eventPT[i]) : when signal changes and no pending reversals
       flat <- FALSE
@@ -725,13 +752,13 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         data$pnlActiveType[i] <- "U"
       }
     }
-
+    
     # Active strategy portfolio value
-
+    
     # Post reversal PnL calculation
     if (next_day_zero_pnl) {
-    data$pnlActive[i] <- 0
-    next_day_zero_pnl <- FALSE  # Reset flag
+      data$pnlActive[i] <- 0
+      next_day_zero_pnl <- FALSE  # Reset flag
     } else {
       if (data$pnlActiveType[i] == "R") {
         next_day_zero_pnl <- TRUE  # Set flag for the next period
@@ -740,11 +767,11 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
       }
     }
-
+    
     eqlActive <- round(eqlActive + data$pnlActive[i], 2)
     data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive
-
+    
     # Passive strategy portfolio value
     data$nopPassive[i] <- max(0, eqlPassive * leverage / data$Close[i])
     data$pnlPassive[i] <- round((data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1], 2)
