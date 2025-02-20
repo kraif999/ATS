@@ -249,8 +249,9 @@ ui <- fluidPage(
         style = "margin-top: 10px; font-weight: bold;",
         "Risk Management"
       ),
-      checkboxInput("apply_rm", "Apply Risk Management", value = TRUE),
+      checkboxInput("apply_rm", "Apply risk management", value = TRUE),
       checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = TRUE),
+      checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = FALSE),
       numericInput("max_risk", "Maximum risk", value = 0.1),
       numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
 
@@ -409,17 +410,18 @@ server <- function(input, output, session) {
     
     # Estimate performance
     performance_result <- strategy_instance$estimate_performance(
+      symbol = input$symbol,
+      capital = input$capital,
+      leverage = input$leverage,
       data_type = input$data_type,
-      split = input$split_data,
+      split_data = input$split_data,
       cut_date = input$cut_date,
       window = input$window,
       apply_rm = input$apply_rm,
+      flat_after_event = input$flat_after_event,
+      dynamic_limits = input$dynamic_limits,
       max_risk = input$max_risk,
-      reward_ratio = input$reward_ratio,
-      capital = input$capital,
-      leverage = input$leverage,
-      symbol = input$symbol,
-      flat_after_event = input$flat_after_event
+      reward_ratio = input$reward_ratio
     )
     
     print("Tail view:")
