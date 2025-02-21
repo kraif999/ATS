@@ -250,8 +250,8 @@ ui <- fluidPage(
         "Risk Management"
       ),
       checkboxInput("apply_rm", "Apply risk management", value = TRUE),
-      checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = TRUE),
-      checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = FALSE),
+      checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = FALSE),
+      checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = TRUE),
       numericInput("max_risk", "Maximum risk", value = 0.1),
       numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
 

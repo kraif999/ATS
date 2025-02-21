@@ -4,6 +4,20 @@ source("backtesting_trading_strategies/libraries.R")
 source("backtesting_trading_strategies/strategies.R")
 options(scipen = 999)
 
+# Specify the following strategy parameters
+from_date <- as.Date("2022-01-01") 
+to_date <- Sys.Date()
+symbol <- "BTC-USD"
+capital <- 1000 # USDC
+leverage <- 1
+apply_rm <- TRUE
+flat_after_event <- TRUE
+dynamic_limits <- TRUE
+
+# Download data from Yahoo (instances of DataFetcher class)
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
 # Define parent class
 Strategy <- R6Class(
   "Strategy",
@@ -45,7 +59,7 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
   ##########################################################################################################################
   if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits = FALSE)
+    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
   } else {
 
     # Initialize columns
@@ -78,7 +92,7 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
     for (i in 2:nrow(self$data)) {
 
     # No positions after liquidation
-    if (eqlActive == 0) {
+    if (eqlActive <= 0) {
       self$data$position[i] <- 0
       self$data$Liquidation[i] <- TRUE
     } else {
@@ -271,7 +285,7 @@ get_trades = function(apply_rm) {
     TradePnL = round(if_else(any(flat), 0, if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size), 0),
     # Account
     BalanceStart = round(first(entry_account_size), 0),
-    BalanceEnd = BalanceStart + TradePnL
+    BalanceEnd = round(BalanceStart + TradePnL, 0)
   ) %>%
   
   ungroup() %>%
@@ -449,7 +463,7 @@ plot_rm_levels = function(ndays, apply_rm) {
 
 private = list(
 
-# Apply stop loss and profit take
+# Apply stop loss and profit take (also, there is an option to jump out of trend and shift stop loss or profit take limits when prices goes in a favourable direction)
 apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits) {
   
   data$position[1] <- 0
@@ -469,14 +483,19 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       group = cumsum(signal != shift(signal, type = "lag", fill = 0)),
       stopLoss = NA,
       profitTake = NA,
+      oldStopLoss = NA,
+      oldProfitTake = NA,
       eventSL = NA,
       eventPT = NA,
+      eventSLShift = NA,
+      eventPTShift= NA,
       nopActive = 0,
       nopPassive = capital / Close[1] * leverage,  # Initial passive number of positions
       pnlActive = 0,
       pnlPassive = 0,
       eqlActive = capital,
       eqlPassive = capital,
+      equity_growth_factor = 0,
       From = as.Date(NA),
       To = as.Date(NA),
       pnlActiveType = "U",
@@ -485,9 +504,9 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   
   # Iterate over each row in the data
   for (i in 2:nrow(data)) {
-
+    
     # No positions after liquidation
-    if (eqlActive == 0) {
+    if (eqlActive <= 0) {
       data$position[i] <- 0  # Force position to 0 if equity is depleted
       data$Liquidation[i] <- TRUE  # Mark liquidation
     } else {
@@ -503,8 +522,8 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       reversed_position <- NA
     } 
     
-      #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
-      if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+    #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+    if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
       data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
       
       if (data$position[i] == 1) {
@@ -520,25 +539,47 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     } else {
       # Carry forward previous values
       data$nopActive[i] <- data$nopActive[i - 1]
-
+      
       # Apply dynamic updates if enabled
       if (dynamic_limits) {
-
-      # Compute rm_update dynamically
-      rm_update <- data$eqlActive[i] / data$eqlActive[i - 1]
-
-      # Ensure no division by zero or extreme values
-      rm_update <- ifelse(is.na(rm_update) | rm_update <= 0, 1, rm_update)
-
-      # Only adjust SL/PT if equity increased (favorable move)
-      if (data$position[i] == 1) {  # Long
-        stopLoss <- max(stopLoss, data$Close[i] - (rm_update * max_risk * eqlActive / data$nopActive[i]))
-        profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves up
-      } else if (data$position[i] == -1) {  # Short
-        stopLoss <- min(stopLoss, data$Close[i] + (rm_update * max_risk * eqlActive / data$nopActive[i]))
-        profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))  # PT always moves down
-      }
-
+        
+        # Compute rm_update dynamically
+        data$equity_growth_factor[i] <- ifelse(is.na(data$eqlActive[i] / data$eqlActive[i - 1]) | data$eqlActive[i] <= 0, 
+                                               1, 
+                                               data$eqlActive[i] / data$eqlActive[i - 1])
+        
+        # Initialize shift indicators as FALSE
+        data$eventSLShift[i] <- FALSE
+        data$eventPTShift[i] <- FALSE
+        
+        # Store old stop-loss and profit-take before updating
+        data$oldStopLoss[i] <- stopLoss
+        data$oldProfitTake[i] <- profitTake
+        
+        # Only adjust SL/PT if equity increased (favorable move)
+        if (data$position[i] == 1) {  # Long
+          new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves up
+          
+          # Check if SL or PT were updated
+          data$eventSLShift[i] <- (new_stopLoss != stopLoss)
+          data$eventPTShift[i] <- (new_profitTake != profitTake)
+          
+          stopLoss <- new_stopLoss
+          profitTake <- new_profitTake
+          
+        } else if (data$position[i] == -1) {  # Short
+          new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves down
+          
+          # Check if SL or PT were updated
+          data$eventSLShift[i] <- (new_stopLoss != stopLoss)
+          data$eventPTShift[i] <- (new_profitTake != profitTake)
+          
+          stopLoss <- new_stopLoss
+          profitTake <- new_profitTake
+        }
+        
       }
     }
     
@@ -565,7 +606,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         }
       }
     }
-        
+    
     if (i > 2 && data$group[i] != data$group[i - 1] && is.na(data$eventSL[i]) && is.na(data$eventPT[i])) {
       # is.na(data$eventSL[i]) && is.na(data$eventPT[i]) : when signal changes and no pending reversals
       flat <- FALSE
@@ -591,13 +632,13 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         data$pnlActiveType[i] <- "U"
       }
     }
-
+    
     # Active strategy portfolio value
-
+    
     # Post reversal PnL calculation
     if (next_day_zero_pnl) {
-    data$pnlActive[i] <- 0
-    next_day_zero_pnl <- FALSE  # Reset flag
+      data$pnlActive[i] <- 0
+      next_day_zero_pnl <- FALSE  # Reset flag
     } else {
       if (data$pnlActiveType[i] == "R") {
         next_day_zero_pnl <- TRUE  # Set flag for the next period
@@ -606,11 +647,11 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
       }
     }
-
+    
     eqlActive <- round(eqlActive + data$pnlActive[i], 2)
     data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive
-
+    
     # Passive strategy portfolio value
     data$nopPassive[i] <- max(0, eqlPassive * leverage / data$Close[i])
     data$pnlPassive[i] <- round((data$Close[i] - data$Close[i - 1]) * data$nopPassive[i - 1], 2)
@@ -945,7 +986,7 @@ generate_signals = function() {
                             na.omit
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split_data, cut_date,  ma_types,  window_sizes, leverages, apply_rm, flats_after_event, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -954,9 +995,10 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
     for (window_size in window_sizes) {
       for (ma_type in ma_types) {
         for (flat_after_event in flats_after_event) {
-          for(max_risk in max_risks) {
-            for(reward_ratio in reward_ratios) {
-              for (leverage in leverages) {
+          for (dynamic_limits in dynamics_limits) {
+            for (max_risk in max_risks) {
+              for(reward_ratio in reward_ratios) {
+                for (leverage in leverages) {
 
       # Fetch data using DataFetcher for the current symbol and date range
       data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
@@ -974,6 +1016,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
       # Estimate performance based on the split argument
       if (split) {
         performance <- sma_instance$estimate_performance(
+          # General:
           symbol = symbol,
           capital = capital,
           leverage = leverage,
@@ -981,24 +1024,27 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           split_data = TRUE,
           cut_date = cut_date,
           window = slicing_years,
+          # RM:
           apply_rm = apply_rm,
           flat_after_event = flat_after_event,
-          dynamic_limits = FALSE,
+          dynamic_limits = dynamic_limits,
           max_risk = max_risk,
           reward_ratio = reward_ratio
         )
       } else {
         performance <- sma_instance$estimate_performance(
-        symbol = symbol,
+          # General:
+          symbol = symbol,
           capital = capital,
           leverage = leverage,
           data_type = data_type,
           split_data = FALSE,
           cut_date = cut_date,
           window = slicing_years,
+          # RM:
           apply_rm = apply_rm,
           flat_after_event = flat_after_event,
-          dynamic_limits = FALSE,
+          dynamic_limits = dynamic_limits,
           max_risk = max_risk,
           reward_ratio = reward_ratio
         )
@@ -1012,15 +1058,14 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         }
 
         # Store the results
-        results[[paste(symbol, window_size, ma_type, flat_after_event, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+        results[[paste(symbol, window_size, ma_type, flat_after_event, dynamic_limits, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = paste("SMA1:", window_size, ma_type),
+          Methodology = "SMA1",
           Window_Size = window_size,
           MA_Type = ma_type,
           Flat = flat_after_event,
-          Max_Risk = max_risk,
-          Reward_Ratio = reward_ratio,
+          Dynamic_limits = dynamic_limits,
           Performance = performance
         )
 
@@ -1030,12 +1075,14 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           ", window_size: ", window_size, 
           ", ma_type: ", ma_type, 
           ", flat_after_event: ", flat_after_event,
+          ", dynamic_limit: ", dynamic_limits,
           ", max_risk: ", max_risk, 
           ", reward_ratio: ", reward_ratio, 
           ", leverage: ", leverage,
           ")"
           )
         )
+                }
               }
             }
           }
@@ -1063,12 +1110,13 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
       tibble(
         Symbol = x$Symbol,
         Class = x$Class,
+        # Strategy specific:
         Methodology = x$Methodology,
         Window_Size = x$Window_Size,
         MA_Type = x$MA_Type,
+        # RM:
         Flat = x$Flat,
-        Max_Risk = x$Max_Risk,
-        Reward_Ratio = x$Reward_Ratio
+        Dynamic_limits = x$Dynamic_limits
       ) %>%
         bind_cols(performance_data)
     }))
@@ -1086,22 +1134,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
   )
 )
 
-# Specify the following strategy parameters
-from_date <- as.Date("2022-01-01") 
-to_date <- Sys.Date()
-symbol <- "BTC-USD"
-capital <- 1000 # USDC
-leverage <- 1
-apply_rm <- TRUE
-flat_after_event <- TRUE
-dynamic_limits <- TRUE
-
-# Download data from Yahoo (instances of DataFetcher class)
-data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-ts <- data_fetcher$download_xts_data()
-
 # Example of Strategy instance (SMA1)
-source("strategies.R")
+
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1$estimate_range_potential(n=14)
@@ -1113,9 +1147,10 @@ sma1_res_in_sample <- t(
   capital = capital,
   leverage = leverage,
   data_type = "in_sample", 
-  split_data = FALSE, 
+  #split_data = FALSE, 
+  split_data = TRUE,
   cut_date = as.Date("2024-06-30"), 
-  window = 0.5, 
+  window = 1, 
   apply_rm = apply_rm, 
   flat_after_event = flat_after_event,
   dynamic_limits = dynamic_limits,
@@ -1163,7 +1198,7 @@ sma1$get_trades(apply_rm = apply_rm)$plot
 meta <- jsonlite::fromJSON("instr_config.json")
 
 # Overall trading profile (NO SPLIT with stop-loss)
-sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'EMA')
 btc_sma1_in_sample_no_split <- sma1$run_backtest(
   symbols = c("BTC-USD"),
   from_date = as.Date("2018-01-01"),
@@ -1177,8 +1212,9 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   leverages = seq(1, 2, by = 1),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
-  max_risks = seq(0.1, 0.3, by = 0.1),
-  reward_ratios = seq(2,3, by = 1),
+  dynamics_limits = c(TRUE, FALSE),
+  max_risks = 0.1,
+  reward_ratios = seq(3,7, by = 4),
   output_df = TRUE
 )
 
