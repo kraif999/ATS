@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Oleh Bilyk
 
 # Load libraries
-source("backtesting_trading_strategies/libraries.R")
+source("libraries.R")
 
 # Load strategies
-source("backtesting_trading_strategies/strategies.R")
+source("strategies.R")
 options(scipen = 999)
 
 options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
@@ -422,7 +422,7 @@ server <- function(input, output, session) {
       dynamic_limits = input$dynamic_limits,
       max_risk = input$max_risk,
       reward_ratio = input$reward_ratio,
-      run_via_cpp = TRUE
+      run_via_cpp = FALSE
     )
     
     print("Tail view:")

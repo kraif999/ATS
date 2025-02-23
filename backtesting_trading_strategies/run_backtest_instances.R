@@ -1,8 +1,10 @@
+
 # Run backtest 
 meta <- jsonlite::fromJSON("instr_config.json")
 options(timeout = 9999999)
 
-Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+# Source C++ version of apply_risk_management() for execution speed increase
+Rcpp::sourceCpp("backtesting_trading_strategies/apply_risk_management_cpp.cpp")
 
 # List of assets
 assets <- c(
@@ -18,7 +20,7 @@ assets <- c(
 )
 
 source("backtesting_trading_strategies/strategies.R")
-Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+Rcpp::sourceCpp("backtesting_trading_strategies/apply_risk_management_cpp.cpp")
 ########################################################################################################################
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'SMA')
 res_in_sma1 <- sma1$run_backtest(
@@ -44,7 +46,7 @@ res_in_sma1 <- sma1$run_backtest(
   run_via_cpp = TRUE
 )
 
-fwrite(res_in_sma1, "/Users/olegb/Documents/ATS/ATS/backtesting_results/in_sample/res_sma1.csv")
+fwrite(res_in_sma1, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/in_sample/res_sma1.csv")
 ########################################################################################################################
 
 sma2 <- SMA2$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA')
@@ -71,7 +73,7 @@ res_in_sma1 <- sma2$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_sma2, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_sma2.csv")
+fwrite(res_in_sma2, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_sma2.csv")
 ########################################################################################################################
 
 sma1m <- SMA1M$new(ts, window_size = 20, ma_type = 'SMA')
@@ -97,7 +99,7 @@ res_in_sma1m <- sma1m$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_sma1m, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_sma1m.csv")
+fwrite(res_in_sma1m, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_sma1m.csv")
 ########################################################################################################################
 
 sma2m <- SMA2M$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA')
@@ -124,7 +126,7 @@ res_in_sma2m <- sma2m$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_sma2m, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_sma2m.csv")
+fwrite(res_in_sma2m, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_sma2m.csv")
 ########################################################################################################################
 
 macd <- MACD$new(ts, window_size1 = 20, window_size2 = 60, sline = 12, ma_type = 'SMA')
@@ -152,7 +154,7 @@ res_in_macd <- macd$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_macd, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_macd.csv")
+fwrite(res_in_macd, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_macd.csv")
 ########################################################################################################################
 
 tt <- TurtleTrading$new(ts, window_size1 = 20, window_size2 = 60)
@@ -178,7 +180,7 @@ res_in_tt <- tt$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_tt, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_tt.csv")
+fwrite(res_in_tt, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_tt.csv")
 ##############################################################################################
 
 dc <- DonchianChannel$new(ts, window_size = 20)
@@ -203,7 +205,7 @@ res_in_dc <- dc$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_dc, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_dc.csv")
+fwrite(res_in_dc, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_dc.csv")
 ##############################################################################################
 
 rsi <- RSI$new(ts, window_size = 20, threshold_oversold = 30, threshold_overbought = 70)
@@ -230,7 +232,7 @@ res_in_rsi <- rsi$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_rsi, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_rsi.csv")
+fwrite(res_in_rsi, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_rsi.csv")
 ##############################################################################################
 
 sar <- StopAndReversal$new(ts, accel = 0.05, accel_max = 0.2)
@@ -256,7 +258,7 @@ res_in_sar <- sar$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_sar, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_sar.csv")
+fwrite(res_in_sar, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_sar.csv")
 
 ##############################################################################################
 adx <- ADX$new(ts, ndx = 15, trend_strength = 40)
@@ -282,7 +284,7 @@ res_in_adx <- adx$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_adx, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_adx.csv")
+fwrite(res_in_adx, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_adx.csv")
 
 ##############################################################################################
 bb <- BollingerBreakout$new(ts, window_size = 20, sd_mult = 2)
@@ -308,7 +310,7 @@ res_in_bb <- bb$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_bb, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_bb.csv")
+fwrite(res_in_bb, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_bb.csv")
 
 ##############################################################################################
 vmr <- VolatilityMeanReversion$new(ts, window_size = 20, ma_type = 'SMA')
@@ -334,6 +336,6 @@ res_in_vmr <- vmr$run_backtest(
   output_df = TRUE
 )
 
-fwrite(res_in_vmr, "/Users/olegb/Documents/ATS/ATS/backtesting_results/res_in_vmr.csv")
+fwrite(res_in_vmr, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_in_vmr.csv")
 
 ##############################################################################################
