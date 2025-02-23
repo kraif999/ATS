@@ -164,7 +164,8 @@ convert_to_tibble = function(ts) {
 },
 
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
-estimate_performance = function(symbol, capital, leverage, data_type, split_data, cut_date, window, apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio) {
+estimate_performance = function(symbol, capital, leverage, data_type, split_data, cut_date, window, 
+apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp) {
   
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
@@ -172,16 +173,29 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
   # Generate signals
   self$generate_signals()
 
-  # Estimate volatility over the period of 30 days (after signal generation):
-  self$estimate_range_potential(30)
-
   ##########################################################################################################################
   # Update position type (long/short) given risk management option; compute: number of positions, daily PnL, portfolio value
   ##########################################################################################################################
-  if(apply_rm) {
-    self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
-  } else {
 
+  if(apply_rm) {
+
+    if(run_via_cpp) {
+  
+  # Inputs for Rcpp function
+    Date <- self$data$Date
+    Close <- self$data$Close
+    High <- self$data$High
+    Low <- self$data$Low
+    value <- self$data$value
+    signal <- self$data$signal
+    position <- self$data$position
+    position[1] <- 0
+    # Call C++ function version
+    self$data <- apply_risk_management_cpp(Date, Close, High, Low, value, signal, position, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
+    } else 
+      self$data <- private$apply_risk_management(self$data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
+
+  } else {
     # Initialize columns
     self$data <- self$data %>% 
     mutate(
@@ -279,10 +293,14 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
     }
 
   }
+
+  # Estimate volatility over the period of 30 days (after signal generation):
+  self$estimate_range_potential(30)
   
   ########################################################################################################################
   # Adding additional metrics (annualized volatility, cumulative daily PnL, and portfolio daily return)
   ########################################################################################################################
+  setDT(self$data)
   self$data <- self$data %>%
     mutate(
       annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(365),
@@ -295,6 +313,8 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
   ########################################################################################################################
   # Estimate trading profile
   ########################################################################################################################
+  
+  # Case when the data is split
   if (split_data) {
     start_date <- min(self$data$Date)
     end_date <- max(self$data$Date)
@@ -330,6 +350,7 @@ estimate_performance = function(symbol, capital, leverage, data_type, split_data
       select(ticker, from, to, data_type, leverage, max_risk, reward_ratio, capital, Strategy, everything())
     return(performance_df)
 
+  # Case when data is not split
   } else {
     metrics <- private$compute_metrics(self$data, symbol)
     metrics$from <- min(self$data$Date)
@@ -398,9 +419,9 @@ get_trades = function(apply_rm) {
     ExitBy = if_else(any(L), "Liquidation", if_else(any(eventSL), "Stop-loss", if_else(any(eventPT), "Take-profit", if_else(any(flat), "Flat", "Signal")))),
     Start = as.Date(first(entry)),
     Size = if_else(any(flat), 0, round(first(entry_size), 5)),
-    EntryPrice = round(first(entry_price), 5),
+    EntryPrice = round(first(entry_price), 4),
     End = as.Date(first(exit)),
-    ExitPrice = round(first(exit_price), 5),
+    ExitPrice = round(first(exit_price), 4),
     # Compute trade PnL
     TradePnL = round(if_else(any(flat), 0, if_else(first(Trade) == "Buy", ExitPrice - EntryPrice, EntryPrice - ExitPrice) * Size), 0),
     # Account
@@ -588,6 +609,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   
   data$position[1] <- 0
   eqlActive <- capital
+  eqlActive2 <- capital
   eqlPassive <- capital
   previous_position <- 0
   stopLoss <- profitTake <- NA
@@ -604,11 +626,9 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       stopLoss = NA,
       profitTake = NA,
       oldStopLoss = NA,
-      oldProfitTake = NA,
       eventSL = NA,
       eventPT = NA,
       eventSLShift = NA,
-      eventPTShift= NA,
       nopActive = 0,
       nopPassive = capital / Close[1] * leverage,  # Initial passive number of positions
       pnlActive = 0,
@@ -633,8 +653,9 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       data$Liquidation[i] <- data$Liquidation[i - 1]  # Carry forward liquidation status
     }
     
+  # Stay flat after reversal in case flat_after_event 
     if (flat_after_event && flat) {
-      data$position[i] <- 0  # Stay flat after reversal
+      data$position[i] <- 0
     }
     
     if (!is.na(reversed_position)) {
@@ -642,7 +663,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       reversed_position <- NA
     } 
     
-    #if (data$position[i] != data$position[i - 1] || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
+  # Position change (stop loss and profit take levels calculation)
     if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
       data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
       
@@ -660,44 +681,43 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       # Carry forward previous values
       data$nopActive[i] <- data$nopActive[i - 1]
       
-      # Apply dynamic updates if enabled
+      # Shift stop loss
       if (dynamic_limits) {
         
+        if(data$position[i] == 0) {
+          eqlActive2 = 0
+        } else {
+          eqlActive2 = data$eqlActive[i - 1] + ((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1])
+        }
+
         # Compute rm_update dynamically
-        data$equity_growth_factor[i] <- ifelse(is.na(data$eqlActive[i] / data$eqlActive[i - 1]) | data$eqlActive[i] <= 0, 
+        data$equity_growth_factor[i] <- ifelse(is.na(eqlActive2 / data$eqlActive[i - 1]) | eqlActive2 <= 0, 
                                                1, 
-                                               data$eqlActive[i] / data$eqlActive[i - 1])
+                                               eqlActive2 / data$eqlActive[i - 1])
         
         # Initialize shift indicators as FALSE
         data$eventSLShift[i] <- FALSE
-        data$eventPTShift[i] <- FALSE
         
         # Store old stop-loss and profit-take before updating
         data$oldStopLoss[i] <- stopLoss
-        data$oldProfitTake[i] <- profitTake
         
         # Only adjust SL/PT if equity increased (favorable move)
         if (data$position[i] == 1) {  # Long
           new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
-          new_profitTake <- max(profitTake, data$Close[i] + (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves up
           
           # Check if SL or PT were updated
           data$eventSLShift[i] <- (new_stopLoss != stopLoss)
-          data$eventPTShift[i] <- (new_profitTake != profitTake)
           
           stopLoss <- new_stopLoss
-          profitTake <- new_profitTake
           
         } else if (data$position[i] == -1) {  # Short
           new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
-          new_profitTake <- min(profitTake, data$Close[i] - (reward_ratio * max_risk * data$eqlActive[i] / data$nopActive[i]))  # PT always moves down
           
           # Check if SL or PT were updated
           data$eventSLShift[i] <- (new_stopLoss != stopLoss)
-          data$eventPTShift[i] <- (new_profitTake != profitTake)
           
           stopLoss <- new_stopLoss
-          profitTake <- new_profitTake
+
         }
         
       }
@@ -727,11 +747,13 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       }
     }
     
+    # Rest stay_flat flag when signal changes and there are no pending reversals
     if (i > 2 && data$group[i] != data$group[i - 1] && is.na(data$eventSL[i]) && is.na(data$eventPT[i])) {
       # is.na(data$eventSL[i]) && is.na(data$eventPT[i]) : when signal changes and no pending reversals
       flat <- FALSE
     }
     
+    # Set up when a reversal happens (position flat out)
     if (data$position[i] == 0) {
       # If position is flat, reset PnL type to "U"
       data$pnlActiveType[i] <- "U"
@@ -768,6 +790,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       }
     }
     
+    # Calculate PnL and portfolio value (account size evolution)
     eqlActive <- round(eqlActive + data$pnlActive[i], 2)
     data$eqlActive[i] <- if (eqlActive < 0) 0 else eqlActive
     data$eqlActive[i] <- eqlActive
@@ -928,11 +951,17 @@ estimate_trading_profile = function(data_subset, strategy_type) {
     mutate(cum_max_eql = cummax(get(eql_col)), 
           drawdown = (get(eql_col) - cum_max_eql) / cum_max_eql)
 
-  peak_idx <- which.max(drawdown_data[[eql_col]][1:which.min(drawdown_data$drawdown)])  # Peak before max drawdown
-  trough_idx <- which.min(drawdown_data$drawdown)  # Trough for max drawdown
+  # Check if 'drawdown' column is empty or has valid values
+  if (length(drawdown_data$drawdown) > 0 && !all(is.na(drawdown_data$drawdown))) {
+    peak_idx <- which.max(drawdown_data[[eql_col]][1:which.min(drawdown_data$drawdown)])  # Peak before max drawdown
+    trough_idx <- which.min(drawdown_data$drawdown)  # Trough for max drawdown
 
-  StartDateMaxDrawdown <- as.Date(drawdown_data$Date[peak_idx])
-  EndDateMaxDrawdown <- as.Date(drawdown_data$Date[trough_idx])
+    StartDateMaxDrawdown <- as.Date(drawdown_data$Date[peak_idx])
+    EndDateMaxDrawdown <- as.Date(drawdown_data$Date[trough_idx])
+  } else {
+    StartDateMaxDrawdown <- NA
+    EndDateMaxDrawdown <- NA
+  }
 
   # 22. Length of maximum drawdown period (in days)
   if (length(StartDateMaxDrawdown) == 0 || length(EndDateMaxDrawdown) == 0) {
@@ -954,17 +983,23 @@ estimate_trading_profile = function(data_subset, strategy_type) {
     mutate(cum_min_eql = cummin(get(eql_col)),
           run_up = (get(eql_col) - cum_min_eql) / cum_min_eql)
 
-  # Identify the peak (maximum run-up) and trough (start of run-up)
-  trough_idx_run_up <- which.min(run_up_data[[eql_col]])  # Trough before the run-up
-  peak_idx_run_up <- which.max(run_up_data$run_up)  # Peak during the run-up
+  # Check if 'run_up' column is empty or has valid values
+  if (length(run_up_data$run_up) > 0 && !all(is.na(run_up_data$run_up))) {
+    # Identify the trough (start of run-up) and peak (maximum run-up)
+    trough_idx_run_up <- which.min(run_up_data[[eql_col]])  # Trough before the run-up
+    peak_idx_run_up <- which.max(run_up_data$run_up)  # Peak during the run-up
 
-  # Ensure that the peak happens after the trough
-  if (peak_idx_run_up < trough_idx_run_up) {
-    peak_idx_run_up <- which.max(run_up_data$run_up[trough_idx_run_up:length(run_up_data$run_up)]) + trough_idx_run_up - 1
+    # Ensure that the peak happens after the trough
+    if (peak_idx_run_up < trough_idx_run_up) {
+      peak_idx_run_up <- which.max(run_up_data$run_up[trough_idx_run_up:length(run_up_data$run_up)]) + trough_idx_run_up - 1
+    }
+
+    StartDateMaxRunUp <- as.Date(run_up_data$Date[trough_idx_run_up])
+    EndDateMaxRunUp <- as.Date(run_up_data$Date[peak_idx_run_up])
+  } else {
+    StartDateMaxRunUp <- NA
+    EndDateMaxRunUp <- NA
   }
-
-  StartDateMaxRunUp <- as.Date(run_up_data$Date[trough_idx_run_up])
-  EndDateMaxRunUp <- as.Date(run_up_data$Date[peak_idx_run_up])
 
   # 25. Length of maximum run-up period (in days)
   if (length(StartDateMaxRunUp) == 0 || length(EndDateMaxRunUp) == 0) {
@@ -1106,7 +1141,9 @@ generate_signals = function() {
                             na.omit
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, 
+leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE,
+run_via_cpp) {
   # Create an empty list to store results
   results <- list()
 
@@ -1149,7 +1186,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- sma_instance$estimate_performance(
@@ -1166,7 +1204,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL

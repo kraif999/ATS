@@ -8,16 +8,16 @@ All strategies are built using the R6 class system, which provides a modular and
 
 Choose an instrument, a strategy, a trading horizon, specify the strategy specific parameters and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently and strictly invested using that strategy signals with no emotions involved. 
 The algorithm executes the strategy and calculates the number of positions, PnL, and equity curves based on the daily positions.
-If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event.
+If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event. Also, there is an option to dynamically shift stop loss in a case of a favourable price move given the position.
 Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R).*
 
-There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations.
+There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations and chosen risk management rules.
 
 ---
 
 ## Design  
 
-The process is to first check a strategy on *in_sample data* (multimarket and multiperiod), then if results are promising, check it on *out_of_sample* data.
+The entire framework is written in R. The method apply_risk_management() has a C++ implementation, apply_risk_management_cpp(), integrated for execution speed increase for run_backtest() calls.
 
 The high-level structure looks like this:  
 
@@ -60,7 +60,7 @@ flowchart LR
     other --> alpha1[AlphaEngine: counter-trend trading]
 ```
 
-See below example of classes design in R.
+Below is the structure of classes (example with GARCH).
 
 ```mermaid
 classDiagram
@@ -117,9 +117,10 @@ classDiagram
         + realized_vol
         + cluster
         + initialize(data, specification, n_start, refit_every, refit_window, distribution_model, realized_vol, cluster) : Initializes the GARCH object.
-        + estimate_realized_volatility(data) : Estimates realized volatility by different approaches.
-        + generate_signals() : Specifies signal criteria based on GARCH model volatility forecasts.
-        + run_backtest(symbols, specifications, n_starts, refits_every, refit_windows, distribution_models, realized_vols, output_df) : Runs a backtest for GARCH-based strategy.
+        + generate_signals() : specifies signal criteria based on GARCH model volatility forecasts.
+        + run_backtest(symbols, specifications, n_starts, refits_every, refit_windows, distribution_models, realized_vols, output_df) : runs a backtest for GARCH-based strategy.
+        - estimate_realized_volatility(data) : estimates realized volatility by different approaches.
+        - set_signal_criteria(volData) : helper function for signal generation.
     }
 
     Strategy --|> GARCH
@@ -127,6 +128,8 @@ classDiagram
 ```
 
 Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Exponential Moving Average (SMA) 116-day window)*. Risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3. No leverage is applied.
+
+The process is to first check a strategy on *in_sample data* (multimarket and multiperiod), then if results are promising, check it on *out_of_sample* data.
 
 **The dynamics of invested capital:**  
 

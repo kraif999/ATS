@@ -2,3 +2,4 @@ bin/
 .RData
 .Rhistory
 .DS_Store
+.vscode/
