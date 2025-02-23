@@ -24,6 +24,3 @@ library(TTR)
 library(forecast)
 library(gridExtra)
 library(stringr)
-library(profvis)
-library(Rcpp)
-
