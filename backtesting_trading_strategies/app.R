@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Oleh Bilyk
 
 # Load libraries
-source("libraries.R")
+source("backtesting_trading_strategies/libraries.R")
 
 # Load strategies
-source("strategies.R")
+source("backtesting_trading_strategies/strategies.R")
 options(scipen = 999)
 
 options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
@@ -250,8 +250,8 @@ ui <- fluidPage(
         "Risk Management"
       ),
       checkboxInput("apply_rm", "Apply risk management", value = TRUE),
-      checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = TRUE),
-      checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = FALSE),
+      checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = FALSE),
+      checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = TRUE),
       numericInput("max_risk", "Maximum risk", value = 0.1),
       numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
 
@@ -421,7 +421,8 @@ server <- function(input, output, session) {
       flat_after_event = input$flat_after_event,
       dynamic_limits = input$dynamic_limits,
       max_risk = input$max_risk,
-      reward_ratio = input$reward_ratio
+      reward_ratio = input$reward_ratio,
+      run_via_cpp = TRUE
     )
     
     print("Tail view:")

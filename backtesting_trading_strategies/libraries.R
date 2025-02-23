@@ -24,3 +24,8 @@ library(TTR)
 library(forecast)
 library(gridExtra)
 library(stringr)
+library(profvis)
+library(Rcpp)
+
+# Source C++ version of apply_risk_management() for execution speed increase
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
