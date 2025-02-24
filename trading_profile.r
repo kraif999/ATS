@@ -1176,6 +1176,8 @@ run_via_cpp) {
 # Example of Strategy instance (SMA1)
 source("backtesting_trading_strategies/strategies.R")
 Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
+
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
 sma1$estimate_range_potential(n=14)
@@ -1196,7 +1198,7 @@ sma1_res_in_sample <- t(
   dynamic_limits = dynamic_limits,
   max_risk = 0.1, 
   reward_ratio = 3,
-  run_via_cpp = FALSE
+  run_via_cpp = TRUE
     )
   )
 
@@ -1251,21 +1253,22 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   ma_types = c("SMA", "EMA"), 
-  window_sizes = round(10 * (1.25 ^ (0:13))),
+  window_sizes = round(10 * (1.15 ^ (0:20))),
   leverages = seq(1, 2, by = 1),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
   max_risks = 0.1,
   reward_ratios = seq(3,7, by = 4),
-  output_df = TRUE
+  output_df = TRUE,
+  run_via_cpp = TRUE
 )
 
 #fwrite(btc_sma1_in_sample_no_split, "/bin/res_sma1_btc.csv")
 btc_sma1_in_sample_no_split <- fread("bin/res_sma1_btc.csv")
 
 # Backtest visualization
-ggplot(btc_sma1_in_sample_no_split %>% filter(leverage == 2), aes(x = Window_Size, y = `Annualized Profit`)) +
+ggplot(btc_sma1_in_sample_no_split, aes(x = Window_Size, y = `Annualized Profit`)) +
   geom_point(aes(color = MA_Type, shape = MA_Type), size = 3, alpha = 0.6) +  # Points with different shapes and colors for each MA_Type
   geom_smooth(method = "loess", se = FALSE, color = "red") +  # Single smooth line
   scale_color_manual(values = c("SMA" = "blue", "EMA" = "green", "WMA" = "purple")) +  # Custom colors for each MA_Type
