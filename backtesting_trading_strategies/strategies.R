@@ -190,6 +190,7 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
     signal <- self$data$signal
     position <- self$data$position
     position[1] <- 0
+
     # Call C++ function version
     self$data <- apply_risk_management_cpp(Date, Close, High, Low, value, signal, position, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits)
     } else 
@@ -301,6 +302,16 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
   # Adding additional metrics (annualized volatility, cumulative daily PnL, and portfolio daily return)
   ########################################################################################################################
   setDT(self$data)
+
+  # Define unique trade id including position close (pnlActiveType == "R")
+  self$data$trade_id <- cumsum(c(0, diff(self$data$position) != 0))
+  
+  # Copy trade_id to trade_id_m
+  self$data$trade_id_m <- self$data$trade_id
+  
+  # Update trade_id_m where pnlActiveType == "R"
+  self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
+
   self$data <- self$data %>%
     mutate(
       annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(365),
@@ -368,14 +379,6 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
 
 # Microscopic level (tabular list of all trades)
 get_trades = function(apply_rm) {
-
-  self$data$trade_id <- cumsum(c(0, diff(self$data$position) != 0))
-  
-  # Copy trade_id to trade_id_m
-  self$data$trade_id_m <- self$data$trade_id
-  
-  # Update trade_id_m where pnlActiveType == "R"
-  self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
   
   # Initialize event as FALSE if not already set
   if (apply_rm) {
@@ -838,7 +841,7 @@ estimate_trading_profile = function(data_subset, strategy_type) {
   AnnualizedProfit <- round(as.numeric(Return.annualized(as.numeric(na.omit(data_subset[[r_col]])), scale = 252, geometric = TRUE) * 100), 2)
 
   # 2. Number of Trades per Year
-  NumberOfTradesPerYear <- round((if (strategy_type == "Active") sum(diff(data_subset$position) != 0) + 1 else 1) / 
+  NumberOfTradesPerYear <- round((if (strategy_type == "Active") sum(diff(data_subset$trade_id_m) != 0) + 1 else 1) / 
                                 length(unique(format(data_subset$Date, "%Y"))), 0)
 
   # 3. Percentage of Winning Trades
@@ -854,7 +857,7 @@ estimate_trading_profile = function(data_subset, strategy_type) {
                               as.numeric(max(Date) - min(Date) + 1))
 
   # 6. Average Win
-  AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 0)
+  AverageWin <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] > 0], na.rm = TRUE), 2)
 
   # 7. Length of Average Win
   AverageWinLength <- tryCatch({data_subset %>%
@@ -874,7 +877,7 @@ estimate_trading_profile = function(data_subset, strategy_type) {
                               as.numeric(max(Date) - min(Date) + 1))
 
   # 10. Average Loss
-  AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE),0)
+  AverageLoss <- round(mean(data_subset[[pnl_col]][data_subset[[pnl_col]] < 0], na.rm = TRUE), 2)
 
   # 11. Length of Average Loss
   AverageLossLength <- tryCatch({data_subset %>%
@@ -1010,6 +1013,8 @@ estimate_trading_profile = function(data_subset, strategy_type) {
     LengthOfMaxRunUp <- as.numeric(EndDateMaxRunUp - StartDateMaxRunUp)
   }
 
+  ExpectedAbsoluteReturn = round((AverageWin + AverageLoss) * PercentageOfWinningTrades, 2)
+
   # Return the metrics as a list
   return(
     list(
@@ -1040,7 +1045,8 @@ estimate_trading_profile = function(data_subset, strategy_type) {
       MaxRunUp = MaxRunUp,
       StartDateMaxRunUp = as.Date(StartDateMaxRunUp),
       EndDateMaxRunUp = as.Date(EndDateMaxRunUp),
-      LengthOfMaxRunUp = LengthOfMaxRunUp
+      LengthOfMaxRunUp = LengthOfMaxRunUp,
+      ExpectedAbsoluteReturn = ExpectedAbsoluteReturn
     )
   )
 },
@@ -1048,22 +1054,19 @@ estimate_trading_profile = function(data_subset, strategy_type) {
 # Risk and return performance metrics
 compute_metrics = function(data_subset, symbol, run_via_cpp) {
     
-  # Metrics for Active strategy
-  active <- if (run_via_cpp) {
-    estimate_trading_profile_cpp(data_subset, "Active")
-  } else {
-    private$estimate_trading_profile(data_subset, "Active")
-  }
+    # Metrics for Active strategy
+    active <- if (run_via_cpp) {
+      estimate_trading_profile_cpp(data_subset, "Active")
+    } else {
+      private$estimate_trading_profile(data_subset, "Active")
+    }
 
-  # Metrics for Passive strategy
-  passive <- if (run_via_cpp) {
-    estimate_trading_profile_cpp(data_subset, "Passive")
-  } else {
-    private$estimate_trading_profile(data_subset, "Passive")
-  }
-
-# active <- private$estimate_trading_profile(data_subset, "Active")
-# passive <- private$estimate_trading_profile(data_subset, "Passive")
+    # Metrics for Passive strategy
+    passive <- if (run_via_cpp) {
+      estimate_trading_profile_cpp(data_subset, "Passive")
+    } else {
+      private$estimate_trading_profile(data_subset, "Passive")
+    }
 
   metrics_df <- data.frame(
     Strategy = c("Active", "Passive"),  
@@ -1073,16 +1076,16 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
     `Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
     `Annualized Profit` = c(active$AnnualizedProfit, passive$AnnualizedProfit),
     `Expected Absolute Return` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
+    `Largest Win` = c(active$LargestWin, passive$LargestWin),
+    `Max Run Up` = c(active$MaxRunUp, passive$MaxRunUp),
+    `Average Win` = c(active$AverageWin, passive$AverageWin),
+    `Length of Average Win` = c(active$LengthOfAverageWin, passive$LengthOfAverageWin),
 
     # Risk Metrics
     `Max Drawdown` = c(active$MaxDrawdown, passive$MaxDrawdown),
     `Largest Loss` = c(active$LargestLoss, passive$LargestLoss),
     `Average Loss` = c(active$AverageLoss, passive$AverageLoss),
     `Length of Average Loss` = c(active$LengthOfAverageLoss, passive$LengthOfAverageLoss),
-    `Average Win` = c(active$AverageWin, passive$AverageWin),
-    `Length of Average Win` = c(active$LengthOfAverageWin, passive$LengthOfAverageWin),
-    `Average Winning Run` = c(active$AverageWinningRun, passive$AverageWinningRun),
-    `Average Losing Run` = c(active$AverageLosingRun, passive$AverageLosingRun),
 
     # Activity Metrics
     `Number of Trades Per Year` = c(active$NumberOfTradesPerYear, 0),

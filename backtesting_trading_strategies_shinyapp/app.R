@@ -456,7 +456,7 @@ server <- function(input, output, session) {
     trading_profile[, units := ifelse(
       .I <= 5 | Metric %in% c("max_risk", "Strategy", "Number of Trades Per Year", "reward_ratio"), "",
       ifelse(
-        Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run-Up"), "%",
+        Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
         ifelse(
           Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
                         "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", "Length of Time in Largest Losing Run", 

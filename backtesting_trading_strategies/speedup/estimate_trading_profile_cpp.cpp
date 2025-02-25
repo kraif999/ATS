@@ -3,13 +3,19 @@
 #include <numeric>  // For std::partial_sum
 using namespace Rcpp;
 
-// Helper function to extract years from Date vector
+// [[Rcpp::export]]
 IntegerVector extract_years(NumericVector date_vec) {
-  IntegerVector years(date_vec.size());
-  for (int i = 0; i < date_vec.size(); i++) {
-    years[i] = static_cast<int>(date_vec[i] / 10000); // Assuming date is stored as YYYYMMDD
-  }
-  return years;
+    std::set<int> unique_years;
+    
+    for (double date : date_vec) {
+        // Convert numeric date to Date object
+        Date dt = Date(date);
+        int year = dt.getYear(); // Extract year
+        unique_years.insert(year);
+    }
+
+    // Convert set to IntegerVector
+    return IntegerVector(unique_years.begin(), unique_years.end());
 }
 
 // Custom lag function
@@ -22,20 +28,6 @@ IntegerVector lag_custom(IntegerVector vec, int lag_val = 1) {
   return result;
 }
 
-IntegerVector rle_lengths(LogicalVector x, bool value) {
-    IntegerVector lengths;
-    int count = 0;
-    for (int i = 0; i < x.size(); i++) {
-        if (x[i] == value) {
-            count++;
-        } else if (count > 0) {
-            lengths.push_back(count);
-            count = 0;
-        }
-    }
-    if (count > 0) lengths.push_back(count); // Add last run if still counting
-    return lengths;
-}
 
 // [[Rcpp::export]]
 List calculateDrawdown(NumericVector equity, NumericVector dates) {
@@ -137,188 +129,143 @@ List calculateMaxRunUp(NumericVector equity, NumericVector dates) {
     );
 }
 
+// Function to calculate Length of Average Win
+double calculateLengthOfAverageWin(IntegerVector trade_id, NumericVector pnl_col, NumericVector date_vec) {
+    std::map<int, std::vector<int>> trade_dates_map;
+    std::map<int, double> trade_pnls_map;
+
+    // Group by trade_id and store the dates and PnL for each trade
+    for (int i = 0; i < trade_id.size(); i++) {
+        if (pnl_col[i] > 0) { // Only consider positive PnL for wins
+            trade_dates_map[trade_id[i]].push_back(i);  // Store the index of the date
+            trade_pnls_map[trade_id[i]] += pnl_col[i];  // Aggregate PnL for each trade
+        }
+    }
+
+    // Calculate the length of each winning trade
+    std::vector<int> win_lengths;
+    for (const auto& trade : trade_dates_map) {
+        if (trade_pnls_map[trade.first] > 0) {  // Only consider winning trades
+            // Calculate the length of the win (difference between first and last date of the trade)
+            int length_of_win = date_vec[trade.second.back()] - date_vec[trade.second.front()] + 1;
+            win_lengths.push_back(length_of_win);
+        }
+    }
+
+    // Calculate the average length of wins
+    if (win_lengths.empty()) return NA_REAL;
+
+    double sum_lengths = std::accumulate(win_lengths.begin(), win_lengths.end(), 0.0);
+    return std::round(sum_lengths / win_lengths.size());
+}
+
+// Function to calculate Length of Average Loss
+double calculateLengthOfAverageLoss(IntegerVector trade_id, NumericVector pnl_col, NumericVector date_vec) {
+    std::map<int, std::vector<int>> trade_dates_map;
+    std::map<int, double> trade_pnls_map;
+
+    // Group by trade_id and store the dates and PnL for each trade
+    for (int i = 0; i < trade_id.size(); i++) {
+        if (pnl_col[i] < 0) { // Only consider negative PnL for losses
+            trade_dates_map[trade_id[i]].push_back(i);  // Store the index of the date
+            trade_pnls_map[trade_id[i]] += pnl_col[i];  // Aggregate PnL for each trade
+        }
+    }
+
+    // Calculate the length of each losing trade
+    std::vector<int> loss_lengths;
+    for (const auto& trade : trade_dates_map) {
+        if (trade_pnls_map[trade.first] < 0) {  // Only consider losing trades
+            // Calculate the length of the loss (difference between first and last date of the trade)
+            int length_of_loss = date_vec[trade.second.back()] - date_vec[trade.second.front()] + 1;
+            loss_lengths.push_back(length_of_loss);
+        }
+    }
+
+    // Calculate the average length of losses
+    if (loss_lengths.empty()) return NA_REAL;
+
+    double sum_lengths = std::accumulate(loss_lengths.begin(), loss_lengths.end(), 0.0);
+    return std::round(sum_lengths / loss_lengths.size());
+}
+
 // [[Rcpp::export]]
 List estimate_trading_profile_cpp(DataFrame data_subset, std::string strategy_type) {
-    NumericVector date_vec = data_subset["Date"];
-    IntegerVector position = data_subset["position"];
-    NumericVector pnl_col = data_subset[(strategy_type == "Active") ? "pnlActive" : "pnlPassive"];
-    NumericVector eql_col = data_subset[(strategy_type == "Active") ? "eqlActive" : "eqlPassive"];
-    NumericVector r_col = data_subset[(strategy_type == "Active") ? "r_eqlActive" : "r_eqlPassive"];
-    
-    // Gross profit
-    NumericVector eql_col_clean = na_omit(eql_col);
-    double GrossProfit = eql_col_clean.size() > 0 ? std::round(eql_col_clean[eql_col_clean.size() - 1] - eql_col_clean[0]) : NA_REAL;
-    
-    // // Annualized profit
-    // NumericVector r_col_clean = na_omit(r_col);
-    // double annualized_return = (r_col_clean.size() > 0) ? (pow(1 + mean(r_col_clean), 252) - 1) * 100 : NA_REAL;
-    // double AnnualizedProfit = std::round(annualized_return * 100) / 100; // Ensure two decimal precision
-    
-    // // Number of trades per year
-    // IntegerVector years = extract_years(date_vec);
-    // int num_years = unique(years).size();
-    // int NumberOfTradesPerYear = std::round((strategy_type == "Active" ? sum(diff(position) != 0) + 1 : 1) / static_cast<double>(num_years));
-    
-    // Annualized profit
-    NumericVector r_col_clean = na_omit(r_col);
-    double mean_daily_return = (r_col_clean.size() > 0) ? mean(r_col_clean) : NA_REAL;
-    double annualized_return = (!R_IsNA(mean_daily_return)) ? (pow(1 + mean_daily_return, 252) - 1) * 100 : NA_REAL;
-    double AnnualizedProfit = std::round(annualized_return * 100) / 100; // Ensure two decimal precision
+NumericVector date_vec = data_subset["Date"];
+IntegerVector position = data_subset["position"];
+IntegerVector trade_id_m = data_subset["trade_id_m"];
+NumericVector pnl_col = data_subset[(strategy_type == "Active") ? "pnlActive" : "pnlPassive"];
+NumericVector eql_col = data_subset[(strategy_type == "Active") ? "eqlActive" : "eqlPassive"];
+NumericVector r_col = data_subset[(strategy_type == "Active") ? "r_eqlActive" : "r_eqlPassive"];
 
-    // Number of trades per year
-    IntegerVector years = extract_years(date_vec);
-    int num_years = unique(years).size();
-    int trade_changes = sum(diff(position) != 0);  // Count position changes (entries/exits)
-    int NumberOfTradesPerYear = (num_years > 0) ? std::round(trade_changes / static_cast<double>(num_years)) : NA_INTEGER;
+// Gross profit
+NumericVector eql_col_clean = na_omit(eql_col);
+double GrossProfit = eql_col_clean.size() > 0 ? std::round(eql_col_clean[eql_col_clean.size() - 1] - eql_col_clean[0]) : NA_REAL;
 
+// Annualized profit
+NumericVector r_col_clean = na_omit(r_col);
+double annualized_return = (r_col_clean.size() > 0) ? (exp(sum(log(1 + r_col_clean)) / r_col_clean.size() * 252) - 1) * 100 : NA_REAL;
+double AnnualizedProfit = std::round(annualized_return * 100) / 100;
 
-    // Percentage of winning trades
-    LogicalVector position_change = position != lag_custom(position, 1);  // Position change
-    IntegerVector trade_id(position_change.size());
-    
-    // Manually convert LogicalVector to IntegerVector
-    for (int i = 0; i < position_change.size(); i++) {
-      trade_id[i] = position_change[i] ? 1 : 0;  // Convert TRUE to 1, FALSE to 0
-    }
-    
-    IntegerVector trade_id_cumsum(trade_id.size());
-    
-    // Use std::partial_sum to accumulate the trade_id changes
-    std::partial_sum(trade_id.begin(), trade_id.end(), trade_id_cumsum.begin());
-    
-    NumericVector aggregated_pnl(trade_id_cumsum.size());
-    std::map<int, double> trade_pnl_map;
-    for (int i = 0; i < trade_id_cumsum.size(); i++) {
-      trade_pnl_map[trade_id_cumsum[i]] += pnl_col[i];
-    }
-    int winning_trades = 0;
-    for (const auto& trade : trade_pnl_map) {
-      if (trade.second > 0) winning_trades++;
-    }
-    double PercentageOfWinningTrades = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
-    
-    // Largest win
-    double LargestWin = std::round(max(na_omit(pnl_col)));
-    
-    // Length of largest win
-    int max_pnl_index = which_max(pnl_col);
-    int trade_id_of_max = trade_id_cumsum[max_pnl_index];
-    LogicalVector trade_filter = trade_id_cumsum == trade_id_of_max;
-    NumericVector trade_dates = date_vec[trade_filter];
-    int LengthOfLargestWin = trade_dates.size() > 0 ? std::round(max(trade_dates) - min(trade_dates) + 1) : NA_INTEGER;
-    
-    // Average win
-    NumericVector positive_pnls = pnl_col[pnl_col > 0];
-    double AverageWin = NA_REAL;
-    if (positive_pnls.size() > 0) {
-        // Manually calculate the mean
-        double sum_positive_pnls = std::accumulate(positive_pnls.begin(), positive_pnls.end(), 0.0);
-        AverageWin = std::round(sum_positive_pnls / positive_pnls.size());
-    }
+// Number of trades per year
+IntegerVector years = extract_years(date_vec);
+int num_years = unique(years).size();
+// int trade_changes = sum(diff(position) != 0);  // Count position changes
+int trade_changes = sum(diff(trade_id_m) != 0);  // Count position changes
 
-    // Average loss
-    NumericVector negative_pnls = pnl_col[pnl_col < 0];
-    double AverageLoss = NA_REAL;
-    if (negative_pnls.size() > 0) {
-        // Manually calculate the mean for negative values
-        double sum_negative_pnls = std::accumulate(negative_pnls.begin(), negative_pnls.end(), 0.0);
-        AverageLoss = std::round(sum_negative_pnls / negative_pnls.size());
-    }
+// Add +1 like R to avoid zero division or missing count
+int NumberOfTradesPerYear = (num_years > 0) ? std::round((trade_changes + 1) / static_cast<double>(num_years)) : NA_INTEGER;
 
-    // Length of Average Win
-    NumericVector cumulative_pnls = cumsum(pnl_col); // Calculate cumulative pnl
-    NumericVector positive_cumsum = cumulative_pnls[cumulative_pnls > 0];
-    double LengthOfAverageWin = NA_REAL;
-    if (positive_cumsum.size() > 0) {
-        double sum_length = std::accumulate(positive_cumsum.begin(), positive_cumsum.end(), 0.0);
-        LengthOfAverageWin = std::round(sum_length / positive_cumsum.size());
-    }
+// Percentage of winning trades
+LogicalVector position_change = position != lag_custom(position, 1);  // Position change
+IntegerVector trade_id(position_change.size());
 
-    // Length of Average Loss
-    NumericVector negative_cumsum = cumulative_pnls[cumulative_pnls < 0];
-    double LengthOfAverageLoss = NA_REAL;
-    if (negative_cumsum.size() > 0) {
-        double sum_length_loss = std::accumulate(negative_cumsum.begin(), negative_cumsum.end(), 0.0);
-        LengthOfAverageLoss = std::round(sum_length_loss / negative_cumsum.size());
-    }
+// Manually convert LogicalVector to IntegerVector
+for (int i = 0; i < position_change.size(); i++) {
+    trade_id[i] = position_change[i] ? 1 : 0;  // Convert TRUE to 1, FALSE to 0
+}
+
+IntegerVector trade_id_cumsum(trade_id.size());
+
+// Use std::partial_sum to accumulate the trade_id changes
+std::partial_sum(trade_id.begin(), trade_id.end(), trade_id_cumsum.begin());
+
+NumericVector aggregated_pnl(trade_id_cumsum.size());
+std::map<int, double> trade_pnl_map;
+for (int i = 0; i < trade_id_cumsum.size(); i++) {
+    trade_pnl_map[trade_id_cumsum[i]] += pnl_col[i];
+}
+int winning_trades = 0;
+for (const auto& trade : trade_pnl_map) {
+    if (trade.second > 0) winning_trades++;
+}
+double PercentageOfWinningTrades = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
+
+// Largest win
+double LargestWin = std::round(max(na_omit(pnl_col)));
+
+// Average win
+NumericVector positive_pnls = pnl_col[pnl_col > 0];
+double AverageWin = NA_REAL;
+if (positive_pnls.size() > 0) {
+    // Manually calculate the mean
+    double sum_positive_pnls = std::accumulate(positive_pnls.begin(), positive_pnls.end(), 0.0);
+    AverageWin = std::round((sum_positive_pnls / positive_pnls.size()) * 100.0) / 100.0;
+}
+
+// Average loss
+NumericVector negative_pnls = pnl_col[pnl_col < 0];
+double AverageLoss = NA_REAL;
+if (negative_pnls.size() > 0) {
+    // Manually calculate the mean for negative values
+    double sum_negative_pnls = std::accumulate(negative_pnls.begin(), negative_pnls.end(), 0.0);
+    AverageLoss = std::round((sum_negative_pnls / negative_pnls.size()) * 100.0) / 100.0;
+}
 
 
 // Largest loss
 double LargestLoss = std::round(min(na_omit(pnl_col)));  // Find the minimum pnl value
 
-// Length of largest loss
-int min_pnl_index = which_min(pnl_col);  // Find index of minimum pnl
-int trade_id_of_min = trade_id_cumsum[min_pnl_index];  // Get trade_id at this index
-LogicalVector trade_filter_loss = trade_id_cumsum == trade_id_of_min;  // Filter for the trade
-NumericVector trade_dates_loss = date_vec[trade_filter_loss];  // Dates for the specific trade
-int LengthOfLargestLoss = trade_dates_loss.size() > 0 ? std::round(max(trade_dates_loss) - min(trade_dates_loss) + 1) : NA_INTEGER;  // Calculate the length of the loss
-
-// Winning runs
-LogicalVector is_winning = pnl_col > 0;
-IntegerVector winning_run_lengths = rle_lengths(is_winning, true);
-NumericVector winning_runs = na_omit(as<NumericVector>(winning_run_lengths));
-
-// 12. Average Winning Run
-double AverageWinningRun = winning_runs.size() > 0 ? round(mean(winning_runs)) : NA_REAL;
-
-// 13. Largest Winning Run
-double LargestWinningRun = winning_runs.size() > 0 ? max(winning_runs) : NA_REAL;
-
-// 14. Length of Time in Largest Winning Run
-int largest_run_index = which_max(winning_runs);
-int largest_run_start = sum(head(winning_run_lengths, largest_run_index)) + 1;
-int largest_run_end = largest_run_start + LargestWinningRun - 1;
-double LengthOfTimeInLargestWinningRun = largest_run_start > 0 && largest_run_end > 0
-    ? round(max(date_vec[Range(largest_run_start - 1, largest_run_end - 1)]) - 
-            min(date_vec[Range(largest_run_start - 1, largest_run_end - 1)]) + 1)
-    : NA_REAL;
-
-// 15. Length of Time in Average Winning Run
-NumericVector winning_run_lengths_time(winning_runs.size());
-for (int i = 0; i < winning_runs.size(); i++) {
-    int start = sum(head(winning_run_lengths, i)) + 1;
-    int end = start + winning_runs[i] - 1;
-    winning_run_lengths_time[i] = end > start 
-        ? round(max(date_vec[Range(start - 1, end - 1)]) - min(date_vec[Range(start - 1, end - 1)]) + 1) 
-        : NA_REAL;
-}
-double LengthOfTimeInAverageWinningRun = winning_run_lengths_time.size() > 0 
-    ? round(mean(na_omit(winning_run_lengths_time))) 
-    : NA_REAL;
-
-// Losing runs
-LogicalVector is_losing = pnl_col < 0;
-IntegerVector losing_run_lengths = rle_lengths(is_losing, true);
-NumericVector losing_runs = na_omit(as<NumericVector>(losing_run_lengths));
-
-// 16. Average Losing Run
-double AverageLosingRun = losing_runs.size() > 0 ? round(mean(losing_runs)) : NA_REAL;
-
-// 17. Length of Time in Average Losing Run
-NumericVector losing_run_lengths_time(losing_runs.size());
-for (int i = 0; i < losing_runs.size(); i++) {
-    int start = sum(head(losing_run_lengths, i)) + 1;
-    int end = start + losing_runs[i] - 1;
-    losing_run_lengths_time[i] = end > start 
-        ? round(max(date_vec[Range(start - 1, end - 1)]) - min(date_vec[Range(start - 1, end - 1)]) + 1) 
-        : NA_REAL;
-}
-double LengthOfTimeInAverageLosingRun = losing_run_lengths_time.size() > 0 
-    ? round(mean(na_omit(losing_run_lengths_time))) 
-    : NA_REAL;
-
-// 18. Largest Losing Run
-double LargestLosingRun = losing_runs.size() > 0 ? max(losing_runs) : NA_REAL;
-
-// 19. Length of Time in Largest Losing Run
-int largest_loss_run_index = which_max(losing_runs);
-int largest_loss_run_start = sum(head(losing_run_lengths, largest_loss_run_index)) + 1;
-int largest_loss_run_end = largest_loss_run_start + LargestLosingRun - 1;
-double LengthOfLargestLosingRun = largest_loss_run_start > 0 && largest_loss_run_end > 0
-    ? round(max(date_vec[Range(largest_loss_run_start - 1, largest_loss_run_end - 1)]) - 
-            min(date_vec[Range(largest_loss_run_start - 1, largest_loss_run_end - 1)]) + 1)
-    : 0;
-    
 // Compute Max Drawdown
 List drawdownResults = calculateDrawdown(eql_col, date_vec);
 double MaxDrawdown = drawdownResults["MaxDrawdown"];
@@ -329,40 +276,24 @@ int LengthOfMaxDrawdown = drawdownResults["LengthOfMaxDrawdown"];
 // Compute Max Run-Up
 List maxRunUpResults = calculateMaxRunUp(eql_col, date_vec);
 double MaxRunUp = maxRunUpResults["MaxRunUp"];
-double StartDateMaxRunUp = maxRunUpResults["StartDateMaxRunUp"];
-double EndDateMaxRunUp = maxRunUpResults["EndDateMaxRunUp"];
-int LengthOfMaxRunUp = maxRunUpResults["LengthOfMaxRunUp"];
+double ExpectedAbsoluteReturn = std::round(((PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss)) * 100.0) / 100.0;
 
-double ExpectedAbsoluteReturn = (PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss);
+// Compute Length of Average Win
+double LengthOfAverageWin = calculateLengthOfAverageWin(trade_id_cumsum, pnl_col, date_vec);
+double LengthOfAverageLoss = calculateLengthOfAverageLoss(trade_id_cumsum, pnl_col, date_vec);
 
 // Add new metrics to the return list
 return List::create(Named("GrossProfit") = GrossProfit,
-                    Named("AnnualizedProfit") = AnnualizedProfit,
-                    Named("NumberOfTradesPerYear") = NumberOfTradesPerYear,
-                    Named("ExpectedAbsoluteReturn") = ExpectedAbsoluteReturn,
-                    Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
-                    Named("LargestWin") = LargestWin,
-                    Named("LengthOfLargestWin") = LengthOfLargestWin,
-                    Named("AverageWin") = AverageWin,
-                    Named("AverageLoss") = AverageLoss,
-                    Named("LengthOfAverageWin") = LengthOfAverageWin,
-                    Named("LengthOfAverageLoss") = LengthOfAverageLoss,
-                    Named("LargestLoss") = LargestLoss,
-                    Named("LengthOfLargestLoss") = LengthOfLargestLoss,
-                    Named("AverageWinningRun") = AverageWinningRun,
-                    Named("LargestWinningRun") = LargestWinningRun,
-                    Named("LengthOfTimeInLargestWinningRun") = LengthOfTimeInLargestWinningRun,
-                    Named("LengthOfTimeInAverageWinningRun") = LengthOfTimeInAverageWinningRun,
-                    Named("AverageLosingRun") = AverageLosingRun,
-                    Named("LargestLosingRun") = LargestLosingRun,
-                    Named("LengthOfLargestLosingRun") = LengthOfLargestLosingRun,
-                    Named("LengthOfTimeInAverageLosingRun") = LengthOfTimeInAverageLosingRun,
-                    Named("MaxDrawdown") = MaxDrawdown,
-                    Named("StartDateMaxDrawdown") = StartDateMaxDrawdown,
-                    Named("EndDateMaxDrawdown") = EndDateMaxDrawdown,
-                    Named("LengthOfMaxDrawdown") = LengthOfMaxDrawdown,
-                    Named("MaxRunUp") = MaxRunUp,
-                    Named("StartDateMaxRunUp") = StartDateMaxRunUp,
-                    Named("EndDateMaxRunUp") = EndDateMaxRunUp,
-                    Named("LengthOfMaxRunUp") = LengthOfMaxRunUp);
+                Named("AnnualizedProfit") = AnnualizedProfit,
+                Named("NumberOfTradesPerYear") = NumberOfTradesPerYear,
+                Named("ExpectedAbsoluteReturn") = ExpectedAbsoluteReturn,
+                Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
+                Named("LargestWin") = LargestWin,
+                Named("AverageWin") = AverageWin,
+                Named("LengthOfAverageWin") = LengthOfAverageWin,
+                Named("AverageLoss") = AverageLoss,
+                Named("LengthOfAverageLoss") = LengthOfAverageLoss,
+                Named("LargestLoss") = LargestLoss,
+                Named("MaxDrawdown") = MaxDrawdown,
+                Named("MaxRunUp") = MaxRunUp);
 }
