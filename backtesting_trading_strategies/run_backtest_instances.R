@@ -4,7 +4,9 @@ meta <- jsonlite::fromJSON("instr_config.json")
 options(timeout = 9999999)
 
 # Source C++ version of apply_risk_management() for execution speed increase
-Rcpp::sourceCpp("backtesting_trading_strategies/apply_risk_management_cpp.cpp")
+source("backtesting_trading_strategies/strategies.R")
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
 
 # List of assets
 assets <- c(
@@ -19,8 +21,6 @@ assets <- c(
   "CL=F" # Commodities (crude oil)
 )
 
-source("backtesting_trading_strategies/strategies.R")
-Rcpp::sourceCpp("backtesting_trading_strategies/apply_risk_management_cpp.cpp")
 ########################################################################################################################
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'SMA')
 res_in_sma1 <- sma1$run_backtest(
@@ -70,7 +70,8 @@ res_in_sma1 <- sma2$run_backtest(
   dynamics_limits = c(TRUE, FALSE),
   max_risk = c(0.05, 0.1),
   reward_ratios = seq(3, 7, by = 4),
-  output_df = TRUE
+  output_df = TRUE,
+  run_via_cpp = TRUE
 )
 
 fwrite(res_in_sma2, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/res_sma2.csv")

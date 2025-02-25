@@ -17,9 +17,9 @@ There is no such strategy combination that always guarantees highly superior ret
 
 ## Design  
 
-The entire framework is written in R. The method apply_risk_management() has a C++ implementation, apply_risk_management_cpp(), integrated for execution speed increase for run_backtest() calls.
+The framework is built in R, with apply_risk_management() and estimate_trading_profile() optimized using C++ (apply_risk_management_cpp() and estimate_trading_profile_cpp()). These C++ implementations improve execution speed by ~33 times in run_backtest() calls.
 
-The high-level structure looks like this:  
+The high-level structure is as follows:  
 
 - A parent class, **DataFetcher**, has methods to retrieve data from Yahoo (using overlapping daily data).  
 - The **TSA** class analyzes data from various perspectives to understand different data characteristics and patterns.  
