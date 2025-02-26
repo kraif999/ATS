@@ -276,7 +276,7 @@ int LengthOfMaxDrawdown = drawdownResults["LengthOfMaxDrawdown"];
 // Compute Max Run-Up
 List maxRunUpResults = calculateMaxRunUp(eql_col, date_vec);
 double MaxRunUp = maxRunUpResults["MaxRunUp"];
-double ExpectedAbsoluteReturn = std::round(((PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss)) * 100.0) / 100.0;
+double ExpectedAbsoluteReturn = std::round((PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss) * 100) / 100;
 
 // Compute Length of Average Win
 double LengthOfAverageWin = calculateLengthOfAverageWin(trade_id_cumsum, pnl_col, date_vec);

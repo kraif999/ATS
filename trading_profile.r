@@ -42,7 +42,7 @@ sma1_res_in_sample <- t(
   dynamic_limits = dynamic_limits,
   max_risk = 0.1, 
   reward_ratio = 3,
-  run_via_cpp = FALSE
+  run_via_cpp = TRUE
     )
   )
 
@@ -69,8 +69,8 @@ View(sma1_res_in_sample_dt)
 
 dataset <- sma1$data
 dataset <- sma1$data %>% select(
-    Date, Close, position, stopLoss, profitTake, signal, position, pnlActiveType,
-    eventSL, eventPT,
+    Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
+    eventSL, eventPT, eventSLShift,
     nopActive, pnlActive, eqlActive, pnlActiveCumulative, Liquidation)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
