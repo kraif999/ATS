@@ -84,13 +84,14 @@ DataFrame apply_risk_management_cpp(
     if (position[i] != position[i - 1] || (!pnlActiveType[i - 1].empty() && pnlActiveType[i - 1] == "R")) {
 
       nopActive[i] = std::max(0.0, eqlActiveValue * leverage / Close[i]);
-      
+      eqlActiveValue2 = eqlActive[i - 1] + (Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1];
+
       if (position[i] == 1) {
-        stopLossValue = Close[i] - (max_risk * eqlActiveValue / nopActive[i]);
-        profitTakeValue = Close[i] + (reward_ratio * max_risk * eqlActiveValue / nopActive[i]);
+        stopLossValue = Close[i] - (max_risk * eqlActiveValue2 / nopActive[i]);
+        profitTakeValue = Close[i] + (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]);
       } else if (position[i] == -1) {
-        stopLossValue = Close[i] + (max_risk * eqlActiveValue / nopActive[i]);
-        profitTakeValue = Close[i] - (reward_ratio * max_risk * eqlActiveValue / nopActive[i]);
+        stopLossValue = Close[i] + (max_risk * eqlActiveValue2 / nopActive[i]);
+        profitTakeValue = Close[i] - (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]);
       } else {
         stopLossValue = profitTakeValue = NA_REAL;
       }
@@ -104,7 +105,9 @@ DataFrame apply_risk_management_cpp(
         if (position[i] == 0) {
           eqlActiveValue2 = 0;
       } else {
-          eqlActiveValue2 = eqlActive[i - 1] + round((Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1] * 100) / 100.0;
+          //eqlActiveValue2 = eqlActive[i - 1] + round((Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1] * 100) / 100.0;
+          eqlActiveValue2 = eqlActive[i - 1] + (Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1];
+
       }
         equity_growth_factor[i] = (NumericVector::is_na(eqlActiveValue2 / eqlActive[i - 1]) || eqlActive[i - 1] <= 0) 
           ? 1 
@@ -113,12 +116,12 @@ DataFrame apply_risk_management_cpp(
         oldStopLoss[i] = stopLossValue;
         
         if (position[i] == 1) {
-          double new_stopLoss = std::max(stopLossValue, Close[i] - (equity_growth_factor[i] * max_risk * eqlActiveValue / nopActive[i]));
+          double new_stopLoss = std::max(stopLossValue, Close[i] - (equity_growth_factor[i] * max_risk * eqlActiveValue2 / nopActive[i]));
           eventSLShift[i] = (new_stopLoss != stopLossValue);
           stopLossValue = new_stopLoss;
           
         } else if (position[i] == -1) {
-          double new_stopLoss = std::min(stopLossValue, Close[i] + (equity_growth_factor[i] * max_risk * eqlActiveValue / nopActive[i]));
+          double new_stopLoss = std::min(stopLossValue, Close[i] + (equity_growth_factor[i] * max_risk * eqlActiveValue2 / nopActive[i]));
           eventSLShift[i] = (new_stopLoss != stopLossValue);
           stopLossValue = new_stopLoss;
         }
@@ -217,6 +220,7 @@ DataFrame apply_risk_management_cpp(
     Named("signal") = signal,
     Named("position") = position,
     Named("stopLoss") = stopLoss,
+    Named("oldStopLoss") = oldStopLoss,
     Named("profitTake") = profitTake,
     Named("eventSL") = eventSL,
     Named("eventSLShift") = eventSLShift,

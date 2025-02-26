@@ -166,7 +166,7 @@ convert_to_tibble = function(ts) {
 # Macrospopic level (overall performance) - understand the trading profile of a Strategy (inlcuding 0.1% transaction fee)
 estimate_performance = function(symbol, capital, leverage, data_type, split_data, cut_date, window, 
 apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp) {
-  
+
   # Slice self$data using the private slicer method
   self$data <- private$slicer(self$data, cut_date, data_type)
 
@@ -315,8 +315,8 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
   self$data <- self$data %>%
     mutate(
       annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(365),
-      pnlActiveCumulative = cumsum(replace_na(pnlActive, 0)),
-      pnlPassiveCumulative = cumsum(replace_na(pnlPassive, 0)),
+      pnlActiveCumulative = round(cumsum(replace_na(pnlActive, 0)), 2),
+      pnlPassiveCumulative = round(cumsum(replace_na(pnlPassive, 0)), 2),
       r_eqlActive = (eqlActive - lag(eqlActive)) / lag(eqlActive),
       r_eqlPassive = (eqlPassive - lag(eqlPassive)) / lag(eqlPassive)
     )
@@ -669,13 +669,14 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
   # Position change (stop loss and profit take levels calculation)
     if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
       data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
-      
+      eqlActive2 = data$eqlActive[i - 1] + ((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1])
+
       if (data$position[i] == 1) {
-        stopLoss <- data$Close[i] - (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
+        stopLoss <- data$Close[i] - (max_risk * eqlActive2 / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] + (reward_ratio * max_risk * eqlActive2 / data$nopActive[i]))
       } else if (data$position[i] == -1) {
-        stopLoss <- data$Close[i] + (max_risk * eqlActive / data$nopActive[i])
-        profitTake <- max(0, data$Close[i] - (reward_ratio * max_risk * eqlActive / data$nopActive[i]))
+        stopLoss <- data$Close[i] + (max_risk * eqlActive2 / data$nopActive[i])
+        profitTake <- max(0, data$Close[i] - (reward_ratio * max_risk * eqlActive2 / data$nopActive[i]))
       } else {
         stopLoss <- profitTake <- NA
       }
@@ -706,7 +707,8 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
         
         # Only adjust SL/PT if equity increased (favorable move)
         if (data$position[i] == 1) {  # Long
-          new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          # new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_stopLoss <- max(stopLoss, data$Close[i] - (data$equity_growth_factor[i] * max_risk * eqlActive2 / data$nopActive[i]))
           
           # Check if SL or PT were updated
           data$eventSLShift[i] <- (new_stopLoss != stopLoss)
@@ -714,7 +716,8 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
           stopLoss <- new_stopLoss
           
         } else if (data$position[i] == -1) {  # Short
-          new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          # new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * data$eqlActive[i] / data$nopActive[i]))
+          new_stopLoss <- min(stopLoss, data$Close[i] + (data$equity_growth_factor[i] * max_risk * eqlActive2 / data$nopActive[i]))
           
           # Check if SL or PT were updated
           data$eventSLShift[i] <- (new_stopLoss != stopLoss)
@@ -1013,7 +1016,7 @@ estimate_trading_profile = function(data_subset, strategy_type) {
     LengthOfMaxRunUp <- as.numeric(EndDateMaxRunUp - StartDateMaxRunUp)
   }
 
-  ExpectedAbsoluteReturn = round((AverageWin + AverageLoss) * PercentageOfWinningTrades, 2)
+  ExpectedAbsoluteReturn = round((AverageWin + AverageLoss) * PercentageOfWinningTrades / 100, 2)
 
   # Return the metrics as a list
   return(
@@ -1149,6 +1152,7 @@ generate_signals = function() {
 run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, 
 leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE,
 run_via_cpp) {
+
   # Create an empty list to store results
   results <- list()
 
@@ -1165,15 +1169,17 @@ run_via_cpp) {
       # Fetch data using DataFetcher for the current symbol and date range
       data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
       data <- data_fetcher$download_xts_data()
-      
+
+      # Create an instance of SMA1 strategy
+      # gc()
+      # sma_instance <- NULL
+      sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
+
       # Ensure data is not empty
       if (nrow(data) == 0) {
         warning(paste("No data available for symbol:", symbol))
         next
       }
-
-      # Create an instance of SMA1 strategy
-      sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
         
       # Estimate performance based on the split argument
       if (split) {
@@ -1213,6 +1219,7 @@ run_via_cpp) {
           run_via_cpp = run_via_cpp
         )
       }
+
         # Skip if performance is NULL
         if (is.null(performance) || nrow(performance) == 0) {
           warning(paste("No performance data for symbol:", symbol, 
@@ -1334,7 +1341,8 @@ generate_signals = function() {
 },
 
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, 
+leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
 
   # Create an empty list to store results
   results <- list()
@@ -1379,7 +1387,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- sma2_instance$estimate_performance(
@@ -1396,7 +1405,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -1615,7 +1625,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- sma_instance$estimate_performance(
@@ -1631,7 +1642,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -1850,7 +1862,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- sma2_instance$estimate_performance(
@@ -1867,7 +1880,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -2041,7 +2055,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         flat_after_event = flat_after_event,
         dynamic_limits = dynamic_limits,
         max_risk = max_risk,
-        reward_ratio = reward_ratio
+        reward_ratio = reward_ratio,
+        run_via_cpp = run_via_cpp
       )
     } else {
       performance <- macd_instance$estimate_performance(
@@ -2058,7 +2073,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         flat_after_event = flat_after_event,
         dynamic_limits = dynamic_limits,
         max_risk = max_risk,
-        reward_ratio = reward_ratio
+        reward_ratio = reward_ratio,
+        run_via_cpp = run_via_cpp
       )
     }
 
@@ -2234,7 +2250,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- tt_instance$estimate_performance(
@@ -2251,7 +2268,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -2406,7 +2424,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- dc_instance$estimate_performance(
@@ -2423,7 +2442,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -2598,7 +2618,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- rsi_instance$estimate_performance(
@@ -2615,7 +2636,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -2782,7 +2804,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- sar_instance$estimate_performance(
@@ -2799,7 +2822,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -2965,7 +2989,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- adx_instance$estimate_performance(
@@ -2982,7 +3007,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -3142,7 +3168,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- bb_instance$estimate_performance(
@@ -3159,7 +3186,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
@@ -3317,7 +3345,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       } else {
         performance <- vmr_instance$estimate_performance(
@@ -3334,7 +3363,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
           flat_after_event = flat_after_event,
           dynamic_limits = dynamic_limits,
           max_risk = max_risk,
-          reward_ratio = reward_ratio
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
         )
       }
         # Skip if performance is NULL
