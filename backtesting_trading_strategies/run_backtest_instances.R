@@ -21,6 +21,9 @@ assets <- c(
   "CL=F" # Commodities (crude oil)
 )
 
+data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+ts <- data_fetcher$download_xts_data()
+
 ########################################################################################################################
 sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'SMA')
 res_in_sma1 <- sma1$run_backtest(

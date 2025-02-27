@@ -49,11 +49,11 @@ ui <- fluidPage(
         selected = "sma1"
       ),
       
-      dateRangeInput("date_range", "Date Range", start = as.Date("2022-01-01"), end = Sys.Date()),
+      dateRangeInput("date_range", "Date Range", start = as.Date("2020-01-01"), end = Sys.Date()),
       numericInput("capital", "Capital", value = 1000),
       numericInput("leverage", "Leverage", value = 1),
       selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
-      dateInput("cut_date", "Cut-off Date", value = as.Date("2024-06-30")),
+      dateInput("cut_date", "Cut-off Date", value = as.Date("2025-01-01")),
       
       # Specific parameters for ADX strategy
       conditionalPanel(
@@ -126,7 +126,7 @@ ui <- fluidPage(
         ),
         tags$br(), # Adds a blank line for spacing
         numericInput("window_size", "Window Size", value = 20),
-        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+        selectInput("ma_type", "MA Type", choices = c("SMA", "EMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for SMA1M strategy
@@ -268,10 +268,14 @@ ui <- fluidPage(
     ),
     mainPanel(
       tabsetPanel(
-        tabPanel("Trading Profile", DTOutput("trading_profile")),
-        tabPanel("Performance Plot", plotOutput("performance_plot")),
-        tabPanel("List of Trades", DTOutput("trades")),
-        tabPanel("Trades PnL distribution", plotOutput("pnl_hist"))
+        tabPanel("Trading profile", DTOutput("trading_profile")),
+        tabPanel("Trading account evolution", plotOutput("performance_plot")),
+        tabPanel("List of all trades", DTOutput("trades")),
+        tabPanel("Total PnL distribution", plotOutput("pnl_hist")),
+        tabPanel("PnL distribution by trade (buy/sell)", plotOutput("pnl_hist_by_trade")),
+        tabPanel("PnL contribution by trade type (buy/sell)", plotOutput("pnl_contr_by_trade")),
+        tabPanel("Cumulative PnL by trade type (buy/sell)", plotOutput("pnl_cum_by_trade")),
+        tabPanel("Trade exit types", plotOutput("exits")),
       )
     )
   )
@@ -429,14 +433,11 @@ server <- function(input, output, session) {
     print(
       if(input$apply_rm) {
       strategy_instance$data %>% 
-        #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
         select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
         tail(10)
       } else {
       strategy_instance$data %>% 
-        #select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, tr, atr, tr_reserve, annual_vol) %>%
         select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
-        
         tail(10)
       }
     )
@@ -482,7 +483,19 @@ server <- function(input, output, session) {
       capital = input$capital
     )
 
-    return(list(strategy = strategy_instance, plot = p, profile = trading_profile, trades = trades_lst$trades, pnl_hist = trades_lst$plot))
+    return(
+      list(
+        strategy = strategy_instance, 
+        plot = p, 
+        profile = trading_profile,
+        trades = trades_lst$trades, 
+        pnl_hist = trades_lst$pnl_hist,
+        pnl_contr_by_trade = trades_lst$pnl_contr_by_trade,
+        pnl_cum_by_trade = trades_lst$pnl_cum_by_trade, 
+        pnl_hist_by_trade = trades_lst$pnl_hist_by_trade, 
+        exits = trades_lst$exits
+        )
+        )
   })
   
   # Reactive expression to generate performance metrics
@@ -523,8 +536,33 @@ server <- function(input, output, session) {
  # Render trades pnl histogram
   output$pnl_hist <- renderPlot({
     req(strategy_reactive())
-    pnl_hist <- strategy_reactive()$pnl_hist  # Correctly accessing the pnl_hist plot
+    pnl_hist <- strategy_reactive()$pnl_hist
     print(pnl_hist)
+  })
+
+  output$pnl_contr_by_trade <- renderPlot({
+    req(strategy_reactive())
+    pnl_contr_by_trade <- strategy_reactive()$pnl_contr_by_trade
+    print(pnl_contr_by_trade)
+  })
+
+  output$pnl_cum_by_trade <- renderPlot({
+    req(strategy_reactive())
+    pnl_cum_by_trade <- strategy_reactive()$pnl_cum_by_trade
+    print(pnl_cum_by_trade)
+  })
+
+  output$pnl_hist_by_trade <- renderPlot({
+    req(strategy_reactive())
+    pnl_hist_by_trade <- strategy_reactive()$pnl_hist_by_trade
+    print(pnl_hist_by_trade)
+  })
+
+  output$exits <- renderPlot({
+    req(strategy_reactive())
+    exits <- strategy_reactive()$exits
+    print(exits)
+
   })
 
 }
