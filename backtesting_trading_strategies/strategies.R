@@ -377,7 +377,7 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
   }
 },
 
-# Microscopic level (tabular list of all trades)
+# Microscopic level (trades analysis)
 get_trades = function(apply_rm) {
   
   # Initialize event as FALSE if not already set
@@ -444,20 +444,97 @@ get_trades = function(apply_rm) {
     Trade, ExitBy, Start, End, Size, EntryPrice, ExitPrice, BalanceStart, TradePnL, BalanceEnd, RunningPnL, `TradePnL/RunningPnL,%`
   )
 
-  # Generate PnL histogram
+  setDT(trades)
+
+  # Visualization
+
+  # Calculate cumulative PnL separately for Buy and Sell trades
+  trades[, Cumulative_PnL_Buy := cumsum(ifelse(Trade == "Buy", TradePnL, 0))]
+  trades[, Cumulative_PnL_Sell := cumsum(ifelse(Trade == "Sell", TradePnL, 0))]
+
+  # Convert data from wide to long format for ggplot
+  trades_long <- melt(trades, id.vars = "Start", 
+                      measure.vars = c("Cumulative_PnL_Buy", "Cumulative_PnL_Sell"),
+                      variable.name = "TradeType", value.name = "CumulativePnL")
+
+  # 1. Trades PnL distribution
   range_pnl <- range(trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0], na.rm = TRUE)
   x_breaks <- seq(range_pnl[1], range_pnl[2], length.out = 11)
   
   pnl_hist <- ggplot(data = data.frame(TradePnL = trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0]),
-                     aes(x = TradePnL, fill = TradePnL < 0)) +
+                     aes(x = TradePnL, fill = TradePnL > 0)) +
     geom_histogram(binwidth = diff(range_pnl) / 100, color = "black", alpha = 0.7) +
-    scale_fill_manual(values = c("green", "red")) +
+    scale_fill_manual(values = c("red", "green")) +
     labs(title = "Trade Profit and Loss (PnL) Distribution", x = "Trade PnL", y = "Frequency") +
     scale_x_continuous(expand = c(0, 0), limits = range_pnl, breaks = x_breaks) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal()
-  
-  return(list(trades = trades, plot = pnl_hist))  
+
+  # 2. Trade type distribution
+  pnl_hist_by_trade <- ggplot(trades, aes(x = Trade, y = TradePnL, fill = Trade)) +
+  geom_boxplot(alpha = 0.6) +  # Boxplot with transparency
+  labs(title = "Distribution of Trade PnL by Trade Type",
+       x = "Trade Type",
+       y = "Trade PnL") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Buy" = "blue", "Sell" = "red"))  # Custom colors
+
+  # 3. PnL contribution by trade type
+  trades[, YearMonth := format(as.Date(Start), "%Y-%m")]
+
+  # Aggregate PnL by month and trade type
+  monthly_pnl <- trades[, .(TotalPnL = sum(TradePnL)), by = .(YearMonth, Trade)]
+  monthly_pnl[, YearMonth := as.Date(paste0(YearMonth, "-01"))]
+
+  pnl_contr_by_trade <- ggplot(monthly_pnl, aes(x = YearMonth, y = TotalPnL, fill = Trade)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(title = "Trade PnL Contribution by Trade Type",
+        x = "Year",
+        y = "Total Trade PnL") +
+    scale_fill_manual(values = c("Buy" = "blue", "Sell" = "red")) +  # Buy = blue, Sell = red
+    scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels for readability
+
+  # 4. Cumulative PnL by trade type
+  pnl_cum_by_trade  <- ggplot(trades_long, aes(x = Start, y = CumulativePnL, color = TradeType)) +
+  geom_line(size = 1.2) +
+  labs(title = "Cumulative PnL Over Time by Trade Type",
+       x = "Date", y = "Cumulative PnL") +
+  theme_minimal() +
+  scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red"))
+
+  # 5. Exit types
+  exit_counts <- trades %>%
+  group_by(ExitBy) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+  # Create the pie chart with custom colors
+  exits <- ggplot(exit_counts, aes(x = "", y = Percentage, fill = ExitBy)) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar(theta = "y") +  # Convert to pie chart
+    labs(title = "Distribution of Exit Types in Total Trades", 
+        fill = "Exit Type") +
+    theme_void() +  # Remove unnecessary chart elements
+    theme(axis.text.x = element_blank()) +  # Remove x-axis labels
+    scale_fill_manual(values = c("Take-profit" = "green", 
+                                "Stop-loss" = "red", 
+                                "Signal" = "blue")) +
+     geom_text(aes(label = paste0(round(Percentage, 1), "%")),  # Add percentages as text
+            position = position_stack(vjust = 0.5),  # Center text within each slice
+            color = "black")  # Set text color to white for visibilit
+
+  return(
+    list(
+      trades = trades, 
+      pnl_hist = pnl_hist, 
+      pnl_contr_by_trade = pnl_contr_by_trade, 
+      pnl_cum_by_trade = pnl_cum_by_trade, 
+      pnl_hist_by_trade = pnl_hist_by_trade, 
+      exits = exits
+      )
+      )  
 
 },
 
@@ -485,14 +562,14 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
   # Add vertical dashed lines for positions (short and long)
   if (signal_flag) {
     p <- p +
-      geom_vline(data = self$data[self$data$position == -1, ], 
-                 aes(xintercept = as.numeric(Date), linetype = "Short Position"), 
-                 color = "red", alpha = 0.5) +
-      geom_vline(data = self$data[self$data$position == 1, ], 
-                 aes(xintercept = as.numeric(Date), linetype = "Long Position"), 
-                 color = "green", alpha = 0.5)
+      geom_vline(data = self$data[self$data$position == -1 & self$data$pnlActiveType != "R", ], 
+                aes(xintercept = as.numeric(Date), linetype = "Short Position"), 
+                color = "red", alpha = 0.5) +
+      geom_vline(data = self$data[self$data$position == 1 & self$data$pnlActiveType != "R", ], 
+                aes(xintercept = as.numeric(Date), linetype = "Long Position"), 
+                color = "green", alpha = 0.5)
   }
-  
+
   # Add equity lines
   p <- p +
     geom_line(aes(y = eqlActive, color = "Active Strategy"), size = active_line_size) +

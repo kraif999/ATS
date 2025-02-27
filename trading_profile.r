@@ -76,10 +76,15 @@ dataset <- sma1$data %>% select(
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
 View(trades)
 
+# Visualizations
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
 plots <- sma1$plot_close_vs_vol(30)
 grid.arrange(plots$close, plots$n, ncol = 1)
-sma1$get_trades(apply_rm = apply_rm)$plot
+sma1$get_trades(apply_rm = apply_rm)$pnl_hist
+sma1$get_trades(apply_rm = apply_rm)$pnl_contr_by_trade
+sma1$get_trades(apply_rm = apply_rm)$pnl_cum_by_trade
+sma1$get_trades(apply_rm = apply_rm)$pnl_hist_by_trade
+sma1$get_trades(apply_rm = apply_rm)$exits
 sma1$plot_rm_levels(30, apply_rm = apply_rm)
 
 # IN-SAMPLE (WITHOUT SPLIT)
