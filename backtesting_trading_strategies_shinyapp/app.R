@@ -446,8 +446,8 @@ server <- function(input, output, session) {
     num_months <- length(unique(format(strategy_instance$data$Date, "%Y-%m")))
 
     # Print average stop-loss and profit-take events per month
-    print(paste0("Stop Losses occur every: ", 1 / round(sum(strategy_instance$data$eventSL, na.rm = TRUE) / num_months, 2), " month(s)"))
-    print(paste0("Average Profit Takes per Month: ", 1 / round(sum(strategy_instance$data$eventPT, na.rm = TRUE) / num_months, 2), " month(s)"))
+    print(paste0("Stop Losses occur every: ", round(1 / sum(strategy_instance$data$eventSL, na.rm = TRUE) / num_months, 2), " month(s)"))
+    print(paste0("Average Profit Takes per Month: ", round(1 / sum(strategy_instance$data$eventPT, na.rm = TRUE) / num_months, 2), " month(s)"))
 
     trading_profile <- t(performance_result)
     

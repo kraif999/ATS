@@ -132,6 +132,11 @@
         "description": "iShares Core U.S. Aggregate Bond ETF (AGG)"
       },
 
+      "^TYX": {
+        "class": "Fixed Income",
+        "description": "30-Year Treasury Yield"
+      },
+
       "VTI": {
         "class": "Macro",
         "description": "Vanguard Total Stock Market Index Fund ETF Shares"

@@ -432,8 +432,16 @@ get_trades = function(apply_rm) {
     BalanceEnd = round(BalanceStart + TradePnL, 0)
   ) %>%
   
-  ungroup() %>%
-  mutate(
+  ungroup()
+
+  # Find first liquidation index
+  first_liquidation_idx <- which(trades$ExitBy == "Liquidation")[1]
+
+  if (!is.na(first_liquidation_idx)) {
+    trades <- trades[1:first_liquidation_idx, ]  # Keep only trades up to and including liquidation
+  }
+
+  trades <- trades %>% mutate(
     RunningPnL = round(cumsum(TradePnL), 0),
     Efficiency = round((TradePnL / abs(RunningPnL)) * 100, 0)
   ) %>%
@@ -471,13 +479,15 @@ get_trades = function(apply_rm) {
     theme_minimal()
 
   # 2. Trade type distribution
-  pnl_hist_by_trade <- ggplot(trades, aes(x = Trade, y = TradePnL, fill = Trade)) +
+  pnl_hist_by_trade <- ggplot(data = data.frame(trades %>% filter(Trade != "Flat")), aes(x = Trade, y = TradePnL, fill = Trade)) +
   geom_boxplot(alpha = 0.6) +  # Boxplot with transparency
   labs(title = "Distribution of Trade PnL by Trade Type",
        x = "Trade Type",
        y = "Trade PnL") +
   theme_minimal() +
-  scale_fill_manual(values = c("Buy" = "blue", "Sell" = "red"))  # Custom colors
+  scale_fill_manual(values = c("Buy" = "blue", "Sell" = "red")) + 
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
+
 
   # 3. PnL contribution by trade type
   trades[, YearMonth := format(as.Date(Start), "%Y-%m")]
@@ -493,8 +503,9 @@ get_trades = function(apply_rm) {
         y = "Total Trade PnL") +
     scale_fill_manual(values = c("Buy" = "blue", "Sell" = "red")) +  # Buy = blue, Sell = red
     scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels for readability
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 
   # 4. Cumulative PnL by trade type
   pnl_cum_by_trade  <- ggplot(trades_long, aes(x = Start, y = CumulativePnL, color = TradeType)) +
@@ -502,10 +513,11 @@ get_trades = function(apply_rm) {
   labs(title = "Cumulative PnL Over Time by Trade Type",
        x = "Date", y = "Cumulative PnL") +
   theme_minimal() +
-  scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red"))
+  scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
 
   # 5. Exit types
-  exit_counts <- trades %>%
+  exit_counts <- trades %>% filter(Trade != "Flat") %>%
   group_by(ExitBy) %>%
   summarise(Count = n()) %>%
   mutate(Percentage = Count / sum(Count) * 100)
@@ -520,10 +532,14 @@ get_trades = function(apply_rm) {
     theme(axis.text.x = element_blank()) +  # Remove x-axis labels
     scale_fill_manual(values = c("Take-profit" = "green", 
                                 "Stop-loss" = "red", 
-                                "Signal" = "blue")) +
+                                "Signal" = "blue",
+                                "Liquidation" = "grey")) +
      geom_text(aes(label = paste0(round(Percentage, 1), "%")),  # Add percentages as text
             position = position_stack(vjust = 0.5),  # Center text within each slice
             color = "black")  # Set text color to white for visibilit
+
+  trades <- trades %>% select(Trade, Start, End, ExitBy, Size, EntryPrice, ExitPrice, BalanceStart, TradePnL, BalanceEnd, Cumulative_PnL_Buy, Cumulative_PnL_Sell, RunningPnL, `TradePnL/RunningPnL,%`) %>%
+    rename(Running_PnL_Buy = Cumulative_PnL_Buy, Running_PnL_Sell = Cumulative_PnL_Sell)
 
   return(
     list(
@@ -535,7 +551,6 @@ get_trades = function(apply_rm) {
       exits = exits
       )
       )  
-
 },
 
 # Visualize equity lines for active strategy and passive (buy and hold)
@@ -576,6 +591,7 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
     geom_line(aes(y = eqlPassive, color = "Buy and Hold Strategy"), size = passive_line_size) +
     scale_color_manual(values = c("Active Strategy" = "red", "Buy and Hold Strategy" = "darkgreen")) +
     scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
     scale_linetype_manual(values = c("Short Position" = "dashed", "Long Position" = "dashed"))  # Define line types
   
   # Add vertical lines for the From and To columns

@@ -5,13 +5,13 @@ source("backtesting_trading_strategies/strategies.R")
 options(scipen = 999)
 
 # Specify the following strategy parameters
-from_date <- as.Date("2022-01-01") 
+from_date <- as.Date("2018-01-01") 
 to_date <- Sys.Date()
 symbol <- "BTC-USD"
 capital <- 1000 # USDC
 leverage <- 1
 apply_rm <- TRUE
-flat_after_event <- FALSE
+flat_after_event <- TRUE
 dynamic_limits <- TRUE
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -23,7 +23,7 @@ Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cp
 Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 20, ma_type = 'EMA')
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
 sma1$estimate_range_potential(n=14)
 
 # in-sample:
@@ -35,7 +35,8 @@ sma1_res_in_sample <- t(
   data_type = "in_sample", 
   split_data = FALSE, 
   #split_data = TRUE,
-  cut_date = as.Date("2024-06-30"), 
+  #cut_date = as.Date("2024-06-30"), 
+  cut_date = Sys.Date(),
   window = 1, 
   apply_rm = apply_rm, 
   flat_after_event = flat_after_event,
@@ -68,6 +69,7 @@ sma1_res_in_sample_dt[, units := ifelse(
 View(sma1_res_in_sample_dt)
 
 dataset <- sma1$data
+summary(dataset$value)
 dataset <- sma1$data %>% select(
     Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
     eventSL, eventPT, eventSLShift,
@@ -102,7 +104,8 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   ma_types = c("SMA", "EMA"), 
-  window_sizes = round(10 * (1.15 ^ (0:20))),
+  #window_sizes = round(10 * (1.15 ^ (0:20))),
+  window_sizes = round(10 * (1.25 ^ (0:12))),
   leverages = seq(1, 2, by = 1),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
@@ -113,7 +116,7 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   run_via_cpp = TRUE
 )
 
-#fwrite(btc_sma1_in_sample_no_split, "/bin/res_sma1_btc.csv")
+fwrite(btc_sma1_in_sample_no_split, "/Users/olegb/Documents/ATS/ATS/bin/res_sma1_btc.csv")
 btc_sma1_in_sample_no_split <- fread("bin/res_sma1_btc.csv")
 
 # Backtest visualization
