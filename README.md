@@ -87,6 +87,7 @@ classDiagram
         + estimate_range_potential(n) : estimates Average True Range based on the latest ndays.
         + plot_close_vs_vol(ndays) : plots Close price and range potential (true range / average true range).
         + plot_rm_levels(ndays, apply_rm) : plots Close price and stop loss and take profit levels for the last ndays.
+        + plot_nop_evo() : displays the evolution of the number of positions and account size for Active strategy.
         - apply_risk_management(data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits) : applies a stop loss and reward take based on the thresholds (there is an option to shift limits when price changes in a favourable direction given position).
         - compute_metrics(data_subset, symbol) : computes return and risk related metrics for Active and Passive strategies.
         - estimate_trading_profile(data_subset, strategy_type) : estimates strategy's trading profile (risk and return are described by 25 metrics)

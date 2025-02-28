@@ -23,7 +23,7 @@ Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cp
 Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
 
 # IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
+sma1 <- SMA1$new(ts, window_size = 124, ma_type = 'SMA')
 sma1$estimate_range_potential(n=14)
 
 # in-sample:
@@ -31,18 +31,18 @@ sma1_res_in_sample <- t(
   sma1$estimate_performance(
   symbol = symbol,
   capital = capital,
-  leverage = leverage,
+  leverage = 5,
   data_type = "in_sample", 
   split_data = FALSE, 
   #split_data = TRUE,
-  #cut_date = as.Date("2024-06-30"), 
-  cut_date = Sys.Date(),
+  cut_date = as.Date("2024-01-01"), 
+  #cut_date = Sys.Date(),
   window = 1, 
   apply_rm = apply_rm, 
   flat_after_event = flat_after_event,
   dynamic_limits = dynamic_limits,
-  max_risk = 0.1, 
-  reward_ratio = 3,
+  max_risk = 0.2, 
+  reward_ratio = 5,
   run_via_cpp = TRUE
     )
   )
@@ -76,7 +76,7 @@ dataset <- sma1$data %>% select(
     nopActive, pnlActive, eqlActive, pnlActiveCumulative, Liquidation)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
-View(trades)
+#View(trades)
 
 # Visualizations
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
@@ -88,6 +88,34 @@ sma1$get_trades(apply_rm = apply_rm)$pnl_cum_by_trade
 sma1$get_trades(apply_rm = apply_rm)$pnl_hist_by_trade
 sma1$get_trades(apply_rm = apply_rm)$exits
 sma1$plot_rm_levels(30, apply_rm = apply_rm)
+sma1$plot_nop_evo()
+
+# Position size
+
+# Compute scaling factor
+scale_factor <- max(dataset$eqlActive, na.rm = TRUE) / max(dataset$nopActive, na.rm = TRUE)
+
+ggplot(dataset, aes(x = Date)) +
+  geom_col(aes(y = nopActive), fill = "blue", alpha = 0.3) +  # Bars for nopActive
+  geom_line(aes(y = eqlActive / scale_factor), color = "red", size = 1.2) +  # Thicker red line
+  scale_y_continuous(
+    name = "nopActive",
+    breaks = pretty_breaks(n = 10),
+    sec.axis = sec_axis(~ . * scale_factor, name = "eqlActive", breaks = pretty_breaks(n = 20)) # More right-side ticks
+  ) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%Y-%m") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +  # Dashed horizontal line at 1
+  labs(title = "Active Position Size & Account Balance Over Time",
+       x = "Date") +
+  theme_minimal() +
+  theme(axis.title.y.right = element_text(color = "red"))
+
+  # Count the number of unique year-month combinations
+  # num_months <- length(unique(format(data$Date, "%Y-%m")))
+  
+  # # Print average stop-loss and profit-take events per month
+  # print(paste0("Stop Losses occur every: ", round(1 / ((sum(dataset$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
+  # print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
 
 # IN-SAMPLE (WITHOUT SPLIT)
 
