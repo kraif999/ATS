@@ -63,7 +63,7 @@ res_in_sma2 <- sma2$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   # strategy specific
-  ma_types = c("SMA", "EMA", "HMA"), 
+  ma_types = c("SMA", "EMA"), 
   window_sizes1 = round(10 * (1.2 ^ (0:8))),  # Shorter periods (fast MA)
   window_sizes2 =  round(50 * (1.2 ^ (0:8))), # Longer periods (slow MA)
   # risk management

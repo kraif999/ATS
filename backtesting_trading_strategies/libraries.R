@@ -26,4 +26,4 @@ library(gridExtra)
 library(stringr)
 library(profvis)
 library(Rcpp)
-
+library(scales)

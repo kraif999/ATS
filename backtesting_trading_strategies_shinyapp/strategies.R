@@ -238,7 +238,10 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
     
     # Handle position change (for active portfolio)
     if (self$data$position[i] != self$data$position[i - 1]) {
-        self$data$nopActive[i] <- max(0, eqlActive * leverage / self$data$Close[i], 0)
+        # self$data$nopActive[i] <- max(0, eqlActive * leverage / self$data$Close[i], 0)
+        self$data$nopActive[i] <- ifelse(self$data$position[i] == 0,  
+                                 0,  
+                                 max(0, eqlActive * leverage / self$data$Close[i]))
     } else {
         # Keep previous nopActive if position hasn't changed
         self$data$nopActive[i] <- max(0, self$data$nopActive[i - 1])
@@ -275,6 +278,7 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
       } else {
         if (self$data$pnlActiveType[i] == "R") {
           next_day_zero_pnl <- TRUE  # Set flag for the next period
+          self$data$nopActive[i] <- self$data$nopActive[i - 1]
           self$data$pnlActive[i] <- (self$data$Close[i - 1] - self$data$Close[i]) * self$data$position[i] * self$data$nopActive[i - 1]
         } else {
           self$data$pnlActive[i] <- if (self$data$position[i] == 0) 0 else round((self$data$Close[i] - self$data$Close[i - 1]) * self$data$position[i - 1] * self$data$nopActive[i - 1], 2)
@@ -465,18 +469,18 @@ get_trades = function(apply_rm) {
                       measure.vars = c("Cumulative_PnL_Buy", "Cumulative_PnL_Sell"),
                       variable.name = "TradeType", value.name = "CumulativePnL")
 
-  # 1. Trades PnL distribution
+ # 1. Trades PnL distribution
   range_pnl <- range(trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0], na.rm = TRUE)
-  x_breaks <- seq(range_pnl[1], range_pnl[2], length.out = 11)
-  
+
   pnl_hist <- ggplot(data = data.frame(TradePnL = trades$TradePnL[is.finite(trades$TradePnL) & trades$TradePnL != 0]),
-                     aes(x = TradePnL, fill = TradePnL > 0)) +
-    geom_histogram(binwidth = diff(range_pnl) / 100, color = "black", alpha = 0.7) +
-    scale_fill_manual(values = c("red", "green")) +
-    labs(title = "Trade Profit and Loss (PnL) Distribution", x = "Trade PnL", y = "Frequency") +
-    scale_x_continuous(expand = c(0, 0), limits = range_pnl, breaks = x_breaks) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal()
+                   aes(x = TradePnL, fill = TradePnL > 0)) +
+  geom_histogram(binwidth = diff(range_pnl) / 100, color = "black", alpha = 0.7) +
+  scale_fill_manual(values = c("red", "green")) +
+  labs(title = "Trade Profit and Loss (PnL) Distribution", x = "Trade PnL", y = "Frequency") +
+  scale_x_continuous(expand = c(0, 0), limits = range_pnl, breaks = pretty_breaks(n = 20)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal()
 
   # 2. Trade type distribution
   pnl_hist_by_trade <- ggplot(data = data.frame(trades %>% filter(Trade != "Flat")), aes(x = Trade, y = TradePnL, fill = Trade)) +
@@ -512,9 +516,10 @@ get_trades = function(apply_rm) {
   geom_line(size = 1.2) +
   labs(title = "Cumulative PnL Over Time by Trade Type",
        x = "Date", y = "Cumulative PnL") +
-  theme_minimal() +
+  scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
   scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red")) +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  theme_minimal()
 
   # 5. Exit types
   exit_counts <- trades %>% filter(Trade != "Flat") %>%
@@ -694,6 +699,30 @@ plot_rm_levels = function(ndays, apply_rm) {
     theme_minimal()
 
   print(p)
+},
+
+# Plot number of position evolution with account size line
+plot_nop_evo = function() {
+  
+  # Compute scaling factor
+  scale_factor <- max(self$data$eqlActive, na.rm = TRUE) / max(self$data$nopActive, na.rm = TRUE)
+
+  p <- ggplot(self$data, aes(x = Date)) +
+    geom_col(aes(y = nopActive), fill = "blue", alpha = 0.3) +  # Bars for nopActive
+    geom_line(aes(y = eqlActive / scale_factor), color = "red", size = 1.2) +  # Thicker red line
+    scale_y_continuous(
+      name = "nop",
+      breaks = pretty_breaks(n = 10),
+      sec.axis = sec_axis(~ . * scale_factor, name = "eqlActive", breaks = pretty_breaks(n = 20)) # More right-side ticks
+    ) +
+    scale_x_date(date_breaks = "6 months", date_labels = "%Y-%m") +
+    geom_hline(yintercept = 1, linetype = "dashed", color = "black") +  # Dashed horizontal line at 1
+    labs(title = "Active Position Size & Account Balance Over Time",
+        x = "Date") +
+    theme_minimal() +
+    theme(axis.title.y.right = element_text(color = "red"))
+    
+    print(p)
 }
 
   ),
@@ -761,7 +790,11 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     
   # Position change (stop loss and profit take levels calculation)
     if (data$position[i] != previous_position || !is.na(data$pnlActiveType[i - 1]) && data$pnlActiveType[i - 1] == "R") {
-      data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
+      #data$nopActive[i] <- max(0, eqlActive * leverage / data$Close[i])
+      data$nopActive[i] <- ifelse(data$position[i] == 0,  
+                                 0,  
+                                 max(0, eqlActive * leverage / data$Close[i]))
+
       eqlActive2 = data$eqlActive[i - 1] + ((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1])
 
       if (data$position[i] == 1) {
@@ -883,6 +916,7 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
     } else {
       if (data$pnlActiveType[i] == "R") {
         next_day_zero_pnl <- TRUE  # Set flag for the next period
+        data$nopActive[i] <- data$nopActive[i - 1]
         data$pnlActive[i] <- (data$Close[i - 1] - data$Close[i]) * data$position[i] * data$nopActive[i - 1]
       } else {
         data$pnlActive[i] <- if (data$position[i] == 0) 0 else round((data$Close[i] - data$Close[i - 1]) * data$position[i - 1] * data$nopActive[i - 1], 2)
@@ -907,13 +941,6 @@ apply_risk_management = function(data, max_risk, reward_ratio, leverage, capital
       pnlActiveCumulative = cumsum(replace_na(pnlActive, 0)),
       pnlPassiveCumulative = cumsum(replace_na(pnlPassive, 0))
     )
-  
-  # Count the number of unique year-month combinations
-  # num_months <- length(unique(format(data$Date, "%Y-%m")))
-  
-  # # Print average stop-loss and profit-take events per month
-  # print(paste0("Stop Losses occur every: ", round(1 / ((sum(data$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
-  # print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(data$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
   
   return(data)
 },

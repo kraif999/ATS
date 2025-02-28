@@ -83,7 +83,8 @@ DataFrame apply_risk_management_cpp(
 
     if (position[i] != position[i - 1] || (!pnlActiveType[i - 1].empty() && pnlActiveType[i - 1] == "R")) {
 
-      nopActive[i] = std::max(0.0, eqlActiveValue * leverage / Close[i]);
+      //nopActive[i] = std::max(0.0, eqlActiveValue * leverage / Close[i]);
+      nopActive[i] = (position[i] == 0) ? 0 : std::max(0.0, eqlActiveValue * leverage / Close[i]);
       eqlActiveValue2 = eqlActive[i - 1] + (Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1];
 
       if (position[i] == 1) {
@@ -191,6 +192,7 @@ DataFrame apply_risk_management_cpp(
   } else {
       if (pnlActiveType[i] == "R") {
           next_day_zero_pnl = true;  // Set flag for the next period
+          nopActive[i] = nopActive[i - 1];
           pnlActive[i] = (Close[i - 1] - Close[i]) * position[i] * nopActive[i - 1];
       } else {
           pnlActive[i] = (position[i] == 0) ? 0 : round((Close[i] - Close[i - 1]) * position[i - 1] * nopActive[i - 1] * 100) / 100.0;
