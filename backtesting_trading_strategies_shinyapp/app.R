@@ -5,8 +5,8 @@ source("libraries.R")
 
 # Load strategies
 source("strategies.R")
-options(scipen = 999)
 
+options(scipen = 999)
 options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
 options(shiny.timeout = 1200)  # Timeout for 20 minutes (1200 seconds)
 
@@ -276,6 +276,7 @@ ui <- fluidPage(
         tabPanel("PnL contribution by trade type (buy/sell)", plotOutput("pnl_contr_by_trade")),
         tabPanel("Cumulative PnL by trade type (buy/sell)", plotOutput("pnl_cum_by_trade")),
         tabPanel("Trade exit types", plotOutput("exits")),
+        tabPanel("Tail (30 days) dataset view", DTOutput("tail_view"))
       )
     )
   )
@@ -286,174 +287,68 @@ server <- function(input, output, session) {
   
   # Reactive to fetch price data
   price_data <- reactive({
-    req(input$symbol, input$date_range)  # Ensure inputs are available
-    
-    symbol <- input$symbol  # Use symbol from input
-    print(paste("Fetching data for symbol:", symbol))  # Debug print
-    
-    # Fetch price data
-    fetcher <- DataFetcher$new(symbol, input$date_range[1], input$date_range[2])
-    ts <- fetcher$download_xts_data()
-    return(ts)
+    req(input$symbol, input$date_range)
+    fetcher <- DataFetcher$new(input$symbol, input$date_range[1], input$date_range[2])
+    fetcher$download_xts_data()
   })
-  
+
+  # Function to create a strategy instance
+  create_strategy_instance <- function(strategy, data, input) {
+    switch(strategy,
+      "adx" = ADX$new(data, input$ndx, input$trend_strength),
+      "bollinger_breakout" = BollingerBreakout$new(data, input$window_size, input$sd_mult),
+      "donchian_channel" = DonchianChannel$new(data, input$window_size),
+      "macd" = MACD$new(data, input$window_size1, input$window_size2, input$sline, input$ma_type),
+      "rsi" = RSI$new(data, input$window_size, input$threshold_oversold, input$threshold_overbought),
+      "sma1" = SMA1$new(data, input$window_size, input$ma_type),
+      "sma1m" = SMA1M$new(data, input$window_size, input$ma_type),
+      "sma2" = SMA2$new(data, input$window_size1, input$window_size2, input$ma_type),
+      "sma2m" = SMA2M$new(data, input$window_size1, input$window_size2, input$ma_type),
+      "sar" = StopAndReversal$new(data, input$accel, input$accel_max),
+      "turtle_trading" = TurtleTrading$new(data, input$window_size1, input$window_size2),
+      "vol_mean_rev" = VolatilityMeanReversion$new(data, input$window_size, input$ma_type),
+      "arima" = ARIMA$new(data, input$window_size, input$window_type, input$best_arima, 
+                          ifelse(input$best_arima, NULL, as.numeric(input$p1)),
+                          ifelse(input$best_arima, NULL, as.numeric(input$d1)),
+                          ifelse(input$best_arima, NULL, as.numeric(input$q1))),
+      "garch" = GARCH$new(data, input$specification, input$n_start, input$refit_every, 
+                          input$refit_window, input$distribution_model, input$realized_vol, cluster = NULL)
+    )
+  }
+
   # Reactive expression for strategy instance and plot
   strategy_reactive <- eventReactive(input$backtest_run, {
-    req(price_data(), input$window_size, input$ma_type, input$cut_date)
-    
-    symbol <- input$symbol
-    print(paste("Using symbol in strategy:", symbol))  # Debug print
-    
-    # Use switch to handle different strategies
-    strategy_instance <- switch(input$strategy,
-
-      "adx" = ADX$new(
-        data = price_data(),
-        ndx = input$ndx,
-        trend_strength = input$trend_strength
-      ),
-
-      "bollinger_breakout" = BollingerBreakout$new(
-        data = price_data(),
-        window_size = input$window_size,
-        sd_mult = input$sd_mult
-      ),
-
-      "donchian_channel" = DonchianChannel$new(
-        data = price_data(),
-        window_size = input$window_size
-      ),
-
-      "macd" = MACD$new(
-        data = price_data(),
-        window_size1 = input$window_size1,
-        window_size2 = input$window_size2,
-        sline = input$sline,
-        ma_type = input$ma_type
-      ),
-
-      "rsi" = RSI$new(
-        data = price_data(),
-        window_size = input$window_size,
-        threshold_oversold = input$threshold_oversold,
-        threshold_overbought = input$threshold_overbought
-      ),
-
-      "sma1" = SMA1$new(
-        data = price_data(),
-        window_size = input$window_size,
-        ma_type = input$ma_type
-      ),
-
-      "sma1m" = SMA1M$new(
-        data = price_data(),
-        window_size = input$window_size,
-        ma_type = input$ma_type
-      ),
-
-      "sma2" = SMA2$new(
-        data = price_data(),
-        window_size1 = input$window_size1,
-        window_size2 = input$window_size2,
-        ma_type = input$ma_type
-      ),
-
-      "sma2m" = SMA2M$new(
-        data = price_data(),
-        window_size1 = input$window_size1,
-        window_size2 = input$window_size2,
-        ma_type = input$ma_type
-      ),
-
-
-      "sar" = StopAndReversal$new(
-        data = price_data(),
-        accel = input$accel,
-        accel_max = input$accel_max
-      ),
-
-      "turtle_trading" = TurtleTrading$new(
-        data = price_data(), 
-        window_size1 = input$window_size1, 
-        window_size2 = input$window_size2
-        ),
-
-       "vol_mean_rev" = VolatilityMeanReversion$new(
-        data = price_data(),
-        window_size = input$window_size,
-        ma_type = input$ma_type
-      ),
-
-      "arima" = ARIMA$new(
-        data = price_data(),
-        window_size = input$window_size,
-        window_type = input$window_type,
-        best_arima = input$best_arima,
-        p1 = ifelse(input$best_arima, NULL, as.numeric(input$p1)),
-        d1 = ifelse(input$best_arima, NULL, as.numeric(input$d1)),
-        q1 = ifelse(input$best_arima, NULL, as.numeric(input$q1))
-      ),
-
-       "garch" = GARCH$new(
-        data = price_data(),
-        specification = input$specification,
-        n_start = input$n_start,
-        refit_every = input$refit_every,
-        refit_window = input$refit_window,
-        distribution_model = input$distribution_model,
-        realized_vol = input$realized_vol,
-        #cluster = makePSOCKcluster(parallel::detectCores(logical = FALSE))
-        cluster = NULL
-      )
-    )
-
-    #strategy_instance$estimate_average_true_range(n=14)
-
-    # Print the selected strategy name
-    print(paste("Selected strategy/instance:", input$strategy))
-    
-    # Estimate performance
+    req(price_data())
+    strategy_instance <- create_strategy_instance(input$strategy, price_data(), input)
     performance_result <- strategy_instance$estimate_performance(
-      symbol = input$symbol,
-      capital = input$capital,
-      leverage = input$leverage,
-      data_type = input$data_type,
-      split_data = input$split_data,
-      cut_date = input$cut_date,
-      window = input$window,
-      apply_rm = input$apply_rm,
-      flat_after_event = input$flat_after_event,
-      dynamic_limits = input$dynamic_limits,
-      max_risk = input$max_risk,
-      reward_ratio = input$reward_ratio,
-      run_via_cpp = FALSE
-    )
-    
-    print("Tail view:")
-    print(
-      if(input$apply_rm) {
-      strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
-        tail(10)
-      } else {
-      strategy_instance$data %>% 
-        select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
-        tail(10)
-      }
+      input$symbol, input$capital, input$leverage, input$data_type, input$split_data, 
+      input$cut_date, input$window, input$apply_rm, input$flat_after_event, 
+      input$dynamic_limits, input$max_risk, input$reward_ratio, FALSE
     )
 
-    # Count the number of unique year-month combinations
-    num_months <- length(unique(format(strategy_instance$data$Date, "%Y-%m")))
+  # Tail view
+  print("Tail view:")
+      print(
+        if(input$apply_rm) {
+        strategy_instance$data %>% 
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          tail(30)
+        } else {
+        strategy_instance$data %>% 
+          select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          tail(30)
+        }
+      )
 
-    # Print average stop-loss and profit-take events per month
-    print(paste0("Stop Losses occur every: ", round(1 / sum(strategy_instance$data$eventSL, na.rm = TRUE) / num_months, 2), " month(s)"))
-    print(paste0("Average Profit Takes per Month: ", round(1 / sum(strategy_instance$data$eventPT, na.rm = TRUE) / num_months, 2), " month(s)"))
+  #Count the number of unique year-month combinations
+  num_months <- length(unique(format(strategy_instance$data$Date, "%Y-%m")))
+  
+  # Print average stop-loss and profit-take events per month
+  print(paste0("Stop Losses occur every: ", round(1 / ((sum(strategy_instance$data$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
+  print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(strategy_instance$data$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
 
     trading_profile <- t(performance_result)
-    
-    # Convert to data.table for further processing
-    trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile, stringsAsFactors = FALSE)))
-
+    trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile)))
     trading_profile[, units := ifelse(
       .I <= 5 | Metric %in% c("max_risk", "Strategy", "Number of Trades Per Year", "reward_ratio"), "",
       ifelse(
@@ -471,99 +366,89 @@ server <- function(input, output, session) {
     )]
 
     trades_lst <- strategy_instance$get_trades(input$apply_rm)
+    tail_view <- if(input$apply_rm) {
+        strategy_instance$data %>%
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          tail(30) %>%
+          mutate(
+            Close = round(Close, 4),
+            stopLoss = round(stopLoss, 4),
+            pnlActive = round(pnlActive, 2),
+            profitTake = round(profitTake, 4),
+            nopActive = round(nopActive, 4),
+            nopPassive = round(nopPassive, 4),
+            eqlActive = round(eqlActive, 2),
+            eqlPassive = round(eqlPassive, 2),
+            pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
+            ATR = round(ATR, 2),
+            N = round(N, 2),
+            annual_vol = round(annual_vol, 2)
+          ) %>% rename(trade_id = trade_id_m2)
+    } else {
+        strategy_instance$data %>%
+          select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          tail(30) %>%
+          mutate(
+            Close = round(Close, 4),
+            nopActive = round(nopActive, 4),
+            nopPassive = round(nopPassive, 4),
+            pnlActive = round(pnlActive, 2),
+            pnlPassive = round(pnlPassive, 2),
+            eqlActive = round(eqlActive, 2),
+            eqlPassive = round(eqlPassive, 2),
+            pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
+            ATR = round(ATR, 2),
+            N = round(N, 2),
+            annual_vol = round(annual_vol, 2)
+          ) %>% rename(trade_id = trade_id_m2)
+    }
 
-    print("Cumulative PnL by position:")
-    print(trades_lst$trades %>% group_by(Trade) %>% summarize(PnL = sum(TradePnL)))
-
-    # Generate and return the plot
-    p <- strategy_instance$plot_equity_lines(
-      strategy_name = toupper(input$strategy),
-      signal_flag = input$signal_flag,
-      symbol = input$symbol,
-      capital = input$capital
+    list(
+      strategy = strategy_instance, 
+      plot = strategy_instance$plot_equity_lines(toupper(input$strategy), input$signal_flag, input$symbol, input$capital), 
+      profile = trading_profile,
+      trades = trades_lst$trades, 
+      pnl_hist = trades_lst$pnl_hist,
+      pnl_contr_by_trade = trades_lst$pnl_contr_by_trade,
+      pnl_cum_by_trade = trades_lst$pnl_cum_by_trade, 
+      pnl_hist_by_trade = trades_lst$pnl_hist_by_trade, 
+      exits = trades_lst$exits,
+      tail_view = tail_view
     )
+  })
 
-    return(
-      list(
-        strategy = strategy_instance, 
-        plot = p, 
-        profile = trading_profile,
-        trades = trades_lst$trades, 
-        pnl_hist = trades_lst$pnl_hist,
-        pnl_contr_by_trade = trades_lst$pnl_contr_by_trade,
-        pnl_cum_by_trade = trades_lst$pnl_cum_by_trade, 
-        pnl_hist_by_trade = trades_lst$pnl_hist_by_trade, 
-        exits = trades_lst$exits
-        )
-        )
-  })
-  
-  # Reactive expression to generate performance metrics
-  performance_metrics <- reactive({
-    req(strategy_reactive())
-    performance_data <- strategy_reactive()$profile  # Correctly accessing the profile from strategy_reactive
-    return(performance_data)
-  })
-  
   # Render trading profile data table
   output$trading_profile <- renderDT({
-    req(performance_metrics())
-    performance <- performance_metrics()
-    
-    datatable(
-      as.data.frame(performance), 
-      options = list(pageLength = 100)  # Set the number of rows per page to 100
-    )
+    req(strategy_reactive())
+    datatable(as.data.frame(strategy_reactive()$profile), options = list(pageLength = 100))
   })
 
   # Render performance plot
   output$performance_plot <- renderPlot({
     req(strategy_reactive())
-    strategy_plot <- strategy_reactive()$plot  # Correctly accessing the plot from strategy_reactive
-    print(strategy_plot)  # Render the plot
+    print(strategy_reactive()$plot)
   })
 
   # Render trades data table
   output$trades <- renderDT({
     req(strategy_reactive())
-    trades <- strategy_reactive()$trades
-    datatable(
-      trades %>% data.table,
-      options = list(pageLength = 100)  # Set rows per page
-    )
-  })
- 
- # Render trades pnl histogram
-  output$pnl_hist <- renderPlot({
-    req(strategy_reactive())
-    pnl_hist <- strategy_reactive()$pnl_hist
-    print(pnl_hist)
+    datatable(strategy_reactive()$trades %>% data.table, options = list(pageLength = 100))
   })
 
-  output$pnl_contr_by_trade <- renderPlot({
+  # Render tail view table
+  output$tail_view <- renderDT({
     req(strategy_reactive())
-    pnl_contr_by_trade <- strategy_reactive()$pnl_contr_by_trade
-    print(pnl_contr_by_trade)
+    datatable(strategy_reactive()$tail_view, options = list(pageLength = 30))
   })
 
-  output$pnl_cum_by_trade <- renderPlot({
-    req(strategy_reactive())
-    pnl_cum_by_trade <- strategy_reactive()$pnl_cum_by_trade
-    print(pnl_cum_by_trade)
-  })
-
-  output$pnl_hist_by_trade <- renderPlot({
-    req(strategy_reactive())
-    pnl_hist_by_trade <- strategy_reactive()$pnl_hist_by_trade
-    print(pnl_hist_by_trade)
-  })
-
-  output$exits <- renderPlot({
-    req(strategy_reactive())
-    exits <- strategy_reactive()$exits
-    print(exits)
-
-  })
+  # Render various performance-related plots
+  output$pnl_hist <- renderPlot({ req(strategy_reactive()); print(strategy_reactive()$pnl_hist) })
+  output$pnl_contr_by_trade <- renderPlot({ req(strategy_reactive()); print(strategy_reactive()$pnl_contr_by_trade) })
+  output$pnl_cum_by_trade <- renderPlot({ req(strategy_reactive()); print(strategy_reactive()$pnl_cum_by_trade) })
+  output$pnl_hist_by_trade <- renderPlot({ req(strategy_reactive()); print(strategy_reactive()$pnl_hist_by_trade) })
+  output$exits <- renderPlot({ req(strategy_reactive()); print(strategy_reactive()$exits) })
 
 }
 

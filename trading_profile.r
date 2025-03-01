@@ -11,7 +11,7 @@ symbol <- "BTC-USD"
 capital <- 1000 # USDC
 leverage <- 1
 apply_rm <- TRUE
-flat_after_event <- TRUE
+flat_after_event <- FALSE
 dynamic_limits <- TRUE
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -76,7 +76,7 @@ dataset <- sma1$data %>% select(
     nopActive, pnlActive, eqlActive, pnlActiveCumulative, Liquidation)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
-#View(trades)
+View(trades)
 
 # Visualizations
 sma1$plot_equity_lines("SMA1", signal_flag = FALSE, capital, symbol)
@@ -110,12 +110,12 @@ ggplot(dataset, aes(x = Date)) +
   theme_minimal() +
   theme(axis.title.y.right = element_text(color = "red"))
 
-  # Count the number of unique year-month combinations
-  # num_months <- length(unique(format(data$Date, "%Y-%m")))
+  #Count the number of unique year-month combinations
+  num_months <- length(unique(format(dataset$Date, "%Y-%m")))
   
-  # # Print average stop-loss and profit-take events per month
-  # print(paste0("Stop Losses occur every: ", round(1 / ((sum(dataset$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
-  # print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
+  # Print average stop-loss and profit-take events per month
+  print(paste0("Stop Losses occur every: ", round(1 / ((sum(dataset$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
+  print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
 
 # IN-SAMPLE (WITHOUT SPLIT)
 

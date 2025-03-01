@@ -5,6 +5,6 @@ account: kraif999
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14075130
-bundleId: 9870646
+bundleId: 9875234
 url: https://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp/
 version: 1

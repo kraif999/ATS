@@ -92,13 +92,13 @@ res_in_sma1m <- sma1m$run_backtest(
   cut_date = as.Date("2024-01-01"),
   # strategy specific
   ma_types = c("SMA", "EMA"), 
-  window_sizes = round(10 * (1.25 ^ (0:12))),
+  window_sizes = round(10 * (1.15 ^ (0:20))),
   # risk management
   leverages = c(1,5),
   apply_rm = TRUE,  
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
-  max_risk = 0.1,
+  max_risk = c(0.05, 0.1),
   reward_ratios = seq(5, 10, by = 5),
   output_df = TRUE,
   run_via_cpp = TRUE
@@ -119,15 +119,15 @@ res_in_sma2m <- sma2m$run_backtest(
   cut_date = as.Date("2024-01-01"),
   # strategy specific
   ma_types = c("SMA", "EMA"), 
-  window_sizes1 = round(10 * (1.2 ^ (0:12))),
-  window_sizes2 = round(15 * (1.4 ^ (0:12))),
+  window_sizes1 = round(10 * (1.2 ^ (0:8))),  # Shorter periods (fast MA)
+  window_sizes2 =  round(50 * (1.2 ^ (0:8))), # Longer periods (slow MA)
   # risk management
   leverages = c(1,5),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
-  max_risk = c(0.05, 0.1),
-  reward_ratios = seq(3, 7, by = 4),
+  max_risk = c(0.02, 0.1, 0.2),
+  reward_ratios = seq(5, 10, by = 5),
   output_df = TRUE,
   run_via_cpp = TRUE
 )

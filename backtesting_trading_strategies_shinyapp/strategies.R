@@ -316,9 +316,13 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
   # Update trade_id_m where pnlActiveType == "R"
   self$data$trade_id_m <- ifelse(self$data$pnlActiveType == "R", dplyr::lag(self$data$trade_id_m, default = first(self$data$trade_id_m)), self$data$trade_id_m)
 
+  # Final trade identifier, to match with trade_id in get_trades() method
+  self$data$trade_id_m2 <- cumsum(c(0, diff(self$data$trade_id_m) != 0))
+
+  # Calculate annualized volatility, cumulative PnLs, and return of portfolio
   self$data <- self$data %>%
     mutate(
-      annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(365),
+      annual_vol = rollapply(value, width = 30, FUN = sd, fill = NA, align = "right") * sqrt(252),
       pnlActiveCumulative = round(cumsum(replace_na(pnlActive, 0)), 2),
       pnlPassiveCumulative = round(cumsum(replace_na(pnlPassive, 0)), 2),
       r_eqlActive = (eqlActive - lag(eqlActive)) / lag(eqlActive),
@@ -545,6 +549,8 @@ get_trades = function(apply_rm) {
 
   trades <- trades %>% select(Trade, Start, End, ExitBy, Size, EntryPrice, ExitPrice, BalanceStart, TradePnL, BalanceEnd, Cumulative_PnL_Buy, Cumulative_PnL_Sell, RunningPnL, `TradePnL/RunningPnL,%`) %>%
     rename(Running_PnL_Buy = Cumulative_PnL_Buy, Running_PnL_Sell = Cumulative_PnL_Sell)
+
+  trades$trade_id <- seq_len(nrow(trades))
 
   return(
     list(
@@ -1361,16 +1367,16 @@ run_via_cpp) {
         )
 
         print(paste0(
-          "SMA1 strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size, 
-          ", ma_type: ", ma_type, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "strategy SMA1 | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size, 
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -1552,17 +1558,17 @@ leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratio
         )
 
         print(paste0(
-          "SMA2 strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size1: ", window_size1,
-          ", window_size2: ", window_size2, 
-          ", ma_type: ", ma_type, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: SMA2 | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size1: ", window_size1,
+          " | window_size2: ", window_size2, 
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                   }
@@ -1703,7 +1709,7 @@ generate_signals = function() {
 
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -1787,16 +1793,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "SMA1 strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size, 
-          ", ma_type: ", ma_type, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: SMA1M | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size, 
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -1937,7 +1943,7 @@ generate_signals = function() {
       self$data$position <- lag(self$data$signal, default = 0)
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
 
   # Create an empty list to store results
   results <- list()
@@ -2027,17 +2033,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "SMA2 strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size1: ", window_size1,
-          ", window_size2: ", window_size2, 
-          ", ma_type: ", ma_type, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: SMA2M | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size1: ", window_size1,
+          " | window_size2: ", window_size2, 
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                   }
@@ -2129,7 +2135,7 @@ generate_signals = function() {
       na.omit()
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, slines, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, slines, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   
   # Create an empty list to store results
   results <- list()
@@ -2223,18 +2229,18 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
     )
 
     print(paste0(
-      "MACD strategy (symbol: ", symbol, 
-      ", class: ", meta$assets[[symbol]]$class, 
-      ", window_size1: ", window_size1,
-      ", window_size2: ", window_size2, 
-      ", sline: ", sline, 
-      ", ma_type: ", ma_type, 
-      ", flat_after_event: ", flat_after_event,
-      ", dynamic_limit: ", dynamic_limits,
-      ", max_risk: ", max_risk, 
-      ", reward_ratio: ", reward_ratio, 
-      ", leverage: ", leverage,
-      ")"
+      "Strategy: MACD | symbol: ", symbol, 
+      " | class: ", meta$assets[[symbol]]$class, 
+      " | window_size1: ", window_size1,
+      " | window_size2: ", window_size2, 
+      " | sline: ", sline, 
+      " | ma_type: ", ma_type, 
+      " | flat_after_event: ", flat_after_event,
+      " | dynamic_limit: ", dynamic_limits,
+      " | max_risk: ", max_risk, 
+      " | reward_ratio: ", reward_ratio, 
+      " | leverage: ", leverage,
+      " |"
     ))
                     }
                   }
@@ -2327,7 +2333,7 @@ generate_signals = function() {
 },
 
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -2414,16 +2420,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "TurtleTrading strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size1: ", window_size1,
-          ", window_size2: ", window_size2, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: TurtleTrading | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size1: ", window_size1,
+          " | window_size2: ", window_size2, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -2502,7 +2508,7 @@ generate_signals = function() {
       na.omit()
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date,  window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date,  window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -2586,15 +2592,15 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "DonchianChannel strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: DonchianChannel | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
               }
@@ -2693,7 +2699,7 @@ generate_signals = function() {
 },
 
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, window_sizes, thresholds_oversold, thresholds_overbought, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, window_sizes, thresholds_oversold, thresholds_overbought, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
 
   # Create an empty list to store results
   results <- list()
@@ -2782,17 +2788,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "RSI strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size, 
-          ", threshold_oversold: ", threshold_oversold,
-          ", threshold_overbought: ", threshold_overbought,
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: RSI | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size, 
+          " | threshold_oversold: ", threshold_oversold,
+          " | threshold_overbought: ", threshold_overbought,
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                   }
@@ -2880,7 +2886,7 @@ generate_signals = function() {
     na.omit()
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, accels, accels_max, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, accels, accels_max, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
 
   # Create an empty list to store results
   results <- list()
@@ -2968,16 +2974,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "SAR strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", accel: ", accel,
-          ", accel_max: ", accel_max, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: SAR | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | accel: ", accel,
+          " | accel_max: ", accel_max, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -3066,7 +3072,7 @@ generate_signals = function() {
                     
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ndxs, trends_strength, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ndxs, trends_strength, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -3151,16 +3157,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "ADX strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", ndx: ", ndx,
-          ", trend_strength: ", trend_strength,
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: ADX | symbol: ", symbol, 
+          " |class: ", meta$assets[[symbol]]$class, 
+          " | ndx: ", ndx,
+          " | trend_strength: ", trend_strength,
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -3245,7 +3251,7 @@ generate_signals = function() {
         na.omit
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, sd_mults, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, sd_mults, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -3330,16 +3336,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "BollingerBreakout strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size, 
-          ", sd_mult: ", sd_mult, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: BB | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size, 
+          " | sd_mult: ", sd_mult, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
@@ -3422,7 +3428,7 @@ generate_signals = function() {
     na.omit()
 },
 
-run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, output_df = FALSE) {
+run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
   # Create an empty list to store results
   results <- list()
 
@@ -3506,16 +3512,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         )
 
         print(paste0(
-          "VolatilityMeanReversion  strategy (symbol: ", symbol, 
-          ", class: ", meta$assets[[symbol]]$class, 
-          ", window_size: ", window_size,
-          ", ma_type: ", ma_type, 
-          ", flat_after_event: ", flat_after_event,
-          ", dynamic_limit: ", dynamic_limits,
-          ", max_risk: ", max_risk, 
-          ", reward_ratio: ", reward_ratio, 
-          ", leverage: ", leverage,
-          ")"
+          "Strategy: VMR | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size: ", window_size,
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " |"
           )
         )
                 }
