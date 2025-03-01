@@ -152,7 +152,7 @@ Since the start of the investment, the active strategy's portfolio value remaine
 | Strategy                                 | Active           | Passive           | Active               | Passive               |       |
 | Gross Profit                             | 14918            | 6832              | 236                  | 257                   | USD   |
 | Annualized Profit                        | 36.24            | 25.86             | 53.19                | 58.65                 | %     |
-| Expected Absolute Return                 | 3.27             | NotApplicable     | 1                    | NotApplicable         | USD   |
+| Expected Absolute Return (per 1 trade)                 | 3.27             | NotApplicable     | 1                    | NotApplicable         | USD   |
 | Largest Win                              | 1461             | 866               | 123                  | 117                   | USD   |
 | Max Run-Up                               | 2398             | 2509              | 54                   | 59                    | %     |
 | Average Win                              | 134.51           | 73.21             | 25.81                | 27.55                 | USD   |
