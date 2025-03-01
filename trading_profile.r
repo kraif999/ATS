@@ -11,7 +11,7 @@ symbol <- "BTC-USD"
 capital <- 1000 # USDC
 leverage <- 1
 apply_rm <- TRUE
-flat_after_event <- FALSE
+flat_after_event <- TRUE
 dynamic_limits <- TRUE
 
 # Download data from Yahoo (instances of DataFetcher class)
@@ -24,14 +24,14 @@ Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile
 
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 124, ma_type = 'SMA')
-sma1$estimate_range_potential(n=14)
+sma1$estimate_range_potential(n = 14)
 
 # in-sample:
 sma1_res_in_sample <- t(
   sma1$estimate_performance(
   symbol = symbol,
   capital = capital,
-  leverage = 5,
+  leverage = 1,
   data_type = "in_sample", 
   split_data = FALSE, 
   #split_data = TRUE,

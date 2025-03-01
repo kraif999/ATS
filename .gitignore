@@ -3,3 +3,4 @@ bin/
 .Rhistory
 .DS_Store
 .vscode/
+backtesting_trading_strategies/results

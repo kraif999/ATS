@@ -1204,7 +1204,7 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
     # Return Metrics
     `Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
     `Annualized Profit` = c(active$AnnualizedProfit, passive$AnnualizedProfit),
-    `Expected Absolute Return` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
+    `Expected Absolute Return (per 1 trade)` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
     `Largest Win` = c(active$LargestWin, passive$LargestWin),
     `Max Run Up` = c(active$MaxRunUp, passive$MaxRunUp),
     `Average Win` = c(active$AverageWin, passive$AverageWin),
