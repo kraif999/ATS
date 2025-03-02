@@ -30,6 +30,10 @@ ui <- fluidPage(
   ),
   
   titlePanel("Backtesting Trading Strategies"),
+  
+  tags$p(style = "font-weight: bold; color: #D9534F;", 
+         "Disclaimer: past performance is not necessarily indicative of future results."),
+  
   tags$p(style = "font-style: italic; color: #555;", 
              "*If the display appears cluttered, try reloading the page for a better layout.*"),
   sidebarLayout(
@@ -369,7 +373,7 @@ server <- function(input, output, session) {
     tail_view <- if(input$apply_rm) {
         strategy_instance$data %>%
           select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(30) %>%
+          tail(14) %>%
           mutate(
             Close = round(Close, 4),
             stopLoss = round(stopLoss, 4),
@@ -388,7 +392,7 @@ server <- function(input, output, session) {
     } else {
         strategy_instance$data %>%
           select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(30) %>%
+          tail(14) %>%
           mutate(
             Close = round(Close, 4),
             nopActive = round(nopActive, 4),
