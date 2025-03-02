@@ -621,6 +621,7 @@ plot_equity_lines = function(strategy_name, signal_flag = FALSE, symbol, capital
 
 # Estimate Average True Range (ATR)
 estimate_range_potential = function(n) {
+
   self$data <- self$data %>%
     mutate(
       TR1 = High - Low,
@@ -630,7 +631,7 @@ estimate_range_potential = function(n) {
       ATR = zoo::rollmean(TR, n, fill = NA, align = "right"),
       N = TR / ATR
     )
-  
+
   return(self$data)
 },
 
@@ -648,8 +649,8 @@ plot_close_vs_vol = function(ndays) {
   
   # Second plot: Bar plot of N with horizontal dashed lines at 0.5 and 1
   n <- ggplot(filtered_data, aes(x = Date, y = N)) +
-    geom_bar(stat = "identity", fill = "darkgreen") +
-    geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue") +
+    geom_bar(stat = "identity", fill = "blue") +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "yellow") +
     geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
     labs(title = "N = TR / ATR", x = "Date", y = "N") +
     theme_minimal()
@@ -1207,14 +1208,14 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
     `Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
     `Annualized Profit` = c(active$AnnualizedProfit, passive$AnnualizedProfit),
     `Expected Absolute Return (per 1 trade)` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
-    `Largest Win` = c(active$LargestWin, passive$LargestWin),
+    `Largest Win (daily)` = c(active$LargestWin, passive$LargestWin),
     `Max Run Up` = c(active$MaxRunUp, passive$MaxRunUp),
     `Average Win` = c(active$AverageWin, passive$AverageWin),
     `Length of Average Win` = c(active$LengthOfAverageWin, passive$LengthOfAverageWin),
 
     # Risk Metrics
     `Max Drawdown` = c(active$MaxDrawdown, passive$MaxDrawdown),
-    `Largest Loss` = c(active$LargestLoss, passive$LargestLoss),
+    `Largest Loss (daily)` = c(active$LargestLoss, passive$LargestLoss),
     `Average Loss` = c(active$AverageLoss, passive$AverageLoss),
     `Length of Average Loss` = c(active$LengthOfAverageLoss, passive$LengthOfAverageLoss),
 

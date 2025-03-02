@@ -22,6 +22,8 @@ ts <- data_fetcher$download_xts_data()
 Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
 Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
 
+meta <- jsonlite::fromJSON("instr_config.json")
+
 # IN-SAMPLE (WITHOUT SPLIT)
 sma1 <- SMA1$new(ts, window_size = 124, ma_type = 'SMA')
 sma1$estimate_range_potential(n = 14)
@@ -43,7 +45,7 @@ sma1_res_in_sample <- t(
   dynamic_limits = dynamic_limits,
   max_risk = 0.2, 
   reward_ratio = 5,
-  run_via_cpp = TRUE
+  run_via_cpp = FALSE
     )
   )
 
@@ -74,6 +76,14 @@ dataset <- sma1$data %>% select(
     Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
     eventSL, eventPT, eventSLShift,
     nopActive, pnlActive, eqlActive, pnlActiveCumulative, Liquidation)
+
+result <- dataset %>% 
+  group_by(trade_id_m2) %>% 
+  #filter(row_number() != n()) %>%  # Exclude the last `trade_id_m2`
+  summarise(pnl = sum(pnlActive, na.rm = TRUE)) %>% 
+  ungroup()
+
+result$pnl %>% range
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
 View(trades)
@@ -118,8 +128,6 @@ ggplot(dataset, aes(x = Date)) +
   print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
 
 # IN-SAMPLE (WITHOUT SPLIT)
-
-meta <- jsonlite::fromJSON("instr_config.json")
 
 # Overall trading profile (NO SPLIT with stop-loss)
 sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'EMA')

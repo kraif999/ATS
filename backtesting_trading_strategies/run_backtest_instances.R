@@ -147,8 +147,8 @@ res_in_macd <- macd$run_backtest(
   cut_date = as.Date("2024-01-01"),
   # strategy specific
   ma_types = c("SMA", "EMA"), 
-  window_sizes1 = round(10 * (1.5 ^ (0:7))),
-  window_sizes2 = round(15 * (1.5 ^ (0:7))),
+  window_sizes1 = round(10 * (1.2 ^ (0:6))),  # Shorter periods (fast MA)
+  window_sizes2 =  round(50 * (1.2 ^ (0:6))), # Longer periods (slow MA)
   sline = round(7 * (1.5 ^ (0:7))),
   # risk management
   leverages = c(1,5),
