@@ -131,63 +131,101 @@ List calculateMaxRunUp(NumericVector equity, NumericVector dates) {
 }
 
 // Function to calculate Length of Average Win
-double calculateLengthOfAverageWin(IntegerVector trade_id, NumericVector pnl_col, NumericVector date_vec) {
-    std::map<int, std::vector<int>> trade_dates_map;
-    std::map<int, double> trade_pnls_map;
+// double calculateLengthOfAverageWin(IntegerVector trade_id, NumericVector pnl_col, NumericVector date_vec) {
+//     std::map<int, std::vector<int>> trade_dates_map;
+//     std::map<int, double> trade_pnls_map;
 
-    // Group by trade_id and store the dates and PnL for each trade
-    for (int i = 0; i < trade_id.size(); i++) {
-        if (pnl_col[i] > 0) { // Only consider positive PnL for wins
-            trade_dates_map[trade_id[i]].push_back(i);  // Store the index of the date
-            trade_pnls_map[trade_id[i]] += pnl_col[i];  // Aggregate PnL for each trade
-        }
+//     // Group by trade_id and store the dates and PnL for each trade
+//     for (int i = 0; i < trade_id.size(); i++) {
+//         if (pnl_col[i] > 0) { // Only consider positive PnL for wins
+//             trade_dates_map[trade_id[i]].push_back(i);  // Store the index of the date
+//             trade_pnls_map[trade_id[i]] += pnl_col[i];  // Aggregate PnL for each trade
+//         }
+//     }
+
+//     // Calculate the length of each winning trade
+//     std::vector<int> win_lengths;
+//     for (const auto& trade : trade_dates_map) {
+//         if (trade_pnls_map[trade.first] > 0) {  // Only consider winning trades
+//             // Calculate the length of the win (difference between first and last date of the trade)
+//             int length_of_win = date_vec[trade.second.back()] - date_vec[trade.second.front()] + 1;
+//             win_lengths.push_back(length_of_win);
+//         }
+//     }
+
+//     // Calculate the average length of wins
+//     if (win_lengths.empty()) return NA_REAL;
+
+//     double sum_lengths = std::accumulate(win_lengths.begin(), win_lengths.end(), 0.0);
+//     return std::round(sum_lengths / win_lengths.size());
+// }
+
+// Function to calculate Length of Average Win in Rcpp
+double calculateLengthOfAverageWin(IntegerVector trade_id_m2, NumericVector pnl_col, NumericVector date_vec) {
+    std::map<int, double> pnl_map;
+    std::map<int, std::vector<int>> trade_dates_map;
+
+    // Step 1: Aggregate PnL by trade_id_m2
+    for (int i = 0; i < trade_id_m2.size(); ++i) {
+        int trade_id = trade_id_m2[i];
+        double pnl_value = pnl_col[i];
+        pnl_map[trade_id] += pnl_value;  // Summing pnl values for the same trade_id_m2
+        trade_dates_map[trade_id].push_back(i); // Storing the index (date) of each trade
     }
 
-    // Calculate the length of each winning trade
+    // Step 2: Identify winning trades (those with positive cumulative PnL)
     std::vector<int> win_lengths;
-    for (const auto& trade : trade_dates_map) {
-        if (trade_pnls_map[trade.first] > 0) {  // Only consider winning trades
-            // Calculate the length of the win (difference between first and last date of the trade)
-            int length_of_win = date_vec[trade.second.back()] - date_vec[trade.second.front()] + 1;
+    for (auto& entry : pnl_map) {
+        int trade_id = entry.first;
+        double cumulative_pnl = entry.second;
+
+        if (cumulative_pnl > 0) {  // Only consider positive PnLs for winning trades
+            // Calculate the length of the winning trade: max date index - min date index
+            const std::vector<int>& dates = trade_dates_map[trade_id];
+            int length_of_win = date_vec[dates.back()] - date_vec[dates.front()] + 1;
             win_lengths.push_back(length_of_win);
         }
     }
 
-    // Calculate the average length of wins
-    if (win_lengths.empty()) return NA_REAL;
+    // Step 3: Calculate the average length of winning trades
+    if (win_lengths.empty()) return NA_REAL;  // No wins found
 
     double sum_lengths = std::accumulate(win_lengths.begin(), win_lengths.end(), 0.0);
-    return std::round(sum_lengths / win_lengths.size());
+    return std::round(sum_lengths / win_lengths.size());  // Average length of wins
 }
 
-// Function to calculate Length of Average Loss
-double calculateLengthOfAverageLoss(IntegerVector trade_id, NumericVector pnl_col, NumericVector date_vec) {
+// Function to calculate Length of Average Loss in Rcpp
+double calculateLengthOfAverageLoss(IntegerVector trade_id_m2, NumericVector pnl_col, NumericVector date_vec) {
+    std::map<int, double> pnl_map;
     std::map<int, std::vector<int>> trade_dates_map;
-    std::map<int, double> trade_pnls_map;
 
-    // Group by trade_id and store the dates and PnL for each trade
-    for (int i = 0; i < trade_id.size(); i++) {
-        if (pnl_col[i] < 0) { // Only consider negative PnL for losses
-            trade_dates_map[trade_id[i]].push_back(i);  // Store the index of the date
-            trade_pnls_map[trade_id[i]] += pnl_col[i];  // Aggregate PnL for each trade
-        }
+    // Step 1: Aggregate PnL by trade_id_m2
+    for (int i = 0; i < trade_id_m2.size(); ++i) {
+        int trade_id = trade_id_m2[i];
+        double pnl_value = pnl_col[i];
+        pnl_map[trade_id] += pnl_value;  // Summing pnl values for the same trade_id_m2
+        trade_dates_map[trade_id].push_back(i); // Storing the index (date) of each trade
     }
 
-    // Calculate the length of each losing trade
+    // Step 2: Identify losing trades (those with negative cumulative PnL)
     std::vector<int> loss_lengths;
-    for (const auto& trade : trade_dates_map) {
-        if (trade_pnls_map[trade.first] < 0) {  // Only consider losing trades
-            // Calculate the length of the loss (difference between first and last date of the trade)
-            int length_of_loss = date_vec[trade.second.back()] - date_vec[trade.second.front()] + 1;
+    for (auto& entry : pnl_map) {
+        int trade_id = entry.first;
+        double cumulative_pnl = entry.second;
+
+        if (cumulative_pnl < 0) {  // Only consider negative PnLs for losing trades
+            // Calculate the length of the losing trade: max date index - min date index
+            const std::vector<int>& dates = trade_dates_map[trade_id];
+            int length_of_loss = date_vec[dates.back()] - date_vec[dates.front()] + 1;
             loss_lengths.push_back(length_of_loss);
         }
     }
 
-    // Calculate the average length of losses
-    if (loss_lengths.empty()) return NA_REAL;
+    // Step 3: Calculate the average length of losing trades
+    if (loss_lengths.empty()) return NA_REAL;  // No losses found
 
     double sum_lengths = std::accumulate(loss_lengths.begin(), loss_lengths.end(), 0.0);
-    return std::round(sum_lengths / loss_lengths.size());
+    return std::round(sum_lengths / loss_lengths.size());  // Average length of losses
 }
 
 //[[Rcpp::export]]
@@ -245,10 +283,7 @@ int winning_trades = 0;
 for (const auto& trade : trade_pnl_map) {
     if (trade.second > 0) winning_trades++;
 }
-double PercentageOfWinningTrades = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
-
-// Largest win
-// double LargestWin = std::round(max(na_omit(pnl_col)));
+double PercentageOfWinningDays = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
 
 // Create a map to store the sum of pnl for each trade_id_m2
 std::map<int, double> pnl_map;
@@ -291,7 +326,6 @@ if (negative_pnls.size() > 0) {
 }
 
 // Largest loss
-// double LargestLoss = std::round(min(na_omit(pnl_col)));  // Find the minimum pnl value
 double LargestLoss = std::round(*std::min_element(summed_pnl.begin(), summed_pnl.end()));
 
 // Compute Max Drawdown
@@ -306,14 +340,15 @@ List maxRunUpResults = calculateMaxRunUp(eql_col, date_vec);
 double MaxRunUp = maxRunUpResults["MaxRunUp"];
 
 // Expected profit per trade
-double ExpectedAbsoluteReturn = std::round((PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss) * 100) / 100;
+double ExpectedAbsoluteReturn = std::round((PercentageOfWinningDays / 100.0) * (AverageWin + AverageLoss) * 100) / 100;
 
 // Calmar ratio
 double CR = std::round((AnnualizedProfit / -MaxDrawdown) * 10000) / 10000;
 
-// Compute Length of Average Win
-double LengthOfAverageWin = calculateLengthOfAverageWin(trade_id_cumsum, pnl_col, date_vec);
-double LengthOfAverageLoss = calculateLengthOfAverageLoss(trade_id_cumsum, pnl_col, date_vec);
+// Compute Length of Average Win and Average Loss
+double LengthOfAverageWin = calculateLengthOfAverageWin(trade_id_m2, pnl_col, date_vec);
+double LengthOfAverageLoss = calculateLengthOfAverageLoss(trade_id_m2, pnl_col, date_vec);
+
 
 // Max streaks
 int MaxLosingStreak = 0;
@@ -340,13 +375,44 @@ for (int i = 0; i < summed_pnl.size(); i++) {
     }
 }
 
+// Average Trade Win and Average Trade Loss
+std::vector<double> positive_summed_pnls;
+std::vector<double> negative_summed_pnls;
+
+// Separate positive and negative pnl values
+for (double pnl : summed_pnl) {
+    if (pnl > 0) {
+        positive_summed_pnls.push_back(pnl);
+    } else if (pnl < 0) {
+        negative_summed_pnls.push_back(pnl);
+    }
+}
+
+// Calculate AverageTradeWin
+double AverageTradeWin = NAN;
+if (!positive_summed_pnls.empty()) {
+    double sum_positive_summed_pnls = std::accumulate(positive_summed_pnls.begin(), positive_summed_pnls.end(), 0.0);
+    AverageTradeWin = std::round((sum_positive_summed_pnls / positive_summed_pnls.size()));
+}
+
+// Calculate AverageTradeLoss
+double AverageTradeLoss = NAN;
+if (!negative_summed_pnls.empty()) {
+    double sum_negative_summed_pnls = std::accumulate(negative_summed_pnls.begin(), negative_summed_pnls.end(), 0.0);
+    AverageTradeLoss = std::round((sum_negative_summed_pnls / negative_summed_pnls.size()));
+}
+
+// Percentage of Winning Trades
+double PercentageOfWinningTrades = std::round((std::count_if(summed_pnl.begin(), summed_pnl.end(), [](double pnl) { return pnl > 0; }) * 100.0) / summed_pnl.size() * 100 / 100);
+double ExpectedTradeResult = std::round((PercentageOfWinningTrades / 100.0) * (AverageTradeWin + AverageTradeLoss) * 100) / 100;
+
 // Add new metrics to the return list
 return List::create(
     Named("GrossProfit") = GrossProfit,
     Named("AnnualizedProfit") = AnnualizedProfit,
     Named("NumberOfTradesPerYear") = NumberOfTradesPerYear,
     Named("ExpectedAbsoluteReturn") = ExpectedAbsoluteReturn,
-    Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
+    Named("PercentageOfWinningDays") = PercentageOfWinningDays,
     Named("LargestWin") = LargestWin,
     Named("AverageWin") = AverageWin,
     Named("LengthOfAverageWin") = LengthOfAverageWin,
@@ -357,5 +423,9 @@ return List::create(
     Named("MaxRunUp") = MaxRunUp,
     Named("MaxLosingStreak") = MaxLosingStreak,
     Named("MaxWinningStreak") = MaxWinningStreak,
+    Named("AverageTradeWin") = AverageTradeWin,
+    Named("AverageTradeLoss") = AverageTradeLoss,
+    Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
+    Named("ExpectedTradeResult") = ExpectedTradeResult,
     Named("CR") = CR);
 }

@@ -987,6 +987,10 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
   r_col <- ifelse(strategy_type == "Active", "r_eqlActive", "r_eqlPassive")
   
   # Generate a trade_id based on changes in position
+  trades <- data_subset %>%
+    group_by(trade_id_m2) %>%
+    summarise(pnl = sum(!!sym(pnl_col), na.rm = TRUE))
+
   data_subset <- data_subset %>% mutate(trade_id = cumsum(position != lag(position, default = 1)))
 
   GrossProfit <- round(GrossProfit <- sum(na.omit(tail(data_subset[[eql_col]], 1)) - na.omit(data_subset[[eql_col]][1])), 0)
@@ -1004,15 +1008,11 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
                                 length(unique(format(data_subset$Date, "%Y"))), 0)
 
   # 3. Percentage of Winning Trades
-  PercentageOfWinningTrades <- round(
+  PercentageOfWinningDays <- round(
     sum(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)$x > 0) / 
     nrow(aggregate(data_subset[[pnl_col]], by = list(cumsum(c(1, diff(data_subset$position) != 0))), sum, na.rm = TRUE)) * 100, 2)
 
   # 4. Largest Win
-  trades <- data_subset %>%
-    group_by(trade_id_m2) %>%
-    summarise(pnl = sum(!!sym(pnl_col), na.rm = TRUE))
-
   #LargestWin <- round(max(data_subset[[pnl_col]], na.rm = TRUE), 0)
   LargestWin <- round(max(trades$pnl, na.rm = TRUE), 0)
 
@@ -1025,12 +1025,12 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
 
   # 7. Length of Average Win
   AverageWinLength <- tryCatch({data_subset %>%
-  transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-  aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
+  transform(cum_pnl = ave(get(pnl_col), trade_id_m2, FUN = cumsum)) %>%
+  aggregate(cum_pnl ~ trade_id_m2, data = ., FUN = tail, n = 1) %>%
   subset(cum_pnl > 0) %>%
   {if (nrow(.) == 0) return(NA) else .} %>%
-  merge(data_subset, by = "trade_id") %>%
-  aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
+  merge(data_subset, by = "trade_id_m2") %>%
+  aggregate(Date ~ trade_id_m2, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
   with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
   
   # 8. Largest Loss
@@ -1046,12 +1046,12 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
 
   # 11. Length of Average Loss
   AverageLossLength <- tryCatch({data_subset %>%
-  transform(cum_pnl = ave(get(pnl_col), trade_id, FUN = cumsum)) %>%
-  aggregate(cum_pnl ~ trade_id, data = ., FUN = tail, n = 1) %>%
+  transform(cum_pnl = ave(get(pnl_col), trade_id_m2, FUN = cumsum)) %>%
+  aggregate(cum_pnl ~ trade_id_m2, data = ., FUN = tail, n = 1) %>%
   subset(cum_pnl < 0) %>%
   {if (nrow(.) == 0) return(NA) else .} %>%
-  merge(data_subset, by = "trade_id") %>%
-  aggregate(Date ~ trade_id, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
+  merge(data_subset, by = "trade_id_m2") %>%
+  aggregate(Date ~ trade_id_m2, data = ., FUN = function(x) as.numeric(max(x) - min(x) + 1)) %>%
   with(round(mean(Date, na.rm = TRUE)))}, error = function(e) NA)
 
   # 12-15: Winning Runs
@@ -1179,7 +1179,7 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
   }
 
   # 26. Trade expected return (absolute amount)
-  ExpectedAbsoluteReturn = round((AverageWin + AverageLoss) * PercentageOfWinningTrades / 100, 2)
+  ExpectedAbsoluteReturn = round((AverageWin + AverageLoss) * PercentageOfWinningDays / 100, 2)
 
   # 27. Calmar Ratio
   CR = round(AnnualizedProfit / -MaxDrawdown, 4)
@@ -1216,13 +1216,29 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
   # Get the maximum length of consecutive winning trades
   MaxWinningStreak <- max(winning_streaks$winning_streak_length, na.rm = TRUE)
 
+  # 30. Average Trade Win and Loss
+
+  # Calculate Average Trade Win safely
+  win_trades <- trades$pnl[trades$pnl > 0]
+  AverageTradeWin <- ifelse(length(win_trades) > 0, round(mean(win_trades, na.rm = TRUE), 0), 0)
+
+  # Calculate Average Trade Loss safely
+  loss_trades <- trades$pnl[trades$pnl < 0]
+  AverageTradeLoss <- ifelse(length(loss_trades) > 0, round(mean(loss_trades, na.rm = TRUE), 0), 0)
+
+  # 31. Percentage of Winning Trades
+  PercentageOfWinningTrades <- round(sum(trades$pnl > 0) / nrow(trades) * 100, 2)
+
+  # 32. Expected Trade PnL
+  ExpectedTradeResult = round(PercentageOfWinningTrades / 100 * (AverageTradeWin + AverageTradeLoss), 2)
+
   # Return the metrics as a list
   return(
     list(
       GrossProfit = GrossProfit,
       AnnualizedProfit = AnnualizedProfit,
       NumberOfTradesPerYear = NumberOfTradesPerYear,
-      PercentageOfWinningTrades = PercentageOfWinningTrades,
+      PercentageOfWinningDays = PercentageOfWinningDays,
       AverageWin = AverageWin,
       LengthOfAverageWin = AverageWinLength,
       AverageLoss = AverageLoss,
@@ -1250,7 +1266,11 @@ estimate_trading_profile = function(data_subset, strategy_type, symbol) {
       ExpectedAbsoluteReturn = ExpectedAbsoluteReturn,
       CR = CR,
       MaxLosingStreak = MaxLosingStreak,
-      MaxWinningStreak = MaxWinningStreak
+      MaxWinningStreak = MaxWinningStreak,
+      AverageTradeWin = AverageTradeWin,
+      AverageTradeLoss = AverageTradeLoss,
+      PercentageOfWinningTrades = PercentageOfWinningTrades,
+      ExpectedTradeResult = ExpectedTradeResult
     )
   )
 },
@@ -1277,26 +1297,30 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
     ticker = symbol,
 
     # Return Metrics
-    `Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
-    `Calmar Ratio` = c(active$CR, passive$CR),
-    `Expected Absolute Return (per 1 trade)` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
+    `Total Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
     `Annualized Profit` = c(active$AnnualizedProfit, passive$AnnualizedProfit),
     `Largest Trade Win` = c(active$LargestWin, passive$LargestWin),
-    #`Max Run Up` = c(active$MaxRunUp, passive$MaxRunUp),
-    `Average Win` = c(active$AverageWin, passive$AverageWin),
-    `Length of Average Win` = c(active$LengthOfAverageWin, passive$LengthOfAverageWin),
+    `Average Trade Win` = c(active$AverageTradeWin, "Not Applicable"),
+    `Average Daily Profit` = c(active$AverageWin, passive$AverageWin),
+    `Length of Average Win` = c(active$LengthOfAverageWin, "Not Applicable"),
     `Max Winning Streak` = c(active$MaxWinningStreak, "NotApplicable"),
 
     # Risk Metrics
     `Max Drawdown` = c(active$MaxDrawdown, passive$MaxDrawdown),
     `Largest Trade Loss` = c(active$LargestLoss, passive$LargestLoss),
-    `Average Loss` = c(active$AverageLoss, passive$AverageLoss),
-    `Length of Average Loss` = c(active$LengthOfAverageLoss, passive$LengthOfAverageLoss),
+    `Average Trade Loss` = c(active$AverageTradeLoss, "Not Applicable"),
+    `Average Daily Loss` = c(active$AverageLoss, passive$AverageLoss),
+    `Length of Average Loss` = c(active$LengthOfAverageLoss, "Not Applicable"),
     `Max Losing Streak` = c(active$MaxLosingStreak, "NotApplicable"),
 
     # Activity Metrics
     `Number of Trades Per Year` = c(active$NumberOfTradesPerYear, 0),
-    `Percentage of Winning Trades` = c(active$PercentageOfWinningTrades, "NotApplicable"),
+    `Percentage of Winning Trades` = c(active$PercentageOfWinningTrades, "Not Applicable"),
+    `Expected Trade Result` = c(active$ExpectedTradeResult, "Not Applicable"),
+    `Percentage of Positive Profit Days` = c(active$PercentageOfWinningDays, "NotApplicable"),
+    #`Expected Daily Profit` = c(active$ExpectedAbsoluteReturn, "NotApplicable"),
+    `Calmar Ratio` = c(active$CR, passive$CR),
+    
     check.names = FALSE
 
   )

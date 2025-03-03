@@ -36,7 +36,6 @@ sma1_res_in_sample <- t(
   leverage = 1,
   data_type = "in_sample", 
   split_data = FALSE, 
-  #split_data = TRUE,
   cut_date = as.Date("2024-01-01"), 
   #cut_date = Sys.Date(),
   window = 1, 
@@ -54,7 +53,7 @@ sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.ta
 sma1_res_in_sample_dt[, units := ifelse(
     .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
     ifelse(
-      Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
+      Metric %in% c("Annualized Profit", "Percentage of Positive Profit Days", "Percentage of Winning Trades",  "Max Drawdown", "Max Run Up"), "%",
       ifelse(
         Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
                       "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
@@ -69,7 +68,7 @@ sma1_res_in_sample_dt[, units := ifelse(
         )
       )
     )
-  )]
+)]
 
 View(sma1_res_in_sample_dt)
 
@@ -135,7 +134,7 @@ fwrite(btc_sma1_in_sample_no_split, "/Users/olegb/Documents/ATS/ATS/bin/res_sma1
 btc_sma1_in_sample_no_split <- fread("bin/res_sma1_btc.csv")
 
 # Backtest visualization
-ggplot(btc_sma1_in_sample_no_split, aes(x = Window_Size, y = `Annualized Profit`)) +
+ggplot(btc_sma1_in_sample_no_split %>% filter(Strategy == "Active"), aes(x = Window_Size, y = `Annualized Profit`)) +
   geom_point(aes(color = MA_Type, shape = MA_Type), size = 3, alpha = 0.6) +  # Points with different shapes and colors for each MA_Type
   geom_smooth(method = "loess", se = FALSE, color = "red") +  # Single smooth line
   scale_color_manual(values = c("SMA" = "blue", "EMA" = "green", "WMA" = "purple")) +  # Custom colors for each MA_Type

@@ -149,23 +149,26 @@ Since the start of the investment, the active strategy's portfolio value remaine
 | leverage                                 | 1                | 1                 | 1                    | 1                     |       |
 | max_risk                                 | 0.1              | 0.1               | 0.1                  | 0.1                   |       |
 | reward_ratio                             | 3                | 3                 | 3                    | 3                     |       |
-| capital                                  | 1000             | 1000              | 1000                 | 1000                  | USD   |
+| trading capital                          | 1000             | 1000              | 1000                 | 1000                  | USD   |
 | Strategy                                 | Active           | Passive           | Active               | Passive               |       |
-| Gross Profit                             | 14918            | 6832              | 114                  | 381                   | USD   |
-| Calmar Ratio                             | 1.1428           | 0.5132            | 1.2291               | 7.2263                |       |
-| Expected Absolute Return (per 1 trade)   | 3.27             | NotApplicable     | 0.83                 | NotApplicable         | USD   |
-| Annualized Profit                        | 56.51            | 39.54             | 35.89                | 149.44                | %     |
+| Total Gross Profit                       | 14918            | 6832              | 213                  | 289                   | USD   |
+| Annualized Profit                        | 56.51            | 39.54             | 72.80                | 105.22                | %     |
 | Largest Trade Win                        | 4555             | 2391              | 312                  | 310                   | USD   |
-| Average Win                              | 134.51           | 73.21             | 25.85                | 28.58                 | USD   |
-| Length of Average Win                    | 13               | 14                | 23                   | 30                    | days  |
-| Max Winning Streak                       | 7                | NotApplicable     | 2                    | NotApplicable         | trades|
+| Average Trade Win                        | 767              | Not Applicable    | 186                  | Not Applicable        | USD   |
+| Average Daily Profit                     | 134.51           | 73.21             | 27.45                | 28.58                 | USD   |
+| Length of Average Win                    | 28               | Not Applicable    | 30                   | Not Applicable        | days  |
+| Max Winning Streak                       | 7                | Not Applicable    | 2                    | Not Applicable        | trades|
 | Max Drawdown                             | -49.45           | -77.05            | -29.20               | -20.68                | %     |
 | Largest Trade Loss                       | -1357            | -2066             | -138                 | -87                   | USD   |
-| Average Loss                             | -127.96          | -70.53            | -23.63               | -23.89                | USD   |
-| Length of Average Loss                   | 15               | 15                | 19                   | 16                    | days  |
-| Max Losing Streak                        | 6                | NotApplicable     | 2                    | NotApplicable         | trades|
-| Number of Trades Per Year                | 15               | 0                 | 3                    | 0                     |       |
-| Percentage of Winning Trades             | 50               | NotApplicable     | 37.5                 | NotApplicable         | %     |
+| Average Trade Loss                       | -442             | Not Applicable    | -79                  | Not Applicable        | USD   |
+| Average Daily Loss                       | -127.96          | -70.53            | -23.63               | -25.35                | USD   |
+| Length of Average Loss                   | 16               | Not Applicable    | 35                   | Not Applicable        | days  |
+| Max Losing Streak                        | 6                | Not Applicable    | 2                    | Not Applicable        | trades|
+| Number of Trades Per Year                | 15               | 0                 | 2                    | 0                     |       |
+| Percentage of Winning Trades             | 48.08            | Not Applicable    | 40                   | Not Applicable        | %     |
+| Expected Trade Result                    | 156.26           | Not Applicable    | 42.8                 | Not Applicable        | USD   |
+| Percentage of Positive Profit Days       | 50               | Not Applicable    | 37.5                 | Not Applicable        | %     |
+| Calmar Ratio                             | 1.1428           | 0.5132            | 2.4932               | 5.0880                |       |
 
 The active strategy performs better in-sample in terms of return and risk, its performance declines in the out-of-sample period. 
 The framework allows users to select different assets, periods (including custom splits for further periods), strategies, parameters, risk management applications, and leverage, providing a comprehensive strategy profile view as if it had been consistently applied. For instance, once the strategy is deployed, you may not be aware of the current winning or losing streak, but knowing this could give you valuable insights into the strategy’s performance.

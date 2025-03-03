@@ -202,7 +202,7 @@ res_in_dc <- dc$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   # strategy specific
-  window_sizes = round(10 * (1.5 ^ (0:7))),
+  window_sizes = round(10 * (1.2 ^ (0:15))),
   # risk management
   leverages = c(1,5),
   apply_rm = TRUE,
@@ -228,11 +228,11 @@ res_in_rsi <- rsi$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   # strategy specific
-  window_sizes = round(10 * (1.5 ^ (0:7))),
-  thresholds_oversold = c(10, 20, 30),
-  thresholds_overbought = c(70, 80, 90),
+  window_sizes = round(10 * (1.2 ^ (0:10))),
+  thresholds_oversold = c(10, 20, 30, 40),
+  thresholds_overbought = c(60, 70, 80),
   # risk management
-  leverages = c(1,5),
+  leverages = c(1,5,10),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
