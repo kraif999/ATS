@@ -10,6 +10,8 @@ options(scipen = 999)
 options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
 options(shiny.timeout = 1200)  # Timeout for 20 minutes (1200 seconds)
 
+meta <- jsonlite::fromJSON("instr_config.json")
+
 # UI for multiple strategies
 ui <- fluidPage(
   
@@ -274,7 +276,7 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Trading profile", DTOutput("trading_profile")),
         tabPanel("Trading account evolution", plotOutput("performance_plot")),
-        tabPanel("List of all trades", DTOutput("trades")),
+        tabPanel("List of all completed trades", DTOutput("trades")),
         tabPanel("Total PnL distribution", plotOutput("pnl_hist")),
         tabPanel("PnL distribution by trade (buy/sell)", plotOutput("pnl_hist_by_trade")),
         tabPanel("PnL contribution by trade type (buy/sell)", plotOutput("pnl_contr_by_trade")),
@@ -354,26 +356,30 @@ server <- function(input, output, session) {
     trading_profile <- t(performance_result)
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile)))
     trading_profile[, units := ifelse(
-      .I <= 5 | Metric %in% c("max_risk", "Strategy", "Number of Trades Per Year", "reward_ratio"), "",
+    .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
+    ifelse(
+      Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
       ifelse(
-        Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
-        ifelse(
-          Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
-                        "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", "Length of Time in Largest Losing Run", 
-                        "Length of Time in Average Winning Run", "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", "Average Winning Run", "Average Losing Run"), "days",
-          ifelse(
-            grepl("Date", Metric), "Date", 
-            "USD"  # Default case for other rows
-          )
+        Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                      "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
+                      "Length of Time in Largest Losing Run", "Length of Time in Average Winning Run", 
+                      "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", 
+                      "Average Winning Run", "Average Losing Run"), 
+        "days",
+        ifelse(grepl("Date", Metric), "Date", 
+              ifelse(Metric %in% c("Max Losing Streak", "Max Winning Streak"), "trades", 
+                      "USD"  # Default case for other rows
+              )
         )
       )
-    )]
+    )
+  )]
 
     trades_lst <- strategy_instance$get_trades(input$apply_rm)
     tail_view <- if(input$apply_rm) {
         strategy_instance$data %>%
           select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(14) %>%
+          tail(30) %>%
           mutate(
             Close = round(Close, 4),
             stopLoss = round(stopLoss, 4),
@@ -392,7 +398,7 @@ server <- function(input, output, session) {
     } else {
         strategy_instance$data %>%
           select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(14) %>%
+          tail(30) %>%
           mutate(
             Close = round(Close, 4),
             nopActive = round(nopActive, 4),

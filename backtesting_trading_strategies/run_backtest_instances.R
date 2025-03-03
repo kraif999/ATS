@@ -175,8 +175,8 @@ res_in_tt <- tt$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   # strategy specific
-  window_sizes1 = round(10 * (1.5 ^ (0:7))),
-  window_sizes2 = round(15 * (1.5 ^ (0:7))),
+  window_sizes1 = round(10 * (1.2 ^ (0:6))),  # Shorter periods (fast MA)
+  window_sizes2 =  round(50 * (1.2 ^ (0:6))), # Longer periods (slow MA)
   # risk management
   leverages = c(1,5),
   apply_rm = TRUE,

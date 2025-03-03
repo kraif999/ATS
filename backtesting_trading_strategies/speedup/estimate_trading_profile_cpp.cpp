@@ -50,7 +50,8 @@ List calculateDrawdown(NumericVector equity, NumericVector dates) {
     }
 
     // Maximum drawdown percentage
-    double MaxDrawdown = round(100.0 * min(drawdown));
+    // double MaxDrawdown = round(100.0 * min(drawdown));
+    double MaxDrawdown = std::round(100.0 * min(drawdown) * 100) / 100;
 
     // Find peak (start of max drawdown) and trough (lowest drawdown point)
     int trough_idx = which_min(drawdown);
@@ -189,24 +190,29 @@ double calculateLengthOfAverageLoss(IntegerVector trade_id, NumericVector pnl_co
     return std::round(sum_lengths / loss_lengths.size());
 }
 
-// [[Rcpp::export]]
+//[[Rcpp::export]]
 List estimate_trading_profile_cpp(DataFrame data_subset, std::string strategy_type) {
 NumericVector date_vec = data_subset["Date"];
 IntegerVector position = data_subset["position"];
 IntegerVector trade_id_m = data_subset["trade_id_m"];
+IntegerVector trade_id_m2 = data_subset["trade_id_m2"];
 NumericVector pnl_col = data_subset[(strategy_type == "Active") ? "pnlActive" : "pnlPassive"];
 NumericVector eql_col = data_subset[(strategy_type == "Active") ? "eqlActive" : "eqlPassive"];
 NumericVector r_col = data_subset[(strategy_type == "Active") ? "r_eqlActive" : "r_eqlPassive"];
+LogicalVector cryptoClass = data_subset["cryptoClass"];
 
 // Gross profit
 NumericVector eql_col_clean = na_omit(eql_col);
 double GrossProfit = eql_col_clean.size() > 0 ? std::round(eql_col_clean[eql_col_clean.size() - 1] - eql_col_clean[0]) : NA_REAL;
-
+    
 // Annualized profit
-NumericVector r_col_clean = na_omit(r_col);
-double annualized_return = (r_col_clean.size() > 0) ? (exp(sum(log(1 + r_col_clean)) / r_col_clean.size() * 252) - 1) * 100 : NA_REAL;
-double AnnualizedProfit = std::round(annualized_return * 100) / 100;
+bool is_crypto = cryptoClass[0];  // First value of CryptoClass as boolean
+int trading_days = is_crypto ? 365 : 252;  // 365 for crypto, 252 for traditional assets
 
+NumericVector r_col_clean = na_omit(r_col);
+double annualized_return = (r_col_clean.size() > 0) ? (exp(sum(log(1 + r_col_clean)) / r_col_clean.size() * trading_days) - 1) * 100 : NA_REAL;
+double AnnualizedProfit = std::round(annualized_return * 100) / 100;
+    
 // Number of trades per year
 IntegerVector years = extract_years(date_vec);
 int num_years = unique(years).size();
@@ -242,7 +248,29 @@ for (const auto& trade : trade_pnl_map) {
 double PercentageOfWinningTrades = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
 
 // Largest win
-double LargestWin = std::round(max(na_omit(pnl_col)));
+// double LargestWin = std::round(max(na_omit(pnl_col)));
+
+// Create a map to store the sum of pnl for each trade_id_m2
+std::map<int, double> pnl_map;
+
+// Loop through the data and aggregate pnl by trade_id_m2
+for (int i = 0; i < trade_id_m2.size(); ++i) {
+    int trade_id = trade_id_m2[i];
+    double pnl_value = pnl_col[i];
+    pnl_map[trade_id] += pnl_value;  // Summing pnl values for the same trade_id_m2
+}
+
+// Convert the map to two vectors: one for the trade IDs and one for the summed pnl values
+std::vector<int> unique_trade_ids;
+std::vector<double> summed_pnl;
+
+for (auto& entry : pnl_map) {
+    unique_trade_ids.push_back(entry.first);
+    summed_pnl.push_back(entry.second);
+}
+
+// Find LargestWin
+double LargestWin = std::round(*std::max_element(summed_pnl.begin(), summed_pnl.end()));
 
 // Average win
 NumericVector positive_pnls = pnl_col[pnl_col > 0];
@@ -262,9 +290,9 @@ if (negative_pnls.size() > 0) {
     AverageLoss = std::round((sum_negative_pnls / negative_pnls.size()) * 100.0) / 100.0;
 }
 
-
 // Largest loss
-double LargestLoss = std::round(min(na_omit(pnl_col)));  // Find the minimum pnl value
+// double LargestLoss = std::round(min(na_omit(pnl_col)));  // Find the minimum pnl value
+double LargestLoss = std::round(*std::min_element(summed_pnl.begin(), summed_pnl.end()));
 
 // Compute Max Drawdown
 List drawdownResults = calculateDrawdown(eql_col, date_vec);
@@ -276,24 +304,62 @@ int LengthOfMaxDrawdown = drawdownResults["LengthOfMaxDrawdown"];
 // Compute Max Run-Up
 List maxRunUpResults = calculateMaxRunUp(eql_col, date_vec);
 double MaxRunUp = maxRunUpResults["MaxRunUp"];
+
+// Expected profit per trade
 double ExpectedAbsoluteReturn = std::round((PercentageOfWinningTrades / 100.0) * (AverageWin + AverageLoss) * 100) / 100;
+
+// Calmar ratio
+double CR = std::round((AnnualizedProfit / -MaxDrawdown) * 10000) / 10000;
 
 // Compute Length of Average Win
 double LengthOfAverageWin = calculateLengthOfAverageWin(trade_id_cumsum, pnl_col, date_vec);
 double LengthOfAverageLoss = calculateLengthOfAverageLoss(trade_id_cumsum, pnl_col, date_vec);
 
+// Max streaks
+int MaxLosingStreak = 0;
+int current_losing_streak = 0;
+
+int MaxWinningStreak = 0;
+int current_winning_streak = 0;
+
+for (int i = 0; i < pnl_col.size(); i++) {
+    if (pnl_col[i] < 0) {
+        current_losing_streak++;
+        if (current_losing_streak > MaxLosingStreak) {
+            MaxLosingStreak = current_losing_streak;
+        }
+    } else {
+        current_losing_streak = 0;
+    }
+}
+
+for (int i = 0; i < pnl_col.size(); i++) {
+    if (pnl_col[i] > 0) {
+        current_winning_streak++;
+        if (current_winning_streak > MaxWinningStreak) {
+            MaxWinningStreak = current_winning_streak;
+        }
+    } else {
+        current_winning_streak = 0;
+    }
+}
+
 // Add new metrics to the return list
-return List::create(Named("GrossProfit") = GrossProfit,
-                Named("AnnualizedProfit") = AnnualizedProfit,
-                Named("NumberOfTradesPerYear") = NumberOfTradesPerYear,
-                Named("ExpectedAbsoluteReturn") = ExpectedAbsoluteReturn,
-                Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
-                Named("LargestWin") = LargestWin,
-                Named("AverageWin") = AverageWin,
-                Named("LengthOfAverageWin") = LengthOfAverageWin,
-                Named("AverageLoss") = AverageLoss,
-                Named("LengthOfAverageLoss") = LengthOfAverageLoss,
-                Named("LargestLoss") = LargestLoss,
-                Named("MaxDrawdown") = MaxDrawdown,
-                Named("MaxRunUp") = MaxRunUp);
+return List::create(
+    Named("GrossProfit") = GrossProfit,
+    Named("AnnualizedProfit") = AnnualizedProfit,
+    Named("NumberOfTradesPerYear") = NumberOfTradesPerYear,
+    Named("ExpectedAbsoluteReturn") = ExpectedAbsoluteReturn,
+    Named("PercentageOfWinningTrades") = PercentageOfWinningTrades,
+    Named("LargestWin") = LargestWin,
+    Named("AverageWin") = AverageWin,
+    Named("LengthOfAverageWin") = LengthOfAverageWin,
+    Named("AverageLoss") = AverageLoss,
+    Named("LengthOfAverageLoss") = LengthOfAverageLoss,
+    Named("LargestLoss") = LargestLoss,
+    Named("MaxDrawdown") = MaxDrawdown,
+    Named("MaxRunUp") = MaxRunUp,
+    Named("MaxLosingStreak") = MaxLosingStreak,
+    Named("MaxWinningStreak") = MaxWinningStreak,
+    Named("CR") = CR);
 }

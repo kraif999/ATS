@@ -45,45 +45,39 @@ sma1_res_in_sample <- t(
   dynamic_limits = dynamic_limits,
   max_risk = 0.2, 
   reward_ratio = 5,
-  run_via_cpp = FALSE
+  run_via_cpp = TRUE
     )
   )
 
 sma1_res_in_sample_dt <- cbind(Metric = rownames(sma1_res_in_sample), as.data.table(as.data.frame(sma1_res_in_sample, stringsAsFactors = FALSE)))
 
 sma1_res_in_sample_dt[, units := ifelse(
-  .I <= 5 | Metric %in% c("max_risk", "Strategy", "reward_ratio", "Number of Trades Per Year"), "",
-  ifelse(
-    Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
+    .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
     ifelse(
-      Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
-                    "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", "Length of Time in Largest Losing Run", 
-                    "Length of Time in Average Winning Run", "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run",
-                    "Average Winning Run", "Average Losing Run"), "days",
+      Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
       ifelse(
-        grepl("Date", Metric), "Date", 
-        "USD"  # Default case for other rows
+        Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                      "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
+                      "Length of Time in Largest Losing Run", "Length of Time in Average Winning Run", 
+                      "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", 
+                      "Average Winning Run", "Average Losing Run"), 
+        "days",
+        ifelse(grepl("Date", Metric), "Date", 
+              ifelse(Metric %in% c("Max Losing Streak", "Max Winning Streak"), "trades", 
+                      "USD"  # Default case for other rows
+              )
+        )
       )
     )
-  )
-)]
+  )]
 
 View(sma1_res_in_sample_dt)
 
 dataset <- sma1$data
-summary(dataset$value)
 dataset <- sma1$data %>% select(
     Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
     eventSL, eventPT, eventSLShift,
-    nopActive, pnlActive, eqlActive, pnlActiveCumulative, Liquidation)
-
-result <- dataset %>% 
-  group_by(trade_id_m2) %>% 
-  #filter(row_number() != n()) %>%  # Exclude the last `trade_id_m2`
-  summarise(pnl = sum(pnlActive, na.rm = TRUE)) %>% 
-  ungroup()
-
-result$pnl %>% range
+    nopActive, pnlActive, eqlActive, r_eqlActive, pnlActiveCumulative, Liquidation)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
 View(trades)
@@ -99,33 +93,18 @@ sma1$get_trades(apply_rm = apply_rm)$pnl_hist_by_trade
 sma1$get_trades(apply_rm = apply_rm)$exits
 sma1$plot_rm_levels(30, apply_rm = apply_rm)
 sma1$plot_nop_evo()
+sma1$plot_annualized_vol()
 
-# Position size
+summary(dataset$value)
 
-# Compute scaling factor
-scale_factor <- max(dataset$eqlActive, na.rm = TRUE) / max(dataset$nopActive, na.rm = TRUE)
+cor(dataset$annual_vol, dataset$eqlActive, use = "complete.obs")
 
-ggplot(dataset, aes(x = Date)) +
-  geom_col(aes(y = nopActive), fill = "blue", alpha = 0.3) +  # Bars for nopActive
-  geom_line(aes(y = eqlActive / scale_factor), color = "red", size = 1.2) +  # Thicker red line
-  scale_y_continuous(
-    name = "nopActive",
-    breaks = pretty_breaks(n = 10),
-    sec.axis = sec_axis(~ . * scale_factor, name = "eqlActive", breaks = pretty_breaks(n = 20)) # More right-side ticks
-  ) +
-  scale_x_date(date_breaks = "6 months", date_labels = "%Y-%m") +
-  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +  # Dashed horizontal line at 1
-  labs(title = "Active Position Size & Account Balance Over Time",
-       x = "Date") +
-  theme_minimal() +
-  theme(axis.title.y.right = element_text(color = "red"))
+#Count the number of unique year-month combinations
+num_months <- length(unique(format(dataset$Date, "%Y-%m")))
 
-  #Count the number of unique year-month combinations
-  num_months <- length(unique(format(dataset$Date, "%Y-%m")))
-  
-  # Print average stop-loss and profit-take events per month
-  print(paste0("Stop Losses occur every: ", round(1 / ((sum(dataset$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
-  print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
+# Print average stop-loss and profit-take events per month
+print(paste0("Stop Losses occur every: ", round(1 / ((sum(dataset$eventSL, na.rm = TRUE) / num_months)),0), " month(s)"))
+print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT, na.rm = TRUE) / num_months)),0), " month(s)"))
 
 # IN-SAMPLE (WITHOUT SPLIT)
 
