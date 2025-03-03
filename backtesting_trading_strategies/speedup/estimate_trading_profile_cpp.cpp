@@ -283,7 +283,7 @@ int winning_trades = 0;
 for (const auto& trade : trade_pnl_map) {
     if (trade.second > 0) winning_trades++;
 }
-double PercentageOfWinningDays = std::round((100.0 * winning_trades / trade_pnl_map.size()) * 100) / 100; // Ensure two decimal precision
+double PercentageOfWinningDays = std::round((100.0 * winning_trades / trade_pnl_map.size()));
 
 // Create a map to store the sum of pnl for each trade_id_m2
 std::map<int, double> pnl_map;
