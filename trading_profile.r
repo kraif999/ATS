@@ -76,7 +76,7 @@ dataset <- sma1$data
 dataset <- sma1$data %>% select(
     Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
     eventSL, eventPT, eventSLShift,
-    nopActive, pnlActive, eqlActive, r_eqlActive, pnlActiveCumulative, Liquidation)
+    nopActive, pnlActive, eqlActive, r_eqlActive, pnlActiveCumulative, Liquidation, trade_id_m2)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
 View(trades)
@@ -112,8 +112,8 @@ sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'EMA')
 btc_sma1_in_sample_no_split <- sma1$run_backtest(
   symbols = c("BTC-USD"),
   from_date = as.Date("2018-01-01"),
-  to_date = as.Date("2024-01-01"),
-  slicing_years = 4,
+  to_date = as.Date("2025-03-01"),
+  slicing_years = 1,
   data_type = "in_sample",
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
@@ -124,7 +124,7 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
-  max_risks = 0.1,
+  max_risks = c(0.1, 0.2),
   reward_ratios = seq(3,7, by = 4),
   output_df = TRUE,
   run_via_cpp = TRUE

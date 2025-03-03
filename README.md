@@ -183,18 +183,18 @@ The engine is flexible, and the same approach can be applied to any strategy and
 
 ### Parameters Used in the Backtest:
 - **Symbols**: BTC-USD  
-- **Window Sizes**: 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146, 182  
+- **Window Sizes**: 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146
 - **Moving Average Types**: SMA, EMA  
 - **Data Type**: in_sample  
 - **Split**: FALSE (whether the data is split into sub-periods for a more granular view under different market regimes)  
 - **Cut Date**: 2024-01-01  
 - **From Date**: 2018-01-01  
-- **To Date**: 2025-02-16  
+- **To Date**: 2025-03-01  
 - **Slicing Years**: 1 (if split is TRUE, defines the slicing granularity)  
-- **Risk Management**: Applied  
+- **Risk Management**: TRUE (applied)  
 - **Flat After Event**: TRUE, FALSE (stay flat after a stop loss or profit take event until a new signal emerges OR re-enter the position)  
-- **Max Risks**: 0.1, 0.2, 0.3  
-- **Reward Ratios**: 2, 3  
+- **Max Risks**: 0.1, 0.2
+- **Reward Ratios**: 3, 7  
 - **Leverages**: 1, 2  
 
 ![Backtest results SMA1 strategy using different strategy parameters for BTC-USD](temp/sma1_res_sma1_backtest.png)

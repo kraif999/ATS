@@ -89,10 +89,10 @@ DataFrame apply_risk_management_cpp(
 
       if (position[i] == 1) {
         stopLossValue = Close[i] - (max_risk * eqlActiveValue2 / nopActive[i]);
-        profitTakeValue = Close[i] + (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]);
+        profitTakeValue = std::max(0.0, Close[i] + (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]));
       } else if (position[i] == -1) {
         stopLossValue = Close[i] + (max_risk * eqlActiveValue2 / nopActive[i]);
-        profitTakeValue = Close[i] - (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]);
+        profitTakeValue = std::max(0.0, Close[i] - (reward_ratio * max_risk * eqlActiveValue2 / nopActive[i]));
       } else {
         stopLossValue = profitTakeValue = NA_REAL;
       }
