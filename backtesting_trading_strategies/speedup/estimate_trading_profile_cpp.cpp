@@ -322,25 +322,21 @@ int current_losing_streak = 0;
 int MaxWinningStreak = 0;
 int current_winning_streak = 0;
 
-for (int i = 0; i < pnl_col.size(); i++) {
-    if (pnl_col[i] < 0) {
+for (int i = 0; i < summed_pnl.size(); i++) {
+    if (summed_pnl[i] < 0) {
         current_losing_streak++;
-        if (current_losing_streak > MaxLosingStreak) {
-            MaxLosingStreak = current_losing_streak;
-        }
+        MaxLosingStreak = std::max(MaxLosingStreak, current_losing_streak);
+        current_winning_streak = 0; // Reset winning streak on a loss
     } else {
-        current_losing_streak = 0;
+        current_losing_streak = 0; // Reset losing streak on a win
     }
-}
-
-for (int i = 0; i < pnl_col.size(); i++) {
-    if (pnl_col[i] > 0) {
+    
+    if (summed_pnl[i] > 0) {
         current_winning_streak++;
-        if (current_winning_streak > MaxWinningStreak) {
-            MaxWinningStreak = current_winning_streak;
-        }
+        MaxWinningStreak = std::max(MaxWinningStreak, current_winning_streak);
+        current_losing_streak = 0; // Reset losing streak on a win
     } else {
-        current_winning_streak = 0;
+        current_winning_streak = 0; // Reset winning streak on a loss
     }
 }
 

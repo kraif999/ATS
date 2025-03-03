@@ -88,6 +88,7 @@ classDiagram
         + plot_close_vs_vol(ndays) : plots Close price and range potential (true range / average true range).
         + plot_rm_levels(ndays, apply_rm) : plots Close price and stop loss and take profit levels for the last ndays.
         + plot_nop_evo() : displays the evolution of the number of positions and account size for Active strategy.
+        + plot_annualized_vol() : displays the annualized volatility and account size for Active Strategy.
         - apply_risk_management(data, max_risk, reward_ratio, leverage, capital, flat_after_event, dynamic_limits) : applies a stop loss and reward take based on the thresholds (there is an option to shift limits when price changes in a favourable direction given position).
         - compute_metrics(data_subset, symbol) : computes return and risk related metrics for Active and Passive strategies.
         - estimate_trading_profile(data_subset, strategy_type) : estimates strategy's trading profile (risk and return are described by 25 metrics)
@@ -150,19 +151,19 @@ Since the start of the investment, the active strategy's portfolio value remaine
 | reward_ratio                             | 3                | 3                 | 3                    | 3                     |       |
 | capital                                  | 1000             | 1000              | 1000                 | 1000                  | USD   |
 | Strategy                                 | Active           | Passive           | Active               | Passive               |       |
-| Gross Profit                             | 14918            | 6832              | 125                  | 372                   | USD   |
-| Calmar Ratio                             | 1.1428           | 0.5132            | 1.3493               | 6.9952                |       |
-| Expected Absolute Return (per 1 trade)   | 3.27             | NotApplicable     | 0.9                  | NotApplicable         | USD   |
-| Annualized Profit                        | 56.51            | 39.54             | 39.40                | 144.66                | %     |
+| Gross Profit                             | 14918            | 6832              | 114                  | 381                   | USD   |
+| Calmar Ratio                             | 1.1428           | 0.5132            | 1.2291               | 7.2263                |       |
+| Expected Absolute Return (per 1 trade)   | 3.27             | NotApplicable     | 0.83                 | NotApplicable         | USD   |
+| Annualized Profit                        | 56.51            | 39.54             | 35.89                | 149.44                | %     |
 | Largest Trade Win                        | 4555             | 2391              | 312                  | 310                   | USD   |
-| Average Win                              | 134.51           | 73.21             | 26.02                | 28.58                 | USD   |
+| Average Win                              | 134.51           | 73.21             | 25.85                | 28.58                 | USD   |
 | Length of Average Win                    | 13               | 14                | 23                   | 30                    | days  |
-| Max Winning Streak                       | 8                | NotApplicable     | 7                    | NotApplicable         | trades|
+| Max Winning Streak                       | 7                | NotApplicable     | 2                    | NotApplicable         | trades|
 | Max Drawdown                             | -49.45           | -77.05            | -29.20               | -20.68                | %     |
 | Largest Trade Loss                       | -1357            | -2066             | -138                 | -87                   | USD   |
-| Average Loss                             | -127.96          | -70.53            | -23.63               | -24.04                | USD   |
+| Average Loss                             | -127.96          | -70.53            | -23.63               | -23.89                | USD   |
 | Length of Average Loss                   | 15               | 15                | 19                   | 16                    | days  |
-| Max Losing Streak                        | 8                | NotApplicable     | 6                    | NotApplicable         | trades|
+| Max Losing Streak                        | 6                | NotApplicable     | 2                    | NotApplicable         | trades|
 | Number of Trades Per Year                | 15               | 0                 | 3                    | 0                     |       |
 | Percentage of Winning Trades             | 50               | NotApplicable     | 37.5                 | NotApplicable         | %     |
 
