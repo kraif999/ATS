@@ -129,7 +129,7 @@ classDiagram
 ```
 
 Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Simple Moving Average (SMA) 116-day window*. 
-In this example the risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3 (profit take limit). If stop loss or profit take event happens, the position is re-entered given the current signal. No leverage is applied. A strategy is checked on *in_sample data* (multimarket and multiperiod), then if results are promising and robust (at least in 60-70% cases active strategy is superior than the passive one), check it on *out_of_sample* data.
+In this example the risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3 (profit take limit). The dynamic stop loss adjusts as the price moves favorably, shifting proportionally to the account size increase to protect gains. If stop loss or take profit events happen, the position is re-entered given the current signal. No leverage is applied. A strategy is checked on *in_sample data* (multimarket and multiperiod), then if results are promising and robust (at least in 60-70% cases active strategy is superior than the passive one), check it on *out_of_sample* data.
 
 **The dynamics of invested capital:**  
 
@@ -143,28 +143,30 @@ Since the start of the investment, the active strategy's portfolio value remaine
 |------------------------------------------|------------------|-------------------|----------------------|-----------------------|-------|
 | ticker                                   | BTC-USD          | BTC-USD           | BTC-USD              | BTC-USD               |       |
 | from                                     | 2018-04-28       | 2018-04-28        | 2024-10-25           | 2024-10-25            | Date  |
-| to                                       | 2024-06-30       | 2024-06-30        | 2025-02-27           | 2025-02-27            | Date  |
+| to                                       | 2024-06-30       | 2024-06-30        | 2025-03-03           | 2025-03-03            | Date  |
 | data_type                                | in_sample        | in_sample         | out_of_sample        | out_of_sample         |       |
 | leverage                                 | 1                | 1                 | 1                    | 1                     |       |
 | max_risk                                 | 0.1              | 0.1               | 0.1                  | 0.1                   |       |
 | reward_ratio                             | 3                | 3                 | 3                    | 3                     |       |
 | capital                                  | 1000             | 1000              | 1000                 | 1000                  | USD   |
 | Strategy                                 | Active           | Passive           | Active               | Passive               |       |
-| Gross Profit                             | 14918            | 6832              | 236                  | 257                   | USD   |
-| Annualized Profit                        | 36.24            | 25.86             | 53.19                | 58.65                 | %     |
-| Expected Absolute Return (per 1 trade)                 | 3.27             | NotApplicable     | 1                    | NotApplicable         | USD   |
-| Largest Win                              | 1461             | 866               | 123                  | 117                   | USD   |
-| Max Run-Up                               | 2398             | 2509              | 54                   | 59                    | %     |
-| Average Win                              | 134.51           | 73.21             | 25.81                | 27.55                 | USD   |
-| Length of Average Win                    | 13               | 14                | 28                   | 39                    | days  |
-| Max Drawdown                             | -49              | -77               | -20                  | -21                   | %     |
-| Largest Loss                             | -1372            | -887              | -88                  | -91                   | USD   |
-| Average Loss                             | -127.96          | -70.53            | -22.31               | -23.85                | USD   |
-| Length of Average Loss                   | 15               | 15                | 18                   | 19                    | days  |
+| Gross Profit                             | 14918            | 6832              | 125                  | 372                   | USD   |
+| Calmar Ratio                             | 1.1428           | 0.5132            | 1.3493               | 6.9952                |       |
+| Expected Absolute Return (per 1 trade)   | 3.27             | NotApplicable     | 0.9                  | NotApplicable         | USD   |
+| Annualized Profit                        | 56.51            | 39.54             | 39.40                | 144.66                | %     |
+| Largest Trade Win                        | 4555             | 2391              | 312                  | 310                   | USD   |
+| Average Win                              | 134.51           | 73.21             | 26.02                | 28.58                 | USD   |
+| Length of Average Win                    | 13               | 14                | 23                   | 30                    | days  |
+| Max Winning Streak                       | 8                | NotApplicable     | 7                    | NotApplicable         | trades|
+| Max Drawdown                             | -49.45           | -77.05            | -29.20               | -20.68                | %     |
+| Largest Trade Loss                       | -1357            | -2066             | -138                 | -87                   | USD   |
+| Average Loss                             | -127.96          | -70.53            | -23.63               | -24.04                | USD   |
+| Length of Average Loss                   | 15               | 15                | 19                   | 16                    | days  |
+| Max Losing Streak                        | 8                | NotApplicable     | 6                    | NotApplicable         | trades|
 | Number of Trades Per Year                | 15               | 0                 | 3                    | 0                     |       |
-| Percentage of Winning Trades             | 50               | NotApplicable     | 28.57                | NotApplicable         | %     |
+| Percentage of Winning Trades             | 50               | NotApplicable     | 37.5                 | NotApplicable         | %     |
 
-The active strategy performs better in-sample in terms of return and risk, its performance declines slightly in the out-of-sample period. 
+The active strategy performs better in-sample in terms of return and risk, its performance declines in the out-of-sample period. 
 The framework allows users to select different assets, periods (including custom splits for further periods), strategies, parameters, risk management applications, and leverage, providing a comprehensive strategy profile view as if it had been consistently applied. For instance, once the strategy is deployed, you may not be aware of the current winning or losing streak, but knowing this could give you valuable insights into the strategy’s performance.
 
 **Backtesting results:**
