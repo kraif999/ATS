@@ -153,13 +153,13 @@ Since the start of the investment, the active strategy's portfolio value remaine
 | Strategy                                 | Active           | Passive           | Active               | Passive               |       |
 | Total Gross Profit                       | 14918            | 6832              | 213                  | 289                   | USD   |
 | Annualized Profit                        | 56.51            | 39.54             | 72.80                | 105.22                | %     |
-| Largest Trade Win                        | 4555             | 2391              | 312                  | 310                   | USD   |
+| Largest Trade Win                        | 4555             | Not Applicable              | 312                  | Not Applicable                   | USD   |
 | Average Trade Win                        | 767              | Not Applicable    | 186                  | Not Applicable        | USD   |
 | Average Daily Profit                     | 134.51           | 73.21             | 27.45                | 28.58                 | USD   |
 | Length of Average Win                    | 28               | Not Applicable    | 30                   | Not Applicable        | days  |
 | Max Winning Streak                       | 7                | Not Applicable    | 2                    | Not Applicable        | trades|
 | Max Drawdown                             | -49.45           | -77.05            | -29.20               | -20.68                | %     |
-| Largest Trade Loss                       | -1357            | -2066             | -138                 | -87                   | USD   |
+| Largest Trade Loss                       | -1357            | Not Applicable             | -138                 | Not Applicable                   | USD   |
 | Average Trade Loss                       | -442             | Not Applicable    | -79                  | Not Applicable        | USD   |
 | Average Daily Loss                       | -127.96          | -70.53            | -23.63               | -25.35                | USD   |
 | Length of Average Loss                   | 16               | Not Applicable    | 35                   | Not Applicable        | days  |
