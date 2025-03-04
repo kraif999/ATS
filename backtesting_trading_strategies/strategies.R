@@ -1292,7 +1292,7 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
   # Return Metrics
   `Total Gross Profit` = c(active$GrossProfit, passive$GrossProfit),
   `Annualized Profit` = c(active$AnnualizedProfit, passive$AnnualizedProfit),
-  `Largest Trade Win` = c(active$LargestWin, passive$LargestWin),
+  `Largest Trade Win` = c(active$LargestWin, "Not Applicable"),
   `Average Trade Win` = c(active$AverageTradeWin, "Not Applicable"),
   `Average Daily Profit` = c(active$AverageWin, passive$AverageWin),
   `Length of Average Win` = c(active$LengthOfAverageWin, "Not Applicable"),
@@ -1300,7 +1300,7 @@ compute_metrics = function(data_subset, symbol, run_via_cpp) {
 
   # Risk Metrics
   `Max Drawdown` = c(active$MaxDrawdown, passive$MaxDrawdown),
-  `Largest Trade Loss` = c(active$LargestLoss, passive$LargestLoss),
+  `Largest Trade Loss` = c(active$LargestLoss, "Not Applicable"),
   `Average Trade Loss` = c(active$AverageTradeLoss, "Not Applicable"),
   `Average Daily Loss` = c(active$AverageLoss, passive$AverageLoss),
   `Length of Average Loss` = c(active$LengthOfAverageLoss, "Not Applicable"),
