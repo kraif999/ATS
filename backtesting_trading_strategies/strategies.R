@@ -332,6 +332,9 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
       cryptoClass = ifelse(meta$assets[[symbol]]$class %in% "Cryptocurrency", TRUE, FALSE)
     )
 
+  self$data$r_eqlActive[1] <- 0
+  self$data$r_eqlPassive[1] <- 0
+
   ########################################################################################################################
   # Estimate trading profile
   ########################################################################################################################
@@ -519,12 +522,16 @@ get_trades = function(apply_rm) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 
   # 4. Cumulative PnL by trade type
-  pnl_cum_by_trade  <- ggplot(trades_long, aes(x = Start, y = CumulativePnL, color = TradeType)) +
-  geom_line(size = 1.2) +
+  pnl_cum_by_trade <- ggplot(trades, aes(x = Start)) +
+  geom_line(aes(y = Cumulative_PnL_Buy, color = "Buy"), size = 0.5) +
+  geom_line(aes(y = Cumulative_PnL_Sell, color = "Sell"), size = 0.5) +
+  geom_line(aes(y = RunningPnL, linetype = "Total PnL"), color = "black", size = 1) +
   labs(title = "Cumulative PnL Over Time by Trade Type",
-       x = "Date", y = "Cumulative PnL") +
+       x = "Date", y = "Cumulative PnL",
+       color = "Trade Type", linetype = "Total PnL") +
   scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
-  scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red")) +
+  scale_color_manual(values = c("Buy" = "blue", "Sell" = "red")) +
+  scale_linetype_manual(values = c("Total PnL" = "solid")) +
   scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
   theme_minimal()
 
@@ -1494,8 +1501,8 @@ run_via_cpp) {
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -1687,8 +1694,8 @@ leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratio
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -1919,14 +1926,9 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
       performance_data <- x$Performance
 
       # Combine 'from' and 'to' into 'Period'
-      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
-        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
-      } else {
-        performance_data$Period <- "Full Period"
-      }
-
-      # Remove 'from', 'to', and 'ticker' columns
-      performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
+      performance_data <- performance_data %>%
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -2160,12 +2162,10 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
       res_df <- do.call(rbind, lapply(results, function(x) {
         performance_data <- x$Performance
 
-        # Combine 'from' and 'to' into 'Period'
-        if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
-          performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
-        } else {
-          performance_data$Period <- "Full Period"
-        }
+      # Combine 'from' and 'to' into 'Period'
+      performance_data <- performance_data %>%
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
         # Remove 'from', 'to', and 'ticker' columns
         performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
@@ -2358,11 +2358,9 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
       performance_data <- x$Performance
 
       # Combine 'from' and 'to' into 'Period'
-      if ("from" %in% names(performance_data) && "to" %in% names(performance_data)) {
-        performance_data$Period <- paste(performance_data$from, "to", performance_data$to)
-      } else {
-        performance_data$Period <- "Full Period"
-      }
+      performance_data <- performance_data %>%
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Remove 'from', 'to', and 'ticker' columns
       performance_data <- performance_data[, !names(performance_data) %in% c("from", "to", "ticker")]
@@ -2546,8 +2544,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -2716,8 +2714,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -2916,8 +2914,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -3100,8 +3098,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -3283,8 +3281,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -3462,8 +3460,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
@@ -3638,8 +3636,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
       # Combine 'from' and 'to' into 'Period'
       performance_data <- performance_data %>%
-        mutate(Period = ifelse("from" %in% names(.), paste(from, "to", to), "Full Period")) %>%
-        select(-from, -to, -ticker)  # Remove 'from', 'to', and 'ticker' columns
+        mutate(Period = paste(from, "to", to)) %>%
+        select(-from, -to)
 
       # Add metadata columns
       tibble(
