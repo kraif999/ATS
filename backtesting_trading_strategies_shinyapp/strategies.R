@@ -517,14 +517,18 @@ get_trades = function(apply_rm) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 
   # 4. Cumulative PnL by trade type
-  pnl_cum_by_trade  <- ggplot(trades_long, aes(x = Start, y = CumulativePnL, color = TradeType)) +
-  geom_line(size = 1.2) +
-  labs(title = "Cumulative PnL Over Time by Trade Type",
-       x = "Date", y = "Cumulative PnL") +
-  scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
-  scale_color_manual(values = c("Cumulative_PnL_Buy" = "blue", "Cumulative_PnL_Sell" = "red")) +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
-  theme_minimal()
+  pnl_cum_by_trade <- ggplot(trades, aes(x = Start)) +
+    geom_line(aes(y = Cumulative_PnL_Buy, color = "Buy"), size = 0.5) +
+    geom_line(aes(y = Cumulative_PnL_Sell, color = "Sell"), size = 0.5) +
+    geom_line(aes(y = RunningPnL, linetype = "Total PnL"), color = "black", size = 1) +
+    labs(title = "Cumulative PnL Over Time by Trade Type",
+        x = "Date", y = "Cumulative PnL",
+        color = "Trade Type", linetype = "Total PnL") +
+    scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m") +
+    scale_color_manual(values = c("Buy" = "blue", "Sell" = "red")) +
+    scale_linetype_manual(values = c("Total PnL" = "solid")) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+    theme_minimal()
 
   # 5. Exit types
   exit_counts <- trades %>% filter(Trade != "Flat") %>%

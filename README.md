@@ -4,22 +4,20 @@ Here, I test different trading ideas based on certain rules (called 'Active' str
 
 The goal is to develop a superior, robust (asset-diverse, multimarket, multiperiod) price-based system. The trading profile of a strategy is estimated using different metrics to measure return and risk.  
 
-All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp](http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp).  
-
-Choose an instrument, a strategy, a trading horizon, specify the strategy specific parameters and see how the strategy's trading profile, portfolio equity curves, and the list of all trades would look if you had consistently and strictly invested using that strategy signals with no emotions involved. 
-The algorithm executes the strategy and calculates the number of positions, PnL, and equity curves based on the daily positions.
-If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event. Also, there is an option to dynamically shift stop loss in a case of a favourable price move given the position.
-Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R.*
-
-There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations and chosen risk management rules.
-
----
+There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations (strategy's family) and chosen risk management rules.
 
 ## Design  
 
-The framework is built in R, with apply_risk_management() and estimate_trading_profile() optimized using C++ (apply_risk_management_cpp() and estimate_trading_profile_cpp()). These C++ implementations improve execution speed by ~33 times in run_backtest() calls.
+All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp](http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp).  
 
-The high-level structure is as follows:  
+Choose an instrument, a strategy, and a trading horizon. Specify the strategy-specific parameters along with risk and financial management parameters, and see how the strategy performs if you had consistently and strictly invested using its signals with no emotions involved.
+Essentially the algorithm executes the strategy and calculates the number of positions, PnL, and equity curves, based on the daily positions.
+If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event. Also, there is an option to dynamically shift stop loss in a case of a favourable price move given the position.
+Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R.*
+
+The core methods: apply_risk_management() and estimate_trading_profile() are optimized using their C++ versions (apply_risk_management_cpp() and estimate_trading_profile_cpp(), correspondingly). These C++ implementations improve execution speed by ~33 times in run_backtest() calls. In total over a 500,000 trading profiles have been estimated across all strategies.
+
+The high-level structure of the framework is as follows:  
 
 - A parent class, **DataFetcher**, has methods to retrieve data from Yahoo (using overlapping daily data).  
 - The **TSA** class analyzes data from various perspectives to understand different data characteristics and patterns.  
@@ -128,6 +126,33 @@ classDiagram
     Strategy --|> GARCH
     
 ```
+
+## Robust Strategy Dev Process
+
+### 1. Formulate Strategy & Specify in a Testable Form
+
+Key elements to consider in this step:
+- **Entry and Exit Rules**: Define the conditions that trigger entering and exiting positions.
+- **Risk Management**: Specify rules for position sizing, stop-loss, take-profit, and other risk parameters.
+- **Performance Metrics**: Establish how the strategy’s performance is measured.
+
+### 2. Check if Active is Superior to Passive (In-Sample, Whole)
+In this step, compare the performance of the active strategy against a passive strategy (e.g., buy-and-hold) over the entire in-sample period based on *total gross return*. This provides an initial indication of whether the active strategy has outperformed the passive approach when tested on historical data.
+
+### 3. Check Robustness: Active > Passive in In-Sample (Splitted) in ≥ 70% Cases
+This step involves splitting the in-sample data into multiple segments and testing the active strategy on each one. The goal is to check if the active strategy outperforms the passive strategy in at least 70% of the cases based on *annualized return*. This helps assess the robustness of the strategy and reduces the risk of overfitting to a specific period.
+
+### 4*. Check if Active is Superior to Passive (Out-of-Sample, Whole)
+After confirming performance within the in-sample period, the active strategy is tested out-of-sample on data not seen during the initial formulation phase. This step ensures that the strategy has generalized well and is not simply the result of overfitting to historical data.
+
+**Additional check*:
+
+The performance of the entire family of a superior strategy is considered for a key parameter (window size for example for SMA1). This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency.
+
+### ✅ Strategy Considered Robust
+If the strategy performs well both in-sample and out-of-sample, demonstrating superiority over passive strategies in multiple scenarios, it can be considered robust. This step indicates that the strategy is likely to perform well in real-world, unseen data.
+
+## Example of trading profile estimation 
 
 Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Simple Moving Average (SMA) 116-day window*. 
 In this example the risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3 (profit take limit). The dynamic stop loss adjusts as the price moves favorably, shifting proportionally to the account size increase to protect gains. If stop loss or take profit events happen, the position is re-entered given the current signal. No leverage is applied. A strategy is checked on *in_sample data* (multimarket and multiperiod), then if results are promising and robust (at least in 60-70% cases active strategy is superior than the passive one), check it on *out_of_sample* data.

@@ -1,5 +1,7 @@
 # Copyright (c) 2024 Oleh Bilyk
 
+# Example of trading strategy profiles estimation (SMA1 instance)
+
 source("backtesting_trading_strategies/libraries.R")
 source("backtesting_trading_strategies/strategies.R")
 options(scipen = 999)
@@ -24,11 +26,10 @@ Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile
 
 meta <- jsonlite::fromJSON("instr_config.json")
 
-# IN-SAMPLE (WITHOUT SPLIT)
-sma1 <- SMA1$new(ts, window_size = 124, ma_type = 'SMA')
+# IN-SAMPLE (WITHOUT SPLIT, single period profile)
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
 sma1$estimate_range_potential(n = 14)
 
-# in-sample:
 sma1_res_in_sample <- t(
   sma1$estimate_performance(
   symbol = symbol,
@@ -74,9 +75,9 @@ View(sma1_res_in_sample_dt)
 
 dataset <- sma1$data
 dataset <- sma1$data %>% select(
-    Date, Close, stopLoss, profitTake, signal, position, pnlActiveType,
+    Date, Close, value, stopLoss, profitTake, signal, position, pnlActiveType,
     eventSL, eventPT, eventSLShift,
-    nopActive, pnlActive, eqlActive, r_eqlActive, pnlActiveCumulative, Liquidation, trade_id_m2)
+    nopActive, pnlActive, eqlActive, r_eqlActive, pnlActiveCumulative, annual_vol, Liquidation, trade_id_m2)
 
 trades <- sma1$get_trades(apply_rm = apply_rm)$trades
 View(trades)
@@ -98,7 +99,7 @@ summary(dataset$value)
 
 cor(dataset$annual_vol, dataset$eqlActive, use = "complete.obs")
 
-#Count the number of unique year-month combinations
+# Count the number of unique year-month combinations
 num_months <- length(unique(format(dataset$Date, "%Y-%m")))
 
 # Print average stop-loss and profit-take events per month
@@ -107,7 +108,6 @@ print(paste0("Average Profit Takes per Month: ", round(1 / ((sum(dataset$eventPT
 
 # IN-SAMPLE (WITHOUT SPLIT)
 
-# Overall trading profile (NO SPLIT with stop-loss)
 sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'EMA')
 btc_sma1_in_sample_no_split <- sma1$run_backtest(
   symbols = c("BTC-USD"),
@@ -118,14 +118,13 @@ btc_sma1_in_sample_no_split <- sma1$run_backtest(
   split = FALSE,
   cut_date = as.Date("2024-01-01"),
   ma_types = c("SMA", "EMA"), 
-  #window_sizes = round(10 * (1.15 ^ (0:20))),
   window_sizes = round(10 * (1.25 ^ (0:12))),
   leverages = seq(1, 2, by = 1),
   apply_rm = TRUE,
   flats_after_event = c(TRUE, FALSE),
   dynamics_limits = c(TRUE, FALSE),
   max_risks = c(0.1, 0.2),
-  reward_ratios = seq(3,7, by = 4),
+  reward_ratios = c(3, 7),
   output_df = TRUE,
   run_via_cpp = TRUE
 )
@@ -158,208 +157,277 @@ ggplot(btc_sma1_in_sample_no_split %>% filter(Strategy == "Active"), aes(x = Win
     axis.title = element_text(size = 12)
   )
 
-btc_sma1_in_sample_no_split <- btc_sma1_in_sample_no_split %>%
-  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows
-  group_by(PairID) %>%
-  mutate(
-    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+# IN-SAMPLE (WITH SPLIT, multi-period profile)
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
+
+# in-sample:
+sma1_res_in_sample_mult <- t(
+  sma1$estimate_performance(
+  symbol = symbol,
+  capital = capital,
+  leverage = 1,
+  data_type = "in_sample", 
+  split_data = TRUE, 
+  cut_date = as.Date("2024-01-01"), 
+  window = 1, 
+  apply_rm = apply_rm, 
+  flat_after_event = flat_after_event,
+  dynamic_limits = dynamic_limits,
+  max_risk = 0.2, 
+  reward_ratio = 5,
+  run_via_cpp = TRUE
+    )
+  )
+
+sma1_res_in_sample_mult_dt <- cbind(Metric = rownames(sma1_res_in_sample_mult), as.data.table(as.data.frame(sma1_res_in_sample_mult, stringsAsFactors = FALSE)))
+
+sma1_res_in_sample_mult_dt[, units := ifelse(
+    .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
+    ifelse(
+      Metric %in% c("Annualized Profit", "Percentage of Positive Profit Days", "Percentage of Winning Trades",  "Max Drawdown", "Max Run Up"), "%",
       ifelse(
-        Strategy == "Active" & AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"][1], 
-        "Yes", 
-        "No"
+        Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                      "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
+                      "Length of Time in Largest Losing Run", "Length of Time in Average Winning Run", 
+                      "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", 
+                      "Average Winning Run", "Average Losing Run"), 
+        "days",
+        ifelse(grepl("Date", Metric), "Date", 
+              ifelse(Metric %in% c("Max Losing Streak", "Max Winning Streak"), "trades", 
+                      "USD"  # Default case for other rows
+              )
+        )
       )
-    } else {
-      NA  # Assign NA if the group is incomplete
-    }
-  ) %>%
-  ungroup()
+    )
+)]
 
-# Filter for Active strategies and group by strategy parameters
-btc_sma1_in_sample_no_split %>%
-  filter(Strategy == "Active") %>%
-  group_by(Methodology, Window_Size, MA_Type, Max_Risk, Reward_Ratio) %>%
-  summarise(
-    Avg_AnnualizedProfit = mean(AnnualizedProfit, na.rm = TRUE),
-    .groups = 'drop'
-  ) %>%
-  arrange(desc(Avg_AnnualizedProfit)) %>%
-  slice(1)
+# OUT-OF SAMPLE (WITHOUT SPLIT, single period profile)
+sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
+sma1$estimate_range_potential(n = 14)
 
-# Best in-sample combinations:
-# BTC-USD, SMA 116-day 0.3 6
-# ETH-USD
-# BNB-USD 
-# CANDIDATE: 
-
-# IN-SAMPLE: HOW STRATEGY BEHAVES UNDER DIFFERENT PERIODS
-# More granular (split) - only for potential good candidates to check robustness
-res_sma1_granular <- sma1$run_backtest(
-  symbols = c("BTC-USD"),
-  from_date = as.Date("2018-01-01"),
-  to_date = Sys.Date(),
-  slicing_years = 2,
-  data_type = "in_sample",
-  split_data = TRUE,
-  cut_date = as.Date("2024-01-01"),
-  ma_types = c("SMA"),
-  window_sizes = 116, 
-  leverages = seq(2, 3, by = 1),
-  apply_rm = TRUE,
-  flats_after_event = FALSE,
-  max_risks = seq(0.1, 0.3, by = 0.1),
-  reward_ratios = seq(2, 3, by = 1),
-  output_df = TRUE
-)
-
-# Check if a Methodology is superior based on the criteria
-superior_methodologies <- res_sma1_granular %>% 
-#filter(Symbol == "BNB-USD") %>%
-  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
-  group_by(PairID) %>%
-  mutate(
-    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
-      ifelse(
-        Strategy == "Active" & 
-          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
-        "Yes", 
-        "No"
-      )
-    } else {
-      NA  # Set NA if either Active or Passive is missing
-    }
-  ) %>%
-  group_by(Methodology) %>% # Now group by Methodology to evaluate all periods
-  mutate(
-    Superior = if (all(Period_Superior == "Yes", na.rm = TRUE)) {
-      "Yes"
-    } else {
-      "No"
-    }
-  ) %>%
-  ungroup()
-
-paste0("The robustness of in-sample superiority (%) is ", superior_methodologies %>% filter(Period_Superior == "Yes") %>% nrow / (nrow(superior_methodologies) / 2) * 100)
-
-# Evaluate the robustness of each strategy across multiple periods
-ranked_strategies <- res_sma1_granular %>% 
-  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
-  group_by(PairID) %>%
-  mutate(
-    Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
-      ifelse(
-        Strategy == "Active" & 
-          AnnualizedProfit > AnnualizedProfit[Strategy == "Passive"], 
-        "Yes", 
-        "No"
-      )
-    } else {
-      NA  # Set NA if either Active or Passive is missing
-    }
-  ) %>%
-  ungroup() %>%
-  filter(Symbol == "BTC-USD") %>%
-  group_by(Strategy, Methodology, Max_Risk, Reward_Ratio) %>%
-  summarise(
-    Total_Periods = n(),  # Total number of periods
-    Superior_Periods = sum(Period_Superior == "Yes", na.rm = TRUE),  # Count superior periods
-    Robustness = (Superior_Periods / Total_Periods) * 100  # Calculate robustness as a percentage
-  ) %>%
-  arrange(desc(Robustness))  # Rank strategies by robustness in descending order
-
-# Output the ranking
-ranked_strategies
-
-# ACHIEVE ~60-70% 
-
-# OUT-OF-SAMPLE PERFORMANCE
-sma1_os <- SMA1$new(ts, window_size = 100, ma_type = 'HMA')
-sma1_res_out_sample <- t(sma1_os$estimate_performance(data_type = "out_of_sample", split = FALSE, cut_date = as.Date("2024-01-01"), window = 1,
- apply_stop_loss = TRUE, stop_loss_threshold = 0.015, reward_ratio = 25, capital, leverage, symbol))
+sma1_res_out_sample <- t(
+  sma1$estimate_performance(
+  symbol = symbol,
+  capital = capital,
+  leverage = 1,
+  ############################
+  data_type = "out_of_sample",
+  ############################ 
+  split_data = FALSE, 
+  cut_date = as.Date("2024-01-01"), 
+  #cut_date = Sys.Date(),
+  window = 1, 
+  apply_rm = apply_rm, 
+  flat_after_event = flat_after_event,
+  dynamic_limits = dynamic_limits,
+  max_risk = 0.2, 
+  reward_ratio = 5,
+  run_via_cpp = TRUE
+    )
+  )
 
 sma1_res_out_sample_dt <- cbind(Metric = rownames(sma1_res_out_sample), as.data.table(as.data.frame(sma1_res_out_sample, stringsAsFactors = FALSE)))
 
-# Apply the same logic for the units column
 sma1_res_out_sample_dt[, units := ifelse(
-  .I <= 5 | Metric == "NumberOfTradesPerYear", "",  # First five rows and 'NumberOfTradesPerYear' are empty
-  ifelse(
-    Metric %in% c("AnnualizedProfit", "PercentageOfWinningTrades", "MaxDrawdown", "MaxRunUp"), "%",
+    .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
     ifelse(
-      Metric %in% c("LengthOfLargestWin", "LengthOfLargestLoss", "LengthOfAverageWin", "LengthOfAverageLoss", 
-                    "LengthOfMaxDrawdown", "LengthOfMaxRunUp", "LengthOfTimeInLargestWinningRun", "LengthOfTimeInLargestLosingRun", 
-                    "LengthOfTimeInAverageWinningRun", "LengthOfTimeInAverageLosingRun", "LargestWinningRun", "LargestLosingRun"), "days",
+      Metric %in% c("Annualized Profit", "Percentage of Positive Profit Days", "Percentage of Winning Trades",  "Max Drawdown", "Max Run Up"), "%",
       ifelse(
-        grepl("Date", Metric), "Date", 
-        "USD"  # Default case for other rows
+        Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                      "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
+                      "Length of Time in Largest Losing Run", "Length of Time in Average Winning Run", 
+                      "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", 
+                      "Average Winning Run", "Average Losing Run"), 
+        "days",
+        ifelse(grepl("Date", Metric), "Date", 
+              ifelse(Metric %in% c("Max Losing Streak", "Max Winning Streak"), "trades", 
+                      "USD"  # Default case for other rows
+              )
+        )
       )
     )
-  )
 )]
 
-sma1_os$plot_equity_lines("SMA1", signal_flag = FALSE)
+View(sma1_res_out_sample_dt)
 
-# Overall trading profile
-res_sma1_overall_os <- sma1_os$run_backtest(
-  symbols = c("BTC-USD", "BNB-USD", "ETH-USD"),
-  window_sizes = 20,
-  ma_type = "EMA",  # Add more MA types here
-  data_type = "out_of_sample",
-  split = TRUE,
-  cut_date = as.Date("2024-01-01"),
-  from_date = as.Date("2020-01-01"),
-  to_date = Sys.Date(),
-  slicing_years = 1,
-  apply_stop_loss = FALSE,
-  stop_loss_threshold = 0.025,
-  reward_ratio = 15,
-  output_df = TRUE
+# Helper functions:
+# identify all combinations where Trade Gross Profit for Active > Passive
+identify_superior <- function(res, strategy) {
+  res %>%
+    mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows
+    group_by(PairID) %>%
+    mutate(
+      Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+        # Compare Gross Profit between Active and Passive strategies within the group
+        Active_GP <- `Gross Profit`[Strategy == "Active"]
+        Passive_GP <- first(`Gross Profit`[Strategy == "Passive"])  # Get the first "Passive" Gross Profit
+        ifelse(Active_GP > Passive_GP, "Yes", "No")
+      } else {
+        NA  # Assign NA if the group is incomplete
+      }
+    ) %>%
+    ungroup() %>%
+    filter(Period_Superior == "Yes") %>%
+    mutate(key = switch(
+      strategy,
+      sma1 = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+      sma2 = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+      NULL  # Default case if strategy does not match
+    ))
+}
+
+# add key: # Rank strategies based on AR superiority within each in-sample period
+rank_combos <- function(df_superior, strategy, selection = FALSE) {
+  # Determine the columns to group by based on strategy using switch
+  grouping_columns <- switch(
+    strategy,
+    "sma1" = c("Symbol", "Strategy", "Methodology", "Window_Size", 
+               "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+    "sma2" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", 
+               "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio")
   )
+  
+  ranked_strategies <- df_superior %>%
+    mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
+    group_by(PairID) %>%
+    mutate(
+      Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
+        ifelse(
+          Strategy == "Active" & 
+            `Annualized Profit` > `Annualized Profit`[Strategy == "Passive"], 
+          "Yes", 
+          "No"
+        )
+      } else {
+        NA  # Set NA if either Active or Passive is missing
+      }
+    ) %>%
+    ungroup() %>%
+    # Group by the dynamic columns based on strategy
+    group_by(across(all_of(grouping_columns))) %>%
+    summarise(
+      Total_Periods = n(),  # Total number of periods
+      Superior_Periods = sum(Period_Superior == "Yes", na.rm = TRUE),  # Count superior periods
+      Robustness = round((Superior_Periods / Total_Periods), 4) * 100  # Calculate robustness as a percentage
+    ) %>% 
+    filter(Strategy == "Active") %>%
+    arrange(Symbol, desc(Robustness))  # Rank strategies by robustness
 
-# All results in one df
-res_all <- fread("Run_backtest_results/res_all.csv")
-
-res_all <- res_all %>% 
-  mutate(
-    Meth = str_extract(Methodology, "^[^:]+")
-) %>%
-  select(Symbol, Class, Meth, Methodology, everything(.)) %>%
-  mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
-  group_by(PairID) %>%
-  mutate(
-    Superior = if (all(c("Active", "Passive") %in% Strategy)) {
-      ifelse(Strategy == "Active" & aR > aR[Strategy == "Passive"], "Yes", "No")
-    } else {
-      NA  # Assign NA if the group is incomplete
+    # Apply selection filter if TRUE
+    if (selection) {
+        ranked_strategies <- ranked_strategies %>% filter(Robustness >= 70)
     }
-  ) %>%
-  ungroup()
+    
+    ranked_strategies <- ranked_strategies %>%
+        mutate(key = switch(
+        strategy,
+        "sma1" = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
+                        Flat, Dynamic_limits, leverage, max_risk, 
+                        reward_ratio, sep = "_"),
+        "sma2" = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                        Flat, Dynamic_limits, leverage, max_risk, 
+                        reward_ratio, sep = "_")
+        )) %>% 
+        mutate(key2 = switch(
+        strategy,
+        "sma1" = paste(Symbol, Window_Size, sep = "_"),
+        "sma2" = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
+        NA_character_  # Default case if strategy is not recognized
+        )) %>%
+        data.table
 
-# View the updated data
-res_all %>% filter(Symbol == "BTC-USD" & Strategy == "Active" & Superior == "Yes") %>% arrange(desc(aR)) %>% select(Methodology) %>% unique
+    return(ranked_strategies)
+}
 
-best_strategies <- res_all %>% group_by(Symbol) %>%
-filter(Strategy == "Active") %>%
-  filter(aR == max(aR)) %>%
-  ungroup() %>% arrange(Class)
+# add keys (unique strategy id)
+add_key <- function(res, strategy) {
+  res <- res %>%
+    mutate(key = switch(
+      strategy,
+      "sma1" = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
+                     Flat, Dynamic_limits, leverage, max_risk, 
+                     reward_ratio, sep = "_"),
+      "sma2" = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                     Flat, Dynamic_limits, leverage, max_risk, 
+                     reward_ratio, sep = "_"),
+      NA_character_  # Default case if strategy is not recognized
+    )) %>%
+    mutate(key2 = switch(
+      strategy,
+      "sma1" = paste(Symbol, Window_Size, sep = "_"),
+      "sma2" = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
+      NA_character_  # Default case if strategy is not recognized
+    )) %>%
+    mutate(key3 = switch(
+      strategy,
+      "sma1" = paste(Symbol, Methodology, Window_Size, MA_Type, 
+                     Flat, Dynamic_limits, leverage, max_risk, 
+                     reward_ratio, sep = "_"),
+      "sma2" = paste(Symbol, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                     Flat, Dynamic_limits, leverage, max_risk, 
+                     reward_ratio, sep = "_"),
+      NA_character_  # Default case if strategy is not recognized
+    ))
+  return(res)
+}
 
-res_all %>%
-filter(Symbol == "BTC-USD" & Strategy == "Active") %>%
-group_by(Methodology) %>%
- #filter(Methodology == "SMA1: 40 SMA") %>%
-  select(aR) %>% 
-    summary
+# helper function for add_robust_column() function
+find_critical_profit <- function(subset_res, alpha = 0.01, tol = 0.0001) {
+  if (nrow(subset_res) <= 1) return(NA)  # Not enough data for t-test
 
-# Compute percentage of superior rows for each Methodology for a Symbol
-res_all %>%
-filter(Symbol == "ETH-USD") %>%
-  group_by(Meth) %>%
-  summarise(
-    TotalRows = n(),
-    SuperiorRows = sum(Superior == "Yes"),
-    PercentageSuperior = (SuperiorRows / TotalRows) * 100
-  ) %>% arrange(desc(PercentageSuperior))
+  lower <- min(subset_res$`Annualized Profit`)
+  upper <- max(subset_res$`Annualized Profit`)
+  best_mu <- NA  # Initialize best_mu
+  
+  while (TRUE) {
+    mid <- (upper + lower) / 2
+    t_test_result <- t.test(subset_res$`Annualized Profit`, mu = mid, alternative = "greater")
+    p_value <- t_test_result$p.value
+    
+    if (abs(p_value - alpha) < tol) {
+      return(mid)  # If p-value is close enough, return mid
+    }
+    
+    if (p_value < alpha) {
+      lower <- mid  # Increase mu
+      best_mu <- mid
+    } else {
+      upper <- mid  # Decrease mu
+    }
+    
+    if (abs(upper - lower) < tol) break  # Stop if bounds are too close
+  }
+  
+  return(best_mu)  # Return the closest found value
+}
 
-btc_sma1_in_sample_no_split %>%
-filter(Symbol == "BTC-USD") %>%
- filter(Methodology == "SMA1: 100 HMA" & Strategy == "Active") %>%
-  select(c(AnnualizedProfit, MaxDrawdown, NumberOfTradesPerYear)) %>% 
-    summary
+# add mean Annualized return at 0.01 p-value for each strategy
+add_robust_column <- function(res, best, unleveraged, alpha = 0.01) {
+  # Create an empty dataframe to store the critical profits for each symbol
+  critical_values <- data.frame(Symbol = character(), critical_profit = numeric())
+  
+  # Loop through each unique symbol and calculate the critical profit
+  for (symbol in unique(best$Symbol)) {
+    # Filter the data for the current symbol and keys
+    subset_res <- res %>% filter(Symbol == symbol, key2 %in% best$key2)
+    
+    # Filter further if unleveraged is TRUE
+    if (unleveraged) subset_res <- subset_res %>% filter(leverage == 1)
+    
+    # Calculate the critical profit for the current symbol
+    critical_profit <- find_critical_profit(subset_res, alpha)
+    
+    # Append the critical profit value to the critical_values dataframe
+    critical_values <- rbind(critical_values, data.frame(Symbol = symbol, critical_profit = critical_profit))
+  }
+  
+  # Perform a left join to add the critical_profit to the best dataframe
+  best <- best %>%
+    left_join(critical_values, by = "Symbol")
+  
+  return(best)
+}
