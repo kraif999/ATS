@@ -155,7 +155,7 @@ If the strategy performs well both in-sample and out-of-sample, demonstrating su
 ## Example of trading profile estimation 
 
 Below is an illustration of Bitcoin's trading profile based on the *SMA strategy, in particular, Simple Moving Average (SMA) 116-day window*. 
-In this example the risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3 (profit take limit). The dynamic stop loss adjusts as the price moves favorably, shifting proportionally to the account size increase to protect gains. If stop loss or take profit events happen, the position is re-entered given the current signal. No leverage is applied. A strategy is checked on *in_sample data* (multimarket and multiperiod), then if results are promising and robust (at least in 60-70% cases active strategy is superior than the passive one), check it on *out_of_sample* data.
+In this example the risk management is implemented by setting a stop loss to ensure that no more than 1/10th of the invested capital is lost at each trading day, with a reward-to-risk ratio of 3 (profit take limit). The dynamic stop loss adjusts as the price moves favorably, shifting proportionally to the account size increase to protect gains. If stop loss or take profit events happen, the position is re-entered given the current signal. No leverage is applied.
 
 **The dynamics of invested capital:**  
 
