@@ -437,3 +437,31 @@ sma2_best <- rank_combos(res_in_sma2r_filtered, strategy = "sma2", selection = T
 sma2_best <- add_robust_column(res_sma2, sma2_best, hypothesis_value = 20, TRUE) # H0: AR <= 20%; H1: AR > 20%
 # (!) only for unleveraged BTC-USD return is higher than 20% given 99% confidence level
 
+# SMA1M
+
+sma1m <- SMA1M$new(ts, window_size = 20, ma_type = 'SMA')
+res_in_sma1mr <- sma1m$run_backtest(
+  # general
+  symbols = assets,
+  from_date = as.Date("2018-01-01"),
+  to_date = as.Date("2024-06-01"),
+  slicing_years = 1,
+  data_type = "in_sample",
+  split = TRUE,
+  cut_date = as.Date("2024-01-01"),
+  # strategy specific
+  ma_types = c("SMA", "EMA"), 
+  window_sizes = round(10 * (1.15 ^ (0:20))),
+  # risk management
+  leverages = c(1, 5),
+  apply_rm = TRUE,
+  flats_after_event = c(TRUE, FALSE),
+  dynamics_limits = c(TRUE, FALSE),
+  max_risk = c(0.05, 0.1),
+  reward_ratios = seq(5, 10, by = 5),
+  output_df = TRUE,
+  run_via_cpp = TRUE
+)
+
+fwrite(res_in_sma1mr, file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma1mr.csv"))
+res_in_sma1mr <- fread(file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma1mr.csv"))
