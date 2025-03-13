@@ -250,8 +250,91 @@ sma1_res_out_sample_dt[, units := ifelse(
 
 View(sma1_res_out_sample_dt)
 
-# Helper functions:
-# identify all combinations where Trade Gross Profit for Active > Passive
+# Helper functions for backtest results analysis
+
+# add keys (strategy identifiers)
+add_key <- function(res, strategy) {
+
+  res <- res %>%
+
+  # Add key (most granular)
+    mutate(key = switch(
+      strategy,
+      sma1 = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      sma2 = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+    
+      sma1m = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
+                        Flat, Dynamic_limits, leverage, max_risk, 
+                        reward_ratio, sep = "_"),
+
+      sma2m = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                Flat, Dynamic_limits, leverage, max_risk, 
+                reward_ratio, sep = "_"),
+
+      macd = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, Sline, MA_Type, 
+                Flat, Dynamic_limits, leverage, max_risk, 
+                reward_ratio, sep = "_"),
+
+      tt = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+                Flat, Dynamic_limits, leverage, max_risk, 
+                reward_ratio, sep = "_"),
+
+      dc = paste(Symbol, Strategy, Methodology, Window_Size, 
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      rsi = paste(Symbol, Strategy, Methodology, Window_Size, Threshold_Oversold, Threshold_Overbought,
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      sar = paste(Symbol, Strategy, Methodology, Accel, Accel_Max,
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      adx = paste(Symbol, Strategy, Methodology, Ndx, Trend_Strength,
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      bb = paste(Symbol, Strategy, Methodology, Window_Size, Sd_Mult,
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      vmr = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type,
+                   Flat, Dynamic_limits, leverage, max_risk, 
+                   reward_ratio, sep = "_"),
+
+      NULL  # Default case if strategy does not match
+
+    )) %>%
+
+    # Add key2 (less granular: strategy family)
+    mutate(key2 = switch(
+      strategy,
+      sma1 = paste(Symbol, Window_Size, sep = "_"),
+      sma2 = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
+      sma1m = paste(Symbol, Window_Size, sep = "_"),
+      sma2m = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
+      macd = paste(Symbol, Window_Size1, Window_Size2, Sline, sep = "_"),
+      tt = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
+      dc = paste(Symbol, Window_Size, sep = "_"),
+      rsi = paste(Symbol, Window_Size, Threshold_Oversold, Threshold_Overbought, sep = "_"),
+      sar = paste(Symbol, Accel, sep = "_"),
+      adx = paste(Symbol, Ndx, sep = "_"),
+      bb = paste(Symbol, Window_Size, sep = "_"),
+      vmr = paste(Symbol, Window_Size, sep = "_"),
+      NULL  # Default case if strategy is not recognized
+    ))
+
+  return(res)
+
+}
+
+# identify superior Active strategy
 identify_superior <- function(res, strategy) {
   res %>%
     mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs based on rows
@@ -267,29 +350,52 @@ identify_superior <- function(res, strategy) {
       }
     ) %>%
     ungroup() %>%
-    filter(Period_Superior == "Yes") %>%
-    mutate(key = switch(
-      strategy,
-      sma1 = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
-                   Flat, Dynamic_limits, leverage, max_risk, 
-                   reward_ratio, sep = "_"),
-      sma2 = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
-                   Flat, Dynamic_limits, leverage, max_risk, 
-                   reward_ratio, sep = "_"),
-      NULL  # Default case if strategy does not match
-    ))
+    filter(Period_Superior == "Yes")
 }
 
-# add key: # Rank strategies based on AR superiority within each in-sample period
+# rank strategies
 rank_combos <- function(df_superior, strategy, selection = FALSE) {
+  
   # Determine the columns to group by based on strategy using switch
-  grouping_columns <- switch(
+ grouping_columns <- switch(
     strategy,
+
     "sma1" = c("Symbol", "Strategy", "Methodology", "Window_Size", 
                "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
     "sma2" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", 
-               "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio")
-  )
+               "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "sma1m" = c("Symbol", "Strategy", "Methodology", "Window_Size", 
+                "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "sma2m" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", 
+                "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "macd" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", "Sline", 
+               "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "tt" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", 
+             "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "dc" = c("Symbol", "Strategy", "Methodology", "Window_Size", 
+             "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+             
+    "rsi" = c("Symbol", "Strategy", "Methodology", "Window_Size", "Threshold_Oversold", "Threshold_Overbought", 
+              "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "sar" = c("Symbol", "Strategy", "Methodology", "Accel", "Accel_Max", 
+              "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "adx" = c("Symbol", "Strategy", "Methodology", "Ndx", "Trend_Strength", 
+              "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "bb" = c("Symbol", "Strategy", "Methodology", "Window_Size", "Sd_Mult", 
+             "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+
+    "vmr" = c("Symbol", "Strategy", "Methodology", "Window_Size", "MA_Type", 
+              "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio")
+    )
   
   ranked_strategies <- df_superior %>%
     mutate(PairID = ceiling(row_number() / 2)) %>%  # Assign pair IDs
@@ -322,60 +428,14 @@ rank_combos <- function(df_superior, strategy, selection = FALSE) {
         ranked_strategies <- ranked_strategies %>% filter(Robustness >= 70)
     }
     
-    ranked_strategies <- ranked_strategies %>%
-        mutate(key = switch(
-        strategy,
-        "sma1" = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
-                        Flat, Dynamic_limits, leverage, max_risk, 
-                        reward_ratio, sep = "_"),
-        "sma2" = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
-                        Flat, Dynamic_limits, leverage, max_risk, 
-                        reward_ratio, sep = "_")
-        )) %>% 
-        mutate(key2 = switch(
-        strategy,
-        "sma1" = paste(Symbol, Window_Size, sep = "_"),
-        "sma2" = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
-        NA_character_  # Default case if strategy is not recognized
-        )) %>%
-        data.table
+    ranked_strategies <- ranked_strategies %>% 
+        add_key(., strategy) %>%
+            data.table
 
     return(ranked_strategies)
 }
 
-# add keys (unique strategy id)
-add_key <- function(res, strategy) {
-  res <- res %>%
-    mutate(key = switch(
-      strategy,
-      "sma1" = paste(Symbol, Strategy, Methodology, Window_Size, MA_Type, 
-                     Flat, Dynamic_limits, leverage, max_risk, 
-                     reward_ratio, sep = "_"),
-      "sma2" = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
-                     Flat, Dynamic_limits, leverage, max_risk, 
-                     reward_ratio, sep = "_"),
-      NA_character_  # Default case if strategy is not recognized
-    )) %>%
-    mutate(key2 = switch(
-      strategy,
-      "sma1" = paste(Symbol, Window_Size, sep = "_"),
-      "sma2" = paste(Symbol, Window_Size1, Window_Size2, sep = "_"),
-      NA_character_  # Default case if strategy is not recognized
-    )) %>%
-    mutate(key3 = switch(
-      strategy,
-      "sma1" = paste(Symbol, Methodology, Window_Size, MA_Type, 
-                     Flat, Dynamic_limits, leverage, max_risk, 
-                     reward_ratio, sep = "_"),
-      "sma2" = paste(Symbol, Methodology, Window_Size1, Window_Size2, MA_Type, 
-                     Flat, Dynamic_limits, leverage, max_risk, 
-                     reward_ratio, sep = "_"),
-      NA_character_  # Default case if strategy is not recognized
-    ))
-  return(res)
-}
-
-# helper function for add_robust_column() function
+# critical profit
 find_critical_profit <- function(subset_res, alpha = 0.01, tol = 0.0001) {
   if (nrow(subset_res) <= 1) return(NA)  # Not enough data for t-test
 
