@@ -463,5 +463,65 @@ res_in_sma1mr <- sma1m$run_backtest(
   run_via_cpp = TRUE
 )
 
-fwrite(res_in_sma1mr, file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma1mr.csv"))
+#fwrite(res_in_sma1mr, file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma1mr.csv"))
 res_in_sma1mr <- fread(file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma1mr.csv"))
+
+# SMA2M
+
+sma2m <- SMA2M$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA')
+res_in_sma2mr <- sma2m$run_backtest(
+  # general
+  symbols = assets,
+  from_date = as.Date("2018-01-01"),
+  to_date = as.Date("2024-06-01"),
+  slicing_years = 1,
+  data_type = "in_sample",
+  split = TRUE,
+  cut_date = as.Date("2024-01-01"),
+  # strategy specific
+  ma_types = c("SMA", "EMA"), 
+  window_sizes1 = round(10 * (1.2 ^ (0:8))),  # Shorter periods (fast MA)
+  window_sizes2 =  round(50 * (1.2 ^ (0:8))), # Longer periods (slow MA)
+  # risk management
+  leverages = c(1,5),
+  apply_rm = TRUE,
+  flats_after_event = c(TRUE, FALSE),
+  dynamics_limits = c(TRUE, FALSE),
+  max_risk = c(0.02, 0.1, 0.2),
+  reward_ratios = seq(5, 10, by = 5),
+  output_df = TRUE,
+  run_via_cpp = TRUE
+)
+
+fwrite(res_in_sma2mr, file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv"))
+res_in_sma2mr <- fread(file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv"))
+
+# MACD
+
+macd <- MACD$new(ts, window_size1 = 20, window_size2 = 60, sline = 12, ma_type = 'SMA')
+res_in_macd <- macd$run_backtest(
+  # general
+  symbols = assets,
+  from_date = as.Date("2018-01-01"),
+  to_date = as.Date("2024-06-01"),
+  slicing_years = 1,
+  data_type = "in_sample",
+  split = TRUE,
+  cut_date = as.Date("2024-01-01"),
+  # strategy specific
+  ma_types = c("SMA", "EMA"), 
+  window_sizes1 = round(10 * (1.2 ^ (0:6))),  # Shorter periods (fast MA)
+  window_sizes2 =  round(50 * (1.2 ^ (0:6))), # Longer periods (slow MA)
+  sline = round(7 * (1.5 ^ (0:7))),
+  # risk management
+  leverages = c(1,5),
+  apply_rm = TRUE,
+  flats_after_event = c(TRUE, FALSE),
+  dynamics_limits = c(TRUE, FALSE),
+  max_risk = c(0.05, 0.1),
+  reward_ratios = seq(3, 7, by = 4),
+  output_df = TRUE,
+  run_via_cpp = TRUE
+)
+
+fwrite(res_in_macdr, file.path(getwd(), "backtesting_trading_strategies/results/in_sample_split/macd/res_macdr_btc.csv"))
