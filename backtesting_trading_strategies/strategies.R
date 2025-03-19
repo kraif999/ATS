@@ -1385,6 +1385,11 @@ run_via_cpp) {
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+      
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+
     for (window_size in window_sizes) {
       for (ma_type in ma_types) {
         for (flat_after_event in flats_after_event) {
@@ -1393,13 +1398,7 @@ run_via_cpp) {
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-      # Fetch data using DataFetcher for the current symbol and date range
-      data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-      data <- data_fetcher$download_xts_data()
-
       # Create an instance of SMA1 strategy
-      # gc()
-      # sma_instance <- NULL
       sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
 
       # Ensure data is not empty
@@ -1576,6 +1575,11 @@ leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratio
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+
     for (window_size1 in window_sizes1) {
       for (window_size2 in window_sizes2) {
         for (ma_type in ma_types) {
@@ -1584,10 +1588,6 @@ leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratio
               for (max_risk in max_risks) {
                 for(reward_ratio in reward_ratios) {
                   for (leverage in leverages) {
-
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
         
         # Ensure data is not empty
         if (nrow(data) == 0) {
@@ -1595,7 +1595,7 @@ leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratio
           next
         }
 
-        # Create an instance of SMA1 strategy
+        # Create an instance of SMA2 strategy
         sma2_instance <- SMA2$new(data, window_size1 = window_size1, window_size2 = window_size2, ma_type = ma_type)
         
       # Estimate performance based on the split argument
@@ -1816,6 +1816,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+      # Fetch data using DataFetcher for the current symbol and date range
+      data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+      data <- data_fetcher$download_xts_data()
+      
+      # Ensure data is not empty
+      if (nrow(data) == 0) {
+        warning(paste("No data available for symbol:", symbol))
+        next
+      }
+
       for (window_size in window_sizes) {
         for (ma_type in ma_types) {
           for (flat_after_event in flats_after_event) {
@@ -1824,18 +1835,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
                 for(reward_ratio in reward_ratios) {
                   for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
-        sma_instance <- SMA1$new(data, window_size = window_size, ma_type = ma_type)
+        # Create an instance of SMA1M strategy
+        sma_instance <- SMA1M$new(data, window_size = window_size, ma_type = ma_type)
         
       # Estimate performance based on the split argument
       if (split) {
@@ -2046,6 +2047,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (window_size1 in window_sizes1) {
       for (window_size2 in window_sizes2) {
         for (ma_type in ma_types) {
@@ -2055,18 +2067,8 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
                 for(reward_ratio in reward_ratios) {
                   for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
-        sma2_instance <- SMA2$new(data, window_size1 = window_size1, window_size2 = window_size2, ma_type = ma_type)
+      # Create an instance of SMA2M strategy
+      sma2_instance <- SMA2M$new(data, window_size1 = window_size1, window_size2 = window_size2, ma_type = ma_type)
         
       # Estimate performance based on the split argument
       if (split) {
@@ -2236,6 +2238,16 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+
+    if (nrow(data) == 0) {
+    warning(paste("No data available for symbol:", symbol))
+    next
+  }
+
     for (window_size1 in window_sizes1) {
       for (window_size2 in window_sizes2) {
         for (sline in slines) {
@@ -2246,17 +2258,13 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
                   for(reward_ratio in reward_ratios) {
                     for (leverage in leverages) {
 
-    # Fetch data using DataFetcher for the current symbol and date range
-    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-    data <- data_fetcher$download_xts_data()
-
     # Ensure data is not empty
     if (nrow(data) == 0) {
       warning(paste("No data available for symbol:", symbol))
       next
     }
 
-    # Create an instance of SMA1 strategy
+    # Create an instance of MACD strategy
     macd_instance <- MACD$new(data, window_size1 = window_size1, window_size2 = window_size2, sline = sline, ma_type = ma_type)
 
     # Estimate performance based on the split argument
@@ -2430,6 +2438,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+  # Fetch data using DataFetcher for the current symbol and date range
+  data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+  data <- data_fetcher$download_xts_data()
+  
+  # Ensure data is not empty
+  if (nrow(data) == 0) {
+    warning(paste("No data available for symbol:", symbol))
+    next
+  }
+
     for (window_size1 in window_sizes1) {
       for (window_size2 in window_sizes2) {
           for (flat_after_event in flats_after_event) {
@@ -2438,17 +2457,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
                 for(reward_ratio in reward_ratios) {
                   for (leverage in leverages) {
 
-      # Fetch data using DataFetcher for the current symbol and date range
-      data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-      data <- data_fetcher$download_xts_data()
-      
-      # Ensure data is not empty
-      if (nrow(data) == 0) {
-        warning(paste("No data available for symbol:", symbol))
-        next
-      }
-
-      # Create an instance of SMA1 strategy
+      # Create an instance of TT strategy
       tt_instance <- TurtleTrading$new(data, window_size1 = window_size1, window_size2 = window_size2)
         
       # Estimate performance based on the split argument
@@ -2605,6 +2614,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+  # Fetch data using DataFetcher for the current symbol and date range
+  data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+  data <- data_fetcher$download_xts_data()
+  
+  # Ensure data is not empty
+  if (nrow(data) == 0) {
+    warning(paste("No data available for symbol:", symbol))
+    next
+  }
+
     for (window_size in window_sizes) {
         for (flat_after_event in flats_after_event) {
           for (dynamic_limits in dynamics_limits) {
@@ -2612,17 +2632,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-      # Fetch data using DataFetcher for the current symbol and date range
-      data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-      data <- data_fetcher$download_xts_data()
-      
-      # Ensure data is not empty
-      if (nrow(data) == 0) {
-        warning(paste("No data available for symbol:", symbol))
-        next
-      }
-
-      # Create an instance of SMA1 strategy
+      # Create an instance of DC strategy
       dc_instance <- DonchianChannel$new(data, window_size = window_size)
         
       # Estimate performance based on the split argument
@@ -2797,6 +2807,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (window_size in window_sizes) {
       for (threshold_oversold in thresholds_oversold) {
         for (threshold_overbought in thresholds_overbought) {
@@ -2806,17 +2827,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
                 for(reward_ratio in reward_ratios) {
                   for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
+        # Create an instance of RSI strategy
         rsi_instance <- RSI$new(data, window_size = window_size, threshold_oversold = threshold_oversold, threshold_overbought = threshold_overbought)
         
       # Estimate performance based on the split argument
@@ -2984,6 +2995,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (accel in accels) {
       for (accel_max in accels_max) {
        for (flat_after_event in flats_after_event) {
@@ -2992,17 +3014,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
+        # Create an instance of SAR strategy
         sar_instance <- StopAndReversal$new(data, accel = accel, accel_max = accel_max)
         
       # Estimate performance based on the split argument
@@ -3169,6 +3181,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (ndx in ndxs) {
       for (trend_strength in trends_strength) {
        for (flat_after_event in flats_after_event) {
@@ -3177,17 +3200,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
+        # Create an instance of ADX strategy
         adx_instance <- ADX$new(data, ndx = ndx, trend_strength = trend_strength)
         
       # Estimate performance based on the split argument
@@ -3348,6 +3361,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (window_size in window_sizes) {
       for (sd_mult in sd_mults) {
        for (flat_after_event in flats_after_event) {
@@ -3356,17 +3380,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
+        # Create an instance of BB strategy
         bb_instance <- BollingerBreakout$new(data, window_size = window_size, sd_mult = sd_mult)
         
       # Estimate performance based on the split argument
@@ -3525,6 +3539,17 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
 
   # Loop through symbols, window sizes, and MA types to create instances and estimate performance
   for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
     for (window_size in window_sizes) {
      for (ma_type in ma_types) {
         for (flat_after_event in flats_after_event) {
@@ -3533,17 +3558,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
               for(reward_ratio in reward_ratios) {
                 for (leverage in leverages) {
 
-        # Fetch data using DataFetcher for the current symbol and date range
-        data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
-        data <- data_fetcher$download_xts_data()
-        
-        # Ensure data is not empty
-        if (nrow(data) == 0) {
-          warning(paste("No data available for symbol:", symbol))
-          next
-        }
-
-        # Create an instance of SMA1 strategy
+        # Create an instance of VMR strategy
         vmr_instance <- VolatilityMeanReversion$new(data, window_size = window_size)
         
       # Estimate performance based on the split argument
