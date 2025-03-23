@@ -4,6 +4,12 @@
 
 source("backtesting_trading_strategies/libraries.R")
 source("backtesting_trading_strategies/strategies.R")
+
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
+
+meta <- jsonlite::fromJSON("instr_config.json")
+
 options(scipen = 999)
 
 # Specify the following strategy parameters
@@ -19,12 +25,6 @@ dynamic_limits <- TRUE
 # Download data from Yahoo (instances of DataFetcher class)
 data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
 ts <- data_fetcher$download_xts_data()
-
-# Example of Strategy instance (SMA1)
-Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
-Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
-
-meta <- jsonlite::fromJSON("instr_config.json")
 
 # IN-SAMPLE (WITHOUT SPLIT, single period profile)
 sma1 <- SMA1$new(ts, window_size = 116, ma_type = 'SMA')
@@ -252,7 +252,7 @@ View(sma1_res_out_sample_dt)
 
 # Helper functions for backtest results analysis
 
-# add keys (strategy identifiers)
+# add keys (unique strategy id)
 add_key <- function(res, strategy) {
 
   res <- res %>%
@@ -280,7 +280,7 @@ add_key <- function(res, strategy) {
                 Flat, Dynamic_limits, leverage, max_risk, 
                 reward_ratio, sep = "_"),
 
-      tt = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, MA_Type, 
+      tt = paste(Symbol, Strategy, Methodology, Window_Size1, Window_Size2, 
                 Flat, Dynamic_limits, leverage, max_risk, 
                 reward_ratio, sep = "_"),
 
@@ -342,8 +342,8 @@ identify_superior <- function(res, strategy) {
     mutate(
       Period_Superior = if (all(c("Active", "Passive") %in% Strategy)) {
         # Compare Gross Profit between Active and Passive strategies within the group
-        Active_GP <- `Gross Profit`[Strategy == "Active"]
-        Passive_GP <- first(`Gross Profit`[Strategy == "Passive"])  # Get the first "Passive" Gross Profit
+        Active_GP <- `Total Gross Profit`[Strategy == "Active"]
+        Passive_GP <- first(`Total Gross Profit`[Strategy == "Passive"])  # Get the first "Passive" Gross Profit
         ifelse(Active_GP > Passive_GP, "Yes", "No")
       } else {
         NA  # Assign NA if the group is incomplete
@@ -376,7 +376,7 @@ rank_combos <- function(df_superior, strategy, selection = FALSE) {
                "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
 
     "tt" = c("Symbol", "Strategy", "Methodology", "Window_Size1", "Window_Size2", 
-             "MA_Type", "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
+            "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
 
     "dc" = c("Symbol", "Strategy", "Methodology", "Window_Size", 
              "Flat", "Dynamic_limits", "leverage", "max_risk", "reward_ratio"),
