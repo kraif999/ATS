@@ -4,18 +4,18 @@ Here, I test different trading ideas based on certain rules (called 'Active' str
 
 The goal is to develop a superior, robust (asset-diverse, multimarket, multiperiod) price-based system. The trading profile of a strategy is estimated using different metrics to measure return and risk.  
 
-There is no such strategy combination that always guarantees highly superior returns under all market conditions, therefore, for a particular strategy the robustness conclusion could be based on how a strategy's trading profile looks on average given a different sets of strategy's combinations (strategy's family) and chosen risk management rules.
+The strategy robustness conclusion is based on two key aspects: (1) the overall trading profile of a strategy family, considering various key parameters, risk management, and financial rules, and (2) a granular analysis of individual trade PnL results. The strategy’s expected performance is best evaluated through its average behavior, assuming a sufficiently large number of parameter combinations and trades.
 
 ## Design  
 
 All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp](http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp).  
 
-Choose an instrument, a strategy, and a trading horizon. Specify the strategy-specific parameters along with risk and financial management parameters, and see how the strategy performs if you had consistently and strictly invested using its signals with no emotions involved.
+Choose an instrument, a strategy, and a trading horizon, specify the strategy-specific parameters along with risk and financial management parameters, and see how the strategy performs if you had consistently and strictly invested using its signals with no emotions involved.
 Essentially the algorithm executes the strategy and calculates the number of positions, PnL, and equity curves, based on the daily positions.
 If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event. Also, there is an option to dynamically shift stop loss in a case of a favourable price move given the position.
 Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R.*
 
-The core methods: apply_risk_management() and estimate_trading_profile() are optimized using their C++ versions (apply_risk_management_cpp() and estimate_trading_profile_cpp(), correspondingly). These C++ implementations improve execution speed by ~33 times in run_backtest() calls. In total over a 500,000 trading profiles have been estimated across all strategies.
+The core methods: apply_risk_management() and estimate_trading_profile() are optimized using their C++ versions (apply_risk_management_cpp() and estimate_trading_profile_cpp(), correspondingly). These C++ implementations improve execution speed by ~33 times in run_backtest() calls. In total over a 3,300,000 trading profiles have been estimated across all strategies.
 
 The high-level structure of the framework is as follows:  
 
@@ -147,7 +147,7 @@ After confirming performance within the in-sample period, the active strategy is
 
 **Additional check*:
 
-The performance of the entire family of a superior strategy is considered for a key parameter (window size for example for SMA1). This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency.
+The performance of the entire family of a superior strategy is considered given a strategy's key parameter. This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency (positive expectancy) based on at least 1000 trades for each trading system for a particular asset (expectancy, standard deviation, 0.1% and 99.9% quantiles of trades PnL are analyzed).
 
 ### ✅ Strategy Considered Robust
 If the strategy performs well both in-sample and out-of-sample, demonstrating superiority over passive strategies in multiple scenarios, it can be considered robust. This step indicates that the strategy is likely to perform well in real-world, unseen data.

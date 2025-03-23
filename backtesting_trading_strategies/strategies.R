@@ -2195,6 +2195,152 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
     } else {
       return(results)
     }
+},
+
+run_backtest_trades = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
+
+  # Create an empty list to store trade results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+    
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
+    for (window_size1 in window_sizes1) {
+      for (window_size2 in window_sizes2) {
+        for (ma_type in ma_types) {
+          for (flat_after_event in flats_after_event) {
+            for(dynamic_limits in dynamics_limits) {
+              for (max_risk in max_risks) {
+                for(reward_ratio in reward_ratios) {
+                  for (leverage in leverages) {
+
+      # Create an instance of SMA2M strategy
+      sma2_instance <- SMA2M$new(data, window_size1 = window_size1, window_size2 = window_size2, ma_type = ma_type)
+        
+      # Estimate performance based on the split argument
+      if (split) {
+        performance <- sma2_instance$estimate_performance(
+          # General:
+          symbol = symbol,
+          capital = capital,
+          leverage = leverage,
+          data_type = data_type,
+          split_data = TRUE,
+          cut_date = cut_date,
+          window = slicing_years,
+          # RM:
+          apply_rm = apply_rm,
+          flat_after_event = flat_after_event,
+          dynamic_limits = dynamic_limits,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
+        )
+      } else {
+        performance <- sma2_instance$estimate_performance(
+          # General:
+          symbol = symbol,
+          capital = capital,
+          leverage = leverage,
+          data_type = data_type,
+          split_data = FALSE,
+          cut_date = cut_date,
+          window = slicing_years,
+          # RM:
+          apply_rm = apply_rm,
+          flat_after_event = flat_after_event,
+          dynamic_limits = dynamic_limits,
+          max_risk = max_risk,
+          reward_ratio = reward_ratio,
+          run_via_cpp = run_via_cpp
+        )
+      }
+        # Skip if performance is NULL
+        if (is.null(performance) || nrow(performance) == 0) {
+          warning(paste("No performance data for symbol:", symbol, 
+                        "window_size1:", window_size1,
+                        "window_size2:", window_size2,
+                        "ma_type:", ma_type))
+          next
+        }
+
+       trades <- sma2_instance$get_trades(apply_rm = apply_rm)$trades
+       trade_mean <- round(trades$TradePnL %>% mean, 2)
+       trade_std <- round(trades$TradePnL %>% na.omit %>% sd, 2)
+       trade_q0.1 <- round(trades$TradePnL %>% quantile(., 0.001), 2)
+       trade_q99.9 <- round(trades$TradePnL %>% quantile(., 0.999), 2)
+       trades_nrow <- nrow(trades)
+
+        # Store the results
+        results[[paste(symbol, window_size1, window_size2, ma_type, flat_after_event, dynamic_limits, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+          # Market
+          Symbol = symbol,
+          Class = meta$assets[[symbol]]$class,
+          # System
+          Methodology = "SMA2M",
+          Window_Size1 = window_size1,
+          Window_Size2 = window_size2,
+          MA_Type = ma_type,
+          Flat = flat_after_event,
+          Dynamic_limits = dynamic_limits,
+          Max_Risk = max_risk,
+          Reward_Ratio = reward_ratio,
+          Leverage = leverage,
+          # Trade quantiles
+          Trade_Mean = trade_mean,
+          Trade_SD = trade_std,
+          Trade_Q0.1 = trade_q0.1,
+          Trade_Q99.9 = trade_q99.9,
+          Trades = trades_nrow
+        )
+
+        print(paste0(
+          "Strategy: SMA2M | symbol: ", symbol, 
+          " | class: ", meta$assets[[symbol]]$class, 
+          " | window_size1: ", window_size1,
+          " | window_size2: ", window_size2, 
+          " | ma_type: ", ma_type, 
+          " | flat_after_event: ", flat_after_event,
+          " | dynamic_limit: ", dynamic_limits,
+          " | max_risk: ", max_risk, 
+          " | reward_ratio: ", reward_ratio, 
+          " | leverage: ", leverage,
+          " | trade_expectancy: ", trade_mean,
+          " |"
+          )
+        )
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+    if (length(results) == 0) {
+      stop("No valid results were generated. Check the input parameters or data availability.")
+    }
+
+    # Create the final data frame if output_df is TRUE
+    if (output_df) {
+    res_df <- bind_rows(results)
+      return(res_df)
+    } else {
+      return(results)
+    }
 }
 
   )
@@ -2880,7 +3026,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         results[[paste(symbol, window_size, threshold_oversold, threshold_overbought, flat_after_event, dynamic_limits, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = "RSI:",
+          Methodology = "RSI",
           Window_Size = window_size,
           Threshold_Oversold = threshold_oversold,
           Threshold_Overbought = threshold_overbought,
@@ -3120,7 +3266,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         # Strategy specific:
         Methodology = x$Methodology,
         Accel = x$Accel,
-        Accel_max = x$Accel_max,
+        Accel_Max = x$Accel_Max,
         # RM:
         Flat = x$Flat,
         Dynamic_limits = x$Dynamic_limits
@@ -3157,22 +3303,35 @@ initialize = function(data, ndx, trend_strength) {
 },
 
 generate_signals = function() {
+
+  # Generate ADX and DI signals
   self$data <- self$data %>%
     mutate(
-    self$data,
-    as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
-    signal1 = case_when(
-      DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-      lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-      DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-      lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-      TRUE ~ 0
-    ),
-    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
-    position = lag(signal, default = 0)
-    ) %>%
-    na.omit()
-                    
+      # Calculate ADX using TTR
+      as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
+      # Generate signals based on ADX and DI
+      signal1 = case_when(
+        DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1,  # Positive trend
+        lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1,  # Positive trend
+        DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,  # Negative trend
+        lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,  # Negative trend
+        TRUE ~ 0  # No signal
+      ),
+      # Replace 0 signals with NA and carry forward valid signals
+      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+      # Ensure that position is 0 if no signal is generated
+      position = ifelse(is.na(signal), 0, signal)
+    ) 
+    # %>% na.omit()  # Optional: Remove rows with NA values, may cause issues if the first few rows are missing
+
+  # Check if there are any valid signals after processing
+  if (nrow(self$data) == 0 || all(is.na(self$data$signal))) {
+    self$data$signal <- 0  # Set signal to 0 if no valid signals exist
+    self$data$position <- 0  # Set position to 0 if no valid signals exist
+  }
+
+  # Return the updated data with signals
+  return(self$data)
 },
 
 run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ndxs, trends_strength, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
@@ -3609,7 +3768,7 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
         results[[paste(symbol, window_size, ma_type, flat_after_event, dynamic_limits, reward_ratio, leverage, sep = "_")]] <- list(
           Symbol = symbol,
           Class = meta$assets[[symbol]]$class,
-          Methodology = "VMR:",
+          Methodology = "VMR",
           Window_Size = window_size,
           MA_Type = ma_type,
           Flat = flat_after_event,

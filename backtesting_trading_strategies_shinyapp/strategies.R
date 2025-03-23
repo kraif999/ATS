@@ -3160,22 +3160,35 @@ initialize = function(data, ndx, trend_strength) {
 },
 
 generate_signals = function() {
+
+  # Generate ADX and DI signals
   self$data <- self$data %>%
     mutate(
-    self$data,
-    as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
-    signal1 = case_when(
-      DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-      lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1, # lag
-      DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-      lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,
-      TRUE ~ 0
-    ),
-    signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
-    position = lag(signal, default = 0)
-    ) %>%
-    na.omit()
-                    
+      # Calculate ADX using TTR
+      as.data.frame(TTR::ADX(select(., High, Low, Close), n = self$ndx)),
+      # Generate signals based on ADX and DI
+      signal1 = case_when(
+        DIp > lag(DIn) & lag(ADX) > self$trend_strength ~ 1,  # Positive trend
+        lag(DIp) > lag(DIn) & lag(ADX) > self$trend_strength ~ 1,  # Positive trend
+        DIp < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,  # Negative trend
+        lag(DIp) < lag(DIn) & lag(ADX) > self$trend_strength ~ -1,  # Negative trend
+        TRUE ~ 0  # No signal
+      ),
+      # Replace 0 signals with NA and carry forward valid signals
+      signal = na.locf(ifelse(signal1 == 0, NA, signal1), fromLast = FALSE, na.rm = FALSE),
+      # Ensure that position is 0 if no signal is generated
+      position = ifelse(is.na(signal), 0, signal)
+    ) 
+    # %>% na.omit()  # Optional: Remove rows with NA values, may cause issues if the first few rows are missing
+
+  # Check if there are any valid signals after processing
+  if (nrow(self$data) == 0 || all(is.na(self$data$signal))) {
+    self$data$signal <- 0  # Set signal to 0 if no valid signals exist
+    self$data$position <- 0  # Set position to 0 if no valid signals exist
+  }
+
+  # Return the updated data with signals
+  return(self$data)
 },
 
 run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ndxs, trends_strength, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
