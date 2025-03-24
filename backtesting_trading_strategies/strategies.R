@@ -508,7 +508,11 @@ get_trades = function(apply_rm) {
 
   # Aggregate PnL by month and trade type
   monthly_pnl <- trades[, .(TotalPnL = sum(TradePnL)), by = .(YearMonth, Trade)]
-  monthly_pnl[, YearMonth := as.Date(paste0(YearMonth, "-01"))]
+  # monthly_pnl[, YearMonth := as.Date(paste0(YearMonth, "-01"))]
+
+  monthly_pnl[, YearMonth := tryCatch(
+  as.Date(paste0(YearMonth, "-01")),
+  error = function(e) as.Date(character()))]
 
   pnl_contr_by_trade <- ggplot(monthly_pnl, aes(x = YearMonth, y = TotalPnL, fill = Trade)) +
     geom_bar(stat = "identity", position = "stack") +
@@ -2543,6 +2547,168 @@ run_backtest = function(symbols, from_date, to_date, slicing_years, data_type, s
   } else {
     return(results)
   }
+},
+
+run_backtest_trades = function(symbols, from_date, to_date, slicing_years, data_type, split, cut_date, ma_types, window_sizes1, window_sizes2, slines, leverages, apply_rm, flats_after_event, dynamics_limits, max_risks, reward_ratios, run_via_cpp, output_df = FALSE) {
+  
+  # Create an empty list to store results
+  results <- list()
+
+  # Loop through symbols, window sizes, and MA types to create instances and estimate performance
+  for (symbol in symbols) {
+
+    # Fetch data using DataFetcher for the current symbol and date range
+    data_fetcher <- DataFetcher$new(symbol, from_date, to_date)
+    data <- data_fetcher$download_xts_data()
+
+    if (nrow(data) == 0) {
+    warning(paste("No data available for symbol:", symbol))
+    next
+  }
+
+    for (window_size1 in window_sizes1) {
+      for (window_size2 in window_sizes2) {
+        for (sline in slines) {
+          for (ma_type in ma_types) {
+            for (flat_after_event in flats_after_event) {
+              for(dynamic_limits in dynamics_limits) {
+                for (max_risk in max_risks) {
+                  for(reward_ratio in reward_ratios) {
+                    for (leverage in leverages) {
+
+    # Ensure data is not empty
+    if (nrow(data) == 0) {
+      warning(paste("No data available for symbol:", symbol))
+      next
+    }
+
+    # Create an instance of MACD strategy
+    macd_instance <- MACD$new(data, window_size1 = window_size1, window_size2 = window_size2, sline = sline, ma_type = ma_type)
+
+    # Estimate performance based on the split argument
+    if (split) {
+      performance <- macd_instance$estimate_performance(
+        # General:
+        symbol = symbol,
+        capital = capital,
+        leverage = leverage,
+        data_type = data_type,
+        split_data = TRUE,
+        cut_date = cut_date,
+        window = slicing_years,
+        # RM:
+        apply_rm = apply_rm,
+        flat_after_event = flat_after_event,
+        dynamic_limits = dynamic_limits,
+        max_risk = max_risk,
+        reward_ratio = reward_ratio,
+        run_via_cpp = run_via_cpp
+      )
+    } else {
+      performance <- macd_instance$estimate_performance(
+        # General:
+        symbol = symbol,
+        capital = capital,
+        leverage = leverage,
+        data_type = data_type,
+        split_data = FALSE,
+        cut_date = cut_date,
+        window = slicing_years,
+        # RM:
+        apply_rm = apply_rm,
+        flat_after_event = flat_after_event,
+        dynamic_limits = dynamic_limits,
+        max_risk = max_risk,
+        reward_ratio = reward_ratio,
+        run_via_cpp = run_via_cpp
+      )
+    }
+
+    # Skip if performance is NULL
+    if (is.null(performance) || nrow(performance) == 0) {
+      warning(paste("No performance data for symbol:", symbol, 
+                    "window_size1:", window_size1,
+                    "window_size2:", window_size2,
+                    "sline:", sline,
+                    "ma_type:", ma_type))
+      next
+    }
+
+    # Store the results
+    trades <- macd_instance$get_trades(apply_rm = apply_rm)$trades
+    trade_mean <- round(trades$TradePnL %>% mean, 2)
+    trade_std <- round(trades$TradePnL %>% na.omit %>% sd, 2)
+    trade_q0.1 <- round(trades$TradePnL %>% quantile(., 0.001), 2)
+    trade_q99.9 <- round(trades$TradePnL %>% quantile(., 0.999), 2)
+    trades_nrow <- nrow(trades)
+
+    # Store the results
+    results[[paste(symbol, window_size1, window_size2, sline, ma_type, flat_after_event, dynamic_limits, max_risk, reward_ratio, leverage, sep = "_")]] <- list(
+      # Market
+      Symbol = symbol,
+      Class = meta$assets[[symbol]]$class,
+      # System
+      Methodology = "MACD",
+      Window_Size1 = window_size1,
+      Window_Size2 = window_size2,
+      Sline = sline,
+      MA_Type = ma_type,
+      Flat = flat_after_event,
+      Dynamic_limits = dynamic_limits,
+      Max_Risk = max_risk,
+      Reward_Ratio = reward_ratio,
+      Leverage = leverage,
+      # Trade quantiles
+      Trade_Mean = trade_mean,
+      Trade_SD = trade_std,
+      Trade_Q0.1 = trade_q0.1,
+      Trade_Q99.9 = trade_q99.9,
+      Trades = trades_nrow
+    )
+
+    print(paste0(
+      "Strategy: MACD | symbol: ", symbol, 
+      " | class: ", meta$assets[[symbol]]$class, 
+      " | window_size1: ", window_size1,
+      " | window_size2: ", window_size2, 
+      " | sline: ", sline, 
+      " | ma_type: ", ma_type, 
+      " | flat_after_event: ", flat_after_event,
+      " | dynamic_limit: ", dynamic_limits,
+      " | max_risk: ", max_risk, 
+      " | reward_ratio: ", reward_ratio, 
+      " | leverage: ", leverage,
+      " | trade_expectancy: ", trade_mean,
+      " |"
+      )
+    )
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Check if results list is empty
+  if (length(results) == 0) {
+    stop("No valid results were generated. Check the input parameters or data availability.")
+  }
+
+  # Create the final data frame if output_df is TRUE
+  if (output_df) {
+  res_df <- bind_rows(results)
+    return(res_df)
+
+  } else {
+
+    return(results)
+    
+  }
+
 }
 
   )

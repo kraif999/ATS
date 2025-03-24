@@ -127,30 +127,29 @@ classDiagram
     
 ```
 
-## Robust Strategy Dev Process
+## Strategy robustness evaluation process
 
-### 1. Formulate Strategy & Specify in a Testable Form
+### 1. Formulate strategy & specify in a testable form
 
 Key elements to consider in this step:
 - **Entry and Exit Rules**: Define the conditions that trigger entering and exiting positions.
 - **Risk Management**: Specify rules for position sizing, stop-loss, take-profit, and other risk parameters.
 - **Performance Metrics**: Establish how the strategy’s performance is measured.
 
-### 2. Check if Active is Superior to Passive (In-Sample, Whole)
+### 2. Check if Active is superior to Passive in in-sample (whole) period [Stage 1]
 In this step, compare the performance of the active strategy against a passive strategy (e.g., buy-and-hold) over the entire in-sample period based on *total gross return*. This provides an initial indication of whether the active strategy has outperformed the passive approach when tested on historical data.
 
-### 3. Check Robustness: Active > Passive in In-Sample (Splitted) in ≥ 70% Cases
+### 3. Check if Active is superior to Passive in in-sample (splitted) in ≥ 70% cases [Stage 2]
 This step involves splitting the in-sample data into multiple segments and testing the active strategy on each one. The goal is to check if the active strategy outperforms the passive strategy in at least 70% of the cases based on *annualized return*. This helps assess the robustness of the strategy and reduces the risk of overfitting to a specific period.
 
-### 4*. Check if Active is Superior to Passive (Out-of-Sample, Whole)
+### 4. Check if Active is superior to Passive in out-of-sample period [Stage 3]
 After confirming performance within the in-sample period, the active strategy is tested out-of-sample on data not seen during the initial formulation phase. This step ensures that the strategy has generalized well and is not simply the result of overfitting to historical data.
 
-**Additional check*:
+### 5. Analyze trade PnL distributions and total gross profit distributions for a strategy's family (given key parameters) [Stage 4]
 
-The performance of the entire family of a superior strategy is considered given a strategy's key parameter. This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency (positive expectancy) based on at least 1000 trades for each trading system for a particular asset (expectancy, standard deviation, 0.1% and 99.9% quantiles of trades PnL are analyzed).
+The performance of the entire family of a superior strategy is considered given a strategy's key parameters. This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency (positive expectancy) based on at least 1000 trades for each trading system for a particular asset.
 
-### ✅ Strategy Considered Robust
-If the strategy performs well both in-sample and out-of-sample, demonstrating superiority over passive strategies in multiple scenarios, it can be considered robust. This step indicates that the strategy is likely to perform well in real-world, unseen data.
+The strategy that satisfies all above Stages 1-4 could be considered as a robust one.
 
 ## Example of trading profile estimation 
 
@@ -200,7 +199,7 @@ The framework allows users to select different assets, periods (including custom
 
 **Backtesting results:**
 
-Below is an illustration of backtesting results.
+Below is an illustration of backtesting results (Stage 1 example).
 The engine is run for BTC-USD using different sets of SMA1 strategy combinations and risk management parameters (including leverage).
 In-sample data is used in order to identify good candidates, and check their performance on the out-of-sample data.
 Here SMA1 with 116 days could be considered as such.

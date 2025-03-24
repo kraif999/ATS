@@ -244,11 +244,195 @@ add_robust_column <- function(res, best, unleveraged, alpha = 0.01) {
   return(best)
 }
 
+# Plot Trades PnL means distribution for a family of strategies with its Total Gross Profit (more granular view)
+plot_robust_strategies <- function(strategy, dir = "/Users/olegb/Documents/ATS/ATS", 
+output_dir = "backtesting_trading_strategies/summary/plots") {
+    
+  # Load datasets based on the strategy type
+  data <- switch(strategy,
+    "sma2m" = {
+      list(
+        robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sma2m.csv")),
+        strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv")) %>% 
+          add_key(., "sma2m")
+      )
+    },
+    "macd" = {
+      list(
+        robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/macd.csv")),
+        strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_macdr.csv")) %>% 
+          add_key(., "macd")
+      )
+    }
+  )
+
+  # Extract datasets
+  robust_strategies <- data$robust_strategies
+  strategy_all <- data$strategy_all
+  
+  symbols <- unique(robust_strategies$Symbol) 
+  all_results <- list()  
+  summary_list <- list()  
+  
+  for (sym in symbols) {
+    strategy_keys <- switch(strategy,
+      "sma2m" = robust_strategies %>% 
+        filter(Symbol == sym) %>% 
+        mutate(key2 = paste(Symbol, Window_Size1, Window_Size2, sep = "_")) %>% 
+        pull(key2),
+      "macd" = robust_strategies %>% 
+        filter(Symbol == sym) %>% 
+        mutate(key2 = paste(Symbol, Window_Size1, Window_Size2, Sline, sep = "_")) %>% 
+        pull(key2)
+    ) %>% unique
+
+    for (key_id in strategy_keys) {
+      family <- strategy_all %>% filter(key2 == key_id, Strategy == "Active")
+      if (nrow(family) == 0) next  
+
+      # Create instance
+      strategy_obj <- switch(strategy,
+        "sma2m" = SMA2M$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA'),
+        "macd" = MACD$new(ts, window_size1 = 20, window_size2 = 60, sline = 12, ma_type = 'SMA')
+      )
+
+      # Get trades
+      trades_data <- switch(strategy,
+      "sma2m" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        from_date = as.Date("2018-01-01"),
+        to_date = as.Date("2024-06-01"),
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ma_types = c("SMA", "EMA"), 
+        window_sizes1 = unique(family$Window_Size1),
+        window_sizes2 = unique(family$Window_Size2),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "macd" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        from_date = as.Date("2018-01-01"),
+        to_date = as.Date("2024-06-01"),
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ma_types = c("SMA", "EMA"), 
+        window_sizes1 = unique(family$Window_Size1),
+        window_sizes2 = unique(family$Window_Size2),
+        sline = unique(family$Sline),  # Specific to MACD
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      )
+    )
+
+      trades_data$key2 <- switch(strategy,
+      "sma2m" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, sep = "_"),
+      "macd" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, trades_data$Sline, sep = "_")
+      )
+
+      # Filter the trades data to match the strategy keys
+      trades_data_filtered <- trades_data %>% filter(key2 %in% family$key2)
+
+      # Number of Trades and Combinations in strategy's family
+      ntrades <- sum(trades_data_filtered$Trades, na.rm = TRUE)
+      ncombos <- nrow(family)
+
+      # Compute trade PnL expectation
+      mean_trade_pnl <- mean(trades_data_filtered$Trade_Mean, na.rm = TRUE)
+      sd_trade_pnl <- sd(trades_data_filtered$Trade_Mean, na.rm = TRUE)
+      quantile_trade_pnl <- quantile(trades_data_filtered$Trade_Mean, probs = c(0.05, 0.95), na.rm = TRUE)
+
+      mean_tgp <- mean(family$`Total Gross Profit`, na.rm = TRUE)
+      sd_tgp <- sd(family$`Total Gross Profit`, na.rm = TRUE)
+      quantile_tgp <- quantile(family$`Total Gross Profit`, probs = c(0.05, 0.95), na.rm = TRUE)
+
+      # Store results in summary list
+      summary_list[[key_id]] <- data.frame(
+        Symbol = sym,
+        Key = key_id,
+        Strategy = toupper(strategy),
+        TradePnL = mean_trade_pnl,
+        TradePnLSD = sd_trade_pnl,
+        TradePnL_5 = quantile_trade_pnl[1],
+        TradePnL_95 = quantile_trade_pnl[2],
+        TGP = mean_tgp,
+        TGPSD = sd_tgp,
+        TGP_5 = quantile_tgp[1],
+        TGP_95 = quantile_tgp[2],
+        Trades = ntrades,
+        Nfamily = ncombos
+      )
+
+    plot1 <- ggplot(family %>% filter(`Total Gross Profit` != 0), 
+                    aes(x = `Total Gross Profit`, fill = as.factor(leverage))) +
+      geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
+      geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 0.7) +
+      geom_vline(xintercept = mean_tgp, linetype = "dotted", color = "green", size = 1.2) +
+      scale_fill_brewer(palette = "Set1") +  
+      scale_x_continuous(breaks = pretty(family$`Total Gross Profit`, n = 10)) +
+      scale_y_continuous(breaks = pretty_breaks(n = 10)) +
+      labs(
+        title = paste0("Histogram of Total Gross Profit\n",
+                      "Strategy: ", strategy, " : ", key_id, "\n",
+                      "Mean: ", round(mean_tgp, 2), " based on ", ncombos, " family combinations"),
+        x = "Total Gross Profit",
+        y = "Count",
+        fill = "Leverage"
+      ) +
+      theme_minimal()
+
+    plot2 <- ggplot(trades_data_filtered, aes(x = Trade_Mean, fill = factor(Leverage))) +
+      geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
+      geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 1) +
+      geom_vline(xintercept = mean_trade_pnl, linetype = "dotted", color = "green", size = 1.2) +  # FIXED MEAN VALUE
+      scale_fill_brewer(palette = "Set1", name = "Leverage") +  
+      scale_x_continuous(breaks = pretty(trades_data_filtered$Trade_Mean, n = 10)) +
+      scale_y_continuous(breaks = pretty_breaks(n = 10)) +
+      labs(
+        title = paste0("Trade PnL Expectation\n",
+                      "Strategy: ", strategy, " : ", key_id, "\n",
+                      "Mean: ", round(mean_trade_pnl, 2), " based on ", ntrades, " trades"),
+        x = "Trade Expectation",
+        y = "Count"
+      ) +
+      theme_minimal()
+
+      combined_plot <- plot1 + plot2 + plot_layout(ncol = 2)
+      all_results[[key_id]] <- combined_plot
+
+      # Save plots locally
+      file_name <- paste0(strategy, "_", key_id, ".png")
+      ggsave(filename = file.path(output_dir, file_name), plot = combined_plot, width = 12, height = 6)
+    }
+  }
+  
+  summary_table <- bind_rows(summary_list)
+  
+  return(list(plots = all_results, summary = summary_table))
+}
+
 # Robustness conclusion is based on the following:
 # Step 1: filter superior strategies based on gross profit
 # Step 2: check their performance on split in-sample data based on annualized return
 # Step 3: check their performance on out-of-sample data
-# Step 4: check performance for the entire family given robust strategy (trades distribution for key parameters)
+# Step 4: check performance for the entire family given robust strategy (trades PnL distribution for key parameters)
 
 ##############################################################################################
 
@@ -1075,74 +1259,5 @@ View(vmr_final)
 # Additional check on family distributions for SMA2M and MACD (they are robust on 7 out of 10 markets)
 ######################################################################################################
 
-# SMA2M
-
-sma2m_robust <- fread("/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/summary/sma2m.csv")
-sma2m_robust %>% select(Symbol) %>% unique
-
-sma2m_all <- fread("/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv") %>% add_key(., "sma2m")
-
-strategy_key <- "BTC-USD_43_72"
-
-# BTC-USD_43_72 (family)
-sma2m_family1 <- sma2m_all %>% filter(key2 %in% strategy_key) %>% filter(Strategy == "Active")
-
-# BTC-USD_Active_SMA2M_43_72_SMA_FALSE_FALSE_1_0.2_5 (unique)
-sma2m_family1Unique <- sma2m_all %>% filter(key %in% "BTC-USD_Active_SMA2M_43_72_SMA_FALSE_FALSE_1_0.2_5") %>% filter(Strategy == "Active")
-
-summary(sma2m_family1$`Total Gross Profit`) # Expectancy is $120 given $1000 original investment (12%)
-summary(sma2m_family1$`Annualized Profit`)
-
-# Distribution of Trading profiles (family)
-ggplot(sma2m_family1, aes(x = `Total Gross Profit`, fill = as.factor(leverage))) +
-  geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  # Stack bars correctly
-  scale_fill_brewer(palette = "Set1") +  
-  scale_x_continuous(breaks = pretty(sma2m_family1$`Total Gross Profit`, n = 10)) +
-  scale_y_continuous(breaks = pretty(hist(sma2m_family1$`Total Gross Profit`, plot = FALSE)$counts, n = 10)) +
-  labs(title = "Histogram of Total Gross Profit",
-       x = "Total Gross Profit",
-       y = "Count",
-       fill = "Leverage") +
-  theme_minimal()
-
-# Let's check trades distribution
-
-sma2m <- SMA2M$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA')
-trades2m_analysis <- sma2m$run_backtest_trades(
-  # general
-  symbols = "BTC-USD",
-  from_date = as.Date("2018-01-01"),
-  to_date = as.Date("2024-06-01"),
-  slicing_years = 1,
-  data_type = "in_sample",
-  split = TRUE,
-  cut_date = as.Date("2024-01-01"),
-  # strategy specific
-  ma_types = c("SMA", "EMA"), 
-  window_sizes1 = 43,
-  window_sizes2 = 72,
-  # risk management
-  leverages = c(1,5),
-  apply_rm = TRUE,
-  flats_after_event = c(TRUE, FALSE),
-  dynamics_limits = c(TRUE, FALSE),
-  max_risk = c(0.02, 0.1, 0.2),
-  reward_ratios = seq(5, 10, by = 5),
-  output_df = TRUE,
-  run_via_cpp = TRUE
-)
-
-View(trades2m_analysis)
-trades2m_analysis$Trades %>% sum
-summary(trades2m_analysis$Trade_Mean)
-
-# Distribution of average trades
-ggplot(trades2m_analysis, aes(x = Trade_Mean, fill = factor(leverage))) +
-  geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  # Stacked histogram
-  scale_fill_brewer(palette = "Set1", name = "Leverage") +  
-  scale_x_continuous(breaks = pretty_breaks(n = 10)) +
-  scale_y_continuous(breaks = pretty_breaks(n = 10)) +
-  labs(title = "Trade PnL Expectation",
-       x = "Trade Expectation",
-       y = "Count") +
-  theme_minimal()
+res <- plot_robust_strategies("sma2m")
+res <- plot_robust_strategies("macd")
