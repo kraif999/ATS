@@ -4,3 +4,4 @@ bin/
 .DS_Store
 .vscode/
 backtesting_trading_strategies/results
+backtesting_trading_strategies/summary/plots
