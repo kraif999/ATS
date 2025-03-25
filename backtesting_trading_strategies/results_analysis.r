@@ -245,8 +245,7 @@ add_robust_column <- function(res, best, unleveraged, alpha = 0.01) {
 }
 
 # Plot Trades PnL means distribution for a family of strategies with its Total Gross Profit (more granular view)
-plot_robust_strategies <- function(strategy, dir = "/Users/olegb/Documents/ATS/ATS", 
-output_dir = "backtesting_trading_strategies/summary/plots") {
+plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
     
   # Load datasets based on the strategy type
   data <- switch(strategy,
@@ -383,13 +382,13 @@ output_dir = "backtesting_trading_strategies/summary/plots") {
     plot1 <- ggplot(family %>% filter(`Total Gross Profit` != 0), 
                     aes(x = `Total Gross Profit`, fill = as.factor(leverage))) +
       geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
-      geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 0.7) +
-      geom_vline(xintercept = mean_tgp, linetype = "dotted", color = "green", size = 1.2) +
+      #geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.7) +
+      geom_vline(xintercept = mean_tgp, linetype = "solid", color = "black", size = 0.7) +
       scale_fill_brewer(palette = "Set1") +  
       scale_x_continuous(breaks = pretty(family$`Total Gross Profit`, n = 10)) +
       scale_y_continuous(breaks = pretty_breaks(n = 10)) +
       labs(
-        title = paste0("Histogram of Total Gross Profit\n",
+        title = paste0("Total Gross Profit\n",
                       "Strategy: ", strategy, " : ", key_id, "\n",
                       "Mean: ", round(mean_tgp, 2), " based on ", ncombos, " family combinations"),
         x = "Total Gross Profit",
@@ -400,39 +399,45 @@ output_dir = "backtesting_trading_strategies/summary/plots") {
 
     plot2 <- ggplot(trades_data_filtered, aes(x = Trade_Mean, fill = factor(Leverage))) +
       geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
-      geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 1) +
-      geom_vline(xintercept = mean_trade_pnl, linetype = "dotted", color = "green", size = 1.2) +  # FIXED MEAN VALUE
+      #geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 1) +
+      geom_vline(xintercept = mean_trade_pnl, linetype = "solid", color = "black", size = 0.7) +  
       scale_fill_brewer(palette = "Set1", name = "Leverage") +  
       scale_x_continuous(breaks = pretty(trades_data_filtered$Trade_Mean, n = 10)) +
       scale_y_continuous(breaks = pretty_breaks(n = 10)) +
       labs(
         title = paste0("Trade PnL Expectation\n",
                       "Strategy: ", strategy, " : ", key_id, "\n",
-                      "Mean: ", round(mean_trade_pnl, 2), " based on ", ntrades, " trades"),
+                      "Mean of Trade Expectations: ", round(mean_trade_pnl, 2), " based on ", ntrades, " trades"),
         x = "Trade Expectation",
         y = "Count"
       ) +
       theme_minimal()
 
-      combined_plot <- plot1 + plot2 + plot_layout(ncol = 2)
-      all_results[[key_id]] <- combined_plot
+    # Combine the two plots side by side
+    combined_plot <- plot1 + plot2 + plot_layout(ncol = 2)
+    all_results[[key_id]] <- combined_plot
 
       # Save plots locally
       file_name <- paste0(strategy, "_", key_id, ".png")
+      
+      if(save_plot) {
       ggsave(filename = file.path(output_dir, file_name), plot = combined_plot, width = 12, height = 6)
+      }
+
     }
   }
   
   summary_table <- bind_rows(summary_list)
+  rownames(summary_table) <- seq_len(nrow(summary_table))
   
   return(list(plots = all_results, summary = summary_table))
 }
 
 # Robustness conclusion is based on the following:
-# Step 1: filter superior strategies based on gross profit
-# Step 2: check their performance on split in-sample data based on annualized return
-# Step 3: check their performance on out-of-sample data
-# Step 4: check performance for the entire family given robust strategy (trades PnL distribution for key parameters)
+# Stage 1: filter superior strategies based on gross profit
+# Stage 2: check their performance on split in-sample data based on annualized return
+# Stage 3: check their performance on out-of-sample data
+# Stage 4: check performance for the entire family given robust strategy (trades PnL distribution for key parameters)
 
 ##############################################################################################
 
@@ -1259,5 +1264,12 @@ View(vmr_final)
 # Additional check on family distributions for SMA2M and MACD (they are robust on 7 out of 10 markets)
 ######################################################################################################
 
-res <- plot_robust_strategies("sma2m")
-res <- plot_robust_strategies("macd")
+# SMA2M
+res_sma2m <- plot_robust_strategies("sma2m", dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
+sma2m_robust <- res_sma2m$summary %>% arrange(Symbol, desc(TradePnL))
+fwrite(sma2m_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2m_robust.csv"))
+
+# MACD
+res_macd <- plot_robust_strategies("macd", dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
+macd_robust <- res_macd$summary %>% arrange(Symbol, desc(TradePnL))
+fwrite(macd_robust, file.path(getwd(), "backtesting_trading_strategies/summary/macd_robust.csv"))
