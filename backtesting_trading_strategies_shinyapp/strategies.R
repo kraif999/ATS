@@ -328,7 +328,12 @@ apply_rm, flat_after_event, dynamic_limits, max_risk, reward_ratio, run_via_cpp)
       r_eqlActive = (eqlActive - lag(eqlActive)) / lag(eqlActive),
       r_eqlPassive = (eqlPassive - lag(eqlPassive)) / lag(eqlPassive)
       #cryptoClass = ifelse(meta$assets[[symbol]]$class %in% "Cryptocurrency", TRUE, FALSE)
-    )
+    ) %>%
+    group_by(trade_id_m2) %>%
+    mutate(
+    pnlActiveTradeCumulative = round(cumsum(replace_na(pnlActive, 0)), 2)  # Trade level cumulative PnL
+  ) %>%
+  ungroup()
 
   ########################################################################################################################
   # Estimate trading profile
