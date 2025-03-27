@@ -345,11 +345,11 @@ server <- function(input, output, session) {
       print(
         if(input$apply_rm) {
         strategy_instance$data %>% 
-          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlActiveTradeCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
           tail(30)
         } else {
         strategy_instance$data %>% 
-          select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlActiveTradeCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
           tail(30)
         }
       )
@@ -386,7 +386,7 @@ server <- function(input, output, session) {
     trades_lst <- strategy_instance$get_trades(input$apply_rm)
     tail_view <- if(input$apply_rm) {
         strategy_instance$data %>%
-          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, pnlActiveTradeCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
           tail(30) %>%
           mutate(
             Close = round(Close, 4),
@@ -398,6 +398,7 @@ server <- function(input, output, session) {
             eqlActive = round(eqlActive, 2),
             eqlPassive = round(eqlPassive, 2),
             pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlActiveTradeCumulative = round(pnlActiveTradeCumulative, 2),
             pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
             ATR = round(ATR, 2),
             N = round(N, 2),
@@ -405,7 +406,7 @@ server <- function(input, output, session) {
           ) %>% rename(trade_id = trade_id_m2)
     } else {
         strategy_instance$data %>%
-          select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, pnlActiveTradeCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
           tail(30) %>%
           mutate(
             Close = round(Close, 4),
@@ -416,6 +417,7 @@ server <- function(input, output, session) {
             eqlActive = round(eqlActive, 2),
             eqlPassive = round(eqlPassive, 2),
             pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlActiveTradeCumulative = round(pnlActiveTradeCumulative, 2),
             pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
             ATR = round(ATR, 2),
             N = round(N, 2),
