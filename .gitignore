@@ -5,3 +5,4 @@ bin/
 .vscode/
 backtesting_trading_strategies/results
 backtesting_trading_strategies/summary/plots
+backtesting_trading_strategies/summary/plotsFX

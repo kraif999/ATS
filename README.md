@@ -149,7 +149,7 @@ After confirming performance within the in-sample period, the active strategy is
 
 The performance of the entire family of a superior strategy is considered given a strategy's key parameters. This allows for evaluating how the family of strategies is performing on average, ensuring that the strategies in the family collectively show robustness and consistency (positive expectancy) based on at least 1000 trades for each trading system for a particular asset.
 
-The strategy that satisfies all above Stages 1-4 could be considered as a robust one.
+The strategy that satisfies all above Stages 1-4 could be considered as a robust one (see backtesting_trading_strategies/run_backtest_instances.r and backtesting_trading_strategies/results_analysis.r scripts).
 
 ## Example of trading profile estimation 
 
