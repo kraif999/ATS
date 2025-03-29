@@ -2,6 +2,12 @@
 # Backtesting results analyis
 #############################
 
+source("backtesting_trading_strategies/libraries.R")
+source("backtesting_trading_strategies/strategies.R")
+
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/apply_risk_management_cpp.cpp")
+Rcpp::sourceCpp("backtesting_trading_strategies/speedup/estimate_trading_profile_cpp.cpp")
+
 # Helper functions:
 
 # add keys (unique strategy id)
@@ -245,22 +251,72 @@ add_robust_column <- function(res, best, unleveraged, alpha = 0.01) {
 }
 
 # Plot Trades PnL means distribution for a family of strategies with its Total Gross Profit (more granular view)
-plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
+plot_robust_strategies <- function(strategy, from_date, to_date, dir, save_plot, output_dir) {
     
   # Load datasets based on the strategy type
   data <- switch(strategy,
+
     "sma2m" = {
-      list(
-        robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sma2m.csv")),
-        strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv")) %>% 
-          add_key(., "sma2m")
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sma2m.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_sma2mr.csv")) %>% 
+      add_key(., "sma2m")
       )
     },
+
     "macd" = {
-      list(
-        robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/macd.csv")),
-        strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_macdr.csv")) %>% 
-          add_key(., "macd")
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/macd.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_macdr.csv")) %>% 
+      add_key(., "macd")
+      )
+    },
+
+    "sma1" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sma1.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_sma1r.csv")) %>% 
+      add_key(., "sma1")
+      )
+    },
+
+    "sma2" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sma2.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_sma2r.csv")) %>% 
+      add_key(., "sma2")
+      )
+    },
+
+    "rsi" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/rsi.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_in_rsir.csv")) %>% 
+      add_key(., "rsi")
+      )
+    },
+
+    "adx" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/adx.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_in_adxr.csv")) %>% 
+      add_key(., "adx")
+      )
+    },
+
+    "sar" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/sar.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_in_sarr.csv")) %>% 
+      add_key(., "sar")
+      )
+    },
+
+    "bb" = {
+    list(
+      robust_strategies = fread(file.path(dir, "backtesting_trading_strategies/summary/bb.csv")),
+      strategy_all = fread(file.path(dir, "backtesting_trading_strategies/results/in_sample_split/res_in_bbr.csv")) %>% 
+      add_key(., "bb")
       )
     }
   )
@@ -282,7 +338,32 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
       "macd" = robust_strategies %>% 
         filter(Symbol == sym) %>% 
         mutate(key2 = paste(Symbol, Window_Size1, Window_Size2, Sline, sep = "_")) %>% 
+        pull(key2),
+      "sma1" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Window_Size, sep = "_")) %>%
+        pull(key2),
+      "sma2" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Window_Size1, Window_Size2, sep = "_")) %>%
+        pull(key2),
+      "rsi" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Window_Size, Threshold_Oversold, Threshold_Overbought, sep = "_")) %>%
+        pull(key2),
+      "adx" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Ndx, sep = "_")) %>%
+        pull(key2),
+      "sar" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Accel, sep = "_")) %>%
+        pull(key2),
+      "bb" = robust_strategies %>%
+        filter(Symbol == sym) %>%
+        mutate(key2 = paste(Symbol, Window_Size, sep = "_")) %>%
         pull(key2)
+
     ) %>% unique
 
     for (key_id in strategy_keys) {
@@ -292,15 +373,23 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
       # Create instance
       strategy_obj <- switch(strategy,
         "sma2m" = SMA2M$new(ts, window_size1 = 20, window_size2 = 60, ma_type = 'SMA'),
-        "macd" = MACD$new(ts, window_size1 = 20, window_size2 = 60, sline = 12, ma_type = 'SMA')
+        "macd" = MACD$new(ts, window_size1 = 20, window_size2 = 60, sline = 12, ma_type = 'SMA'),
+        "sma1" = SMA1$new(ts, window_size = 20, ma_type = "SMA"),
+        "sma2" = SMA2$new(ts, window_size1 = 20, window_size2 = 60, ma_type = "SMA"),
+        "rsi" = RSI$new(ts, window_size = 20, threshold_oversold = 30, threshold_overbought = 70),
+        "adx" = ADX$new(ts, ndx = 15, trend_strength = 40),
+        "sar" = StopAndReversal$new(ts, accel = 0.05, accel_max = 0.2),
+        "bb" = BollingerBreakout$new(ts, window_size = 20, sd_mult = 2)
       )
 
       # Get trades
       trades_data <- switch(strategy,
       "sma2m" = strategy_obj$run_backtest_trades(
         symbols = sym,
-        from_date = as.Date("2018-01-01"),
-        to_date = as.Date("2024-06-01"),
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
         slicing_years = 1,
         data_type = "in_sample",
         split = TRUE,
@@ -320,8 +409,10 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
 
       "macd" = strategy_obj$run_backtest_trades(
         symbols = sym,
-        from_date = as.Date("2018-01-01"),
-        to_date = as.Date("2024-06-01"),
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
         slicing_years = 1,
         data_type = "in_sample",
         split = TRUE,
@@ -338,12 +429,154 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
         reward_ratios = seq(5, 10, by = 5),
         output_df = TRUE,
         run_via_cpp = TRUE
+      ),
+
+      "sma1" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ma_types = c("SMA", "EMA"), 
+        window_sizes = unique(family$Window_Size),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "sma2" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ma_types = c("SMA", "EMA"), 
+        window_sizes1 = unique(family$Window_Size1),
+        window_sizes2 = unique(family$Window_Size2),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "rsi" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ma_types = c("SMA", "EMA"), 
+        window_sizes = unique(family$Window_Size),
+        thresholds_oversold = unique(family$Threshold_Oversold),
+        thresholds_overbought = unique(family$Threshold_Overbought),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "adx" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        ndxs = unique(family$Ndx),
+        trends_strength = unique(family$Trend_Strength),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "sar" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        accels = unique(family$Accel),
+        accels_max = unique(family$Accel_Max),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
+      ),
+
+      "bb" = strategy_obj$run_backtest_trades(
+        symbols = sym,
+        #from_date = as.Date("2018-01-01"),
+        from_date = from_date,
+        #to_date = as.Date("2024-06-01"),
+        to_date = to_date,
+        slicing_years = 1,
+        data_type = "in_sample",
+        split = TRUE,
+        cut_date = as.Date("2024-01-01"),
+        window_sizes = unique(family$Window_Size),
+        sd_mults = unique(family$Sd_Mult),
+        leverages = c(1, 5),
+        apply_rm = TRUE,
+        flats_after_event = c(TRUE, FALSE),
+        dynamics_limits = c(TRUE, FALSE),
+        max_risk = c(0.02, 0.1, 0.2),
+        reward_ratios = seq(5, 10, by = 5),
+        output_df = TRUE,
+        run_via_cpp = TRUE
       )
+
     )
 
       trades_data$key2 <- switch(strategy,
       "sma2m" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, sep = "_"),
-      "macd" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, trades_data$Sline, sep = "_")
+      "macd" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, trades_data$Sline, sep = "_"),
+      "sma1" = paste(trades_data$Symbol, trades_data$Window_Size, sep = "_"),
+      "sma2" = paste(trades_data$Symbol, trades_data$Window_Size1, trades_data$Window_Size2, sep = "_"),
+      "rsi" = paste(trades_data$Symbol, trades_data$Window_Size, trades_data$Threshold_Oversold, trades_data$Threshold_Overbought, sep = "_"),
+      "adx" = paste(trades_data$Symbol, trades_data$Ndx, sep = "_"),
+      "sar" = paste(trades_data$Symbol, trades_data$Accel, sep = "_"),
+      "bb" = paste(trades_data$Symbol, trades_data$Window_Size, sep = "_")
       )
 
       # Filter the trades data to match the strategy keys
@@ -382,7 +615,6 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
     plot1 <- ggplot(family %>% filter(`Total Gross Profit` != 0), 
                     aes(x = `Total Gross Profit`, fill = as.factor(leverage))) +
       geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
-      #geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.7) +
       geom_vline(xintercept = mean_tgp, linetype = "solid", color = "black", size = 0.7) +
       scale_fill_brewer(palette = "Set1") +  
       scale_x_continuous(breaks = pretty(family$`Total Gross Profit`, n = 10)) +
@@ -399,7 +631,6 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
 
     plot2 <- ggplot(trades_data_filtered, aes(x = Trade_Mean, fill = factor(Leverage))) +
       geom_histogram(bins = 50, alpha = 0.6, position = "stack") +  
-      #geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 1) +
       geom_vline(xintercept = mean_trade_pnl, linetype = "solid", color = "black", size = 0.7) +  
       scale_fill_brewer(palette = "Set1", name = "Leverage") +  
       scale_x_continuous(breaks = pretty(trades_data_filtered$Trade_Mean, n = 10)) +
@@ -427,10 +658,12 @@ plot_robust_strategies <- function(strategy, dir, save_plot, output_dir) {
     }
   }
   
+  # Final table:
   summary_table <- bind_rows(summary_list)
   rownames(summary_table) <- seq_len(nrow(summary_table))
   
   return(list(plots = all_results, summary = summary_table))
+
 }
 
 # Robustness conclusion is based on the following:
@@ -506,7 +739,7 @@ sma1_stats <- res_sma1 %>% filter(Strategy == "Active") %>%
 
 print(final_table)
 
-fwrite(sma1_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/sma1.csv")
+fwrite(sma1_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/sma1.csv"))
 
 ############################################################################################################
 
@@ -567,7 +800,7 @@ sma2_final <- res_sma2_out_filtered[res_sma2_out_filtered$key %in% c(sma2_out_be
 sma2_final %>% select(key3)
 sma2_final %>% select(key)
 
-fwrite(sma2_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/sma2.csv")
+fwrite(sma2_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/sma2.csv"))
 
 sma2_stats <- res_sma2 %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -645,7 +878,7 @@ sma1m_stats <- res_sma1m %>% filter(Strategy == "Active") %>%
 
 print(final_table)
 
-fwrite(sma1m_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/sma1m.csv")
+fwrite(sma1m_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/sma1m.csv"))
 
 ##############################################################################################
 
@@ -707,7 +940,7 @@ sma2m_final <- res_sma2m_out_filtered[res_sma2m_out_filtered$key %in% c(sma2m_ou
 sma2m_final %>% select(key)
 sma2m_final %>% select(Symbol) %>% unique
 
-fwrite(sma2m_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/sma2m.csv")
+fwrite(sma2m_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/sma2m.csv"))
 
 sma2m_stats <- res_sma2m %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -776,7 +1009,7 @@ macd_final <- res_macd_out_filtered[res_macd_out_filtered$key %in% c(macd_out_be
 macd_final %>% select(key)
 macd_final %>% select(Symbol) %>% unique
 
-fwrite(macd_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/macd.csv")
+fwrite(macd_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/macd.csv"))
 
 macd_stats <- res_macd %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -843,7 +1076,7 @@ tt_final <- res_tt_out_filtered[res_tt_out_filtered$key %in% c(tt_out_best$key, 
 tt_final %>% select(key)
 tt_final %>% select(Symbol) %>% unique
 
-fwrite(tt_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/tt.csv")
+fwrite(tt_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/tt.csv"))
 
 tt_stats <- res_tt %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -909,7 +1142,7 @@ dc_final <- res_dc_out_filtered[res_dc_out_filtered$key %in% c(dc_out_best$key, 
 dc_final %>% select(key)
 dc_final %>% select(Symbol) %>% unique
 
-fwrite(dc_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/dc.csv")
+fwrite(dc_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/dc.csv"))
 
 dc_stats <- res_dc %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -978,7 +1211,7 @@ rsi_final <- res_rsi_out_filtered[res_rsi_out_filtered$key %in% c(rsi_out_best$k
 rsi_final %>% select(key)
 rsi_final %>% select(Symbol) %>% unique
 
-fwrite(rsi_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/rsi.csv")
+fwrite(rsi_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/rsi.csv"))
 
 rsi_stats <- res_rsi %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -1046,7 +1279,7 @@ sar_final <- res_sar_out_filtered[res_sar_out_filtered$key %in% c(sar_out_best$k
 sar_final %>% select(key)
 sar_final %>% select(Symbol) %>% unique
 
-fwrite(sar_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/sar.csv")
+fwrite(sar_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/sar.csv"))
 
 sar_stats <- res_sar %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -1114,7 +1347,7 @@ adx_final <- res_adx_out_filtered[res_adx_out_filtered$key %in% c(adx_out_best$k
 adx_final %>% select(key)
 adx_final %>% select(Symbol) %>% unique
 
-fwrite(adx_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/adx.csv")
+fwrite(adx_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/adx.csv"))
 
 adx_stats <- res_adx %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -1182,7 +1415,7 @@ bb_final <- res_bb_out_filtered[res_bb_out_filtered$key %in% c(bb_out_best$key, 
 bb_final %>% select(key)
 bb_final %>% select(Symbol) %>% unique
 
-fwrite(bb_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/bb.csv")
+fwrite(bb_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/bb.csv"))
 
 bb_stats <- res_bb %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -1250,7 +1483,7 @@ vmr_final <- res_vmr_out_filtered[res_vmr_out_filtered$key %in% c(vmr_out_best$k
 vmr_final %>% select(key)
 vmr_final %>% select(Symbol) %>% unique
 
-fwrite(vmr_final, "/Users/olegb/Documents/ATS/ATS/backtesting_trading_strategies/results/robust_strategies/vmr.csv")
+fwrite(vmr_final, file.path(getwd(), "backtesting_trading_strategies/results/robust_strategies/vmr.csv"))
 
 vmr_stats <- res_vmr %>% filter(Strategy == "Active") %>%
   count(Symbol, name = "Total_Count") %>%
@@ -1265,11 +1498,45 @@ View(vmr_final)
 ######################################################################################################
 
 # SMA2M
-res_sma2m <- plot_robust_strategies("sma2m", dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
-sma2m_robust <- res_sma2m$summary %>% arrange(Symbol, desc(TradePnL))
-fwrite(sma2m_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2m_robust.csv"))
+res_sma2m <- plot_robust_strategies("sma2m", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
+sma2m_robust <- res_sma2m$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(sma2m_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2m_robust.csv"))
 
 # MACD
-res_macd <- plot_robust_strategies("macd", dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
-macd_robust <- res_macd$summary %>% arrange(Symbol, desc(TradePnL))
-fwrite(macd_robust, file.path(getwd(), "backtesting_trading_strategies/summary/macd_robust.csv"))
+res_macd <- plot_robust_strategies("macd", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = "/Users/olegb/Documents/ATS/ATS", save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plots")
+macd_robust <- res_macd$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(macd_robust, file.path(getwd(), "backtesting_trading_strategies/summary/macd_robust.csv"))
+
+######################################################################################################
+# check FXs (adding run_backtest_trades in other strategies)
+######################################################################################################
+
+# SMA1
+res_sma1 <- plot_robust_strategies("sma1", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+sma1_robust <- res_sma1$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(sma1_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma1_robust.csv"))
+
+# SMA2
+res_sma2 <- plot_robust_strategies("sma2", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+sma2_robust <- res_sma2$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(sma2_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2_robust.csv"))
+
+# RSI
+res_rsi <- plot_robust_strategies("rsi", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+rsi_robust <- res_rsi$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(rsi_robust, file.path(getwd(), "backtesting_trading_strategies/summary/rsi_robust.csv"))
+
+# ADX
+res_adx <- plot_robust_strategies("adx", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+adx_robust <- res_adx$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(adx_robust, file.path(getwd(), "backtesting_trading_strategies/summary/adx_robust.csv"))
+
+# SAR
+res_sar <- plot_robust_strategies("sar", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+sar_robust <- res_sar$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(sar_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sar_robust.csv"))
+
+# Bollinger Breakout
+res_bb <- plot_robust_strategies("bb", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+bb_robust <- res_bb$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+#fwrite(bb_robust, file.path(getwd(), "backtesting_trading_strategies/summary/bb_robust.csv"))
