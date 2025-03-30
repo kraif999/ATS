@@ -1512,31 +1512,34 @@ macd_robust <- res_macd$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(R
 ######################################################################################################
 
 # SMA1
-res_sma1 <- plot_robust_strategies("sma1", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_sma1 <- plot_robust_strategies("sma1", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 sma1_robust <- res_sma1$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(sma1_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma1_robust.csv"))
+#fwrite(sma1_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma1_robust_rest.csv"))
 
 # SMA2
-res_sma2 <- plot_robust_strategies("sma2", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_sma2 <- plot_robust_strategies("sma2", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 sma2_robust <- res_sma2$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(sma2_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2_robust.csv"))
+#fwrite(sma2_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sma2_robust_rest.csv"))
 
 # RSI
-res_rsi <- plot_robust_strategies("rsi", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_rsi <- plot_robust_strategies("rsi", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 rsi_robust <- res_rsi$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(rsi_robust, file.path(getwd(), "backtesting_trading_strategies/summary/rsi_robust.csv"))
+#fwrite(rsi_robust, file.path(getwd(), "backtesting_trading_strategies/summary/rsi_robust_rest.csv"))
 
 # ADX
-res_adx <- plot_robust_strategies("adx", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_adx <- plot_robust_strategies("adx", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 adx_robust <- res_adx$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(adx_robust, file.path(getwd(), "backtesting_trading_strategies/summary/adx_robust.csv"))
+#fwrite(adx_robust, file.path(getwd(), "backtesting_trading_strategies/summary/adx_robust_rest.csv"))
 
 # SAR
-res_sar <- plot_robust_strategies("sar", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_sar <- plot_robust_strategies("sar", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 sar_robust <- res_sar$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(sar_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sar_robust.csv"))
+#fwrite(sar_robust, file.path(getwd(), "backtesting_trading_strategies/summary/sar_robust_rest.csv"))
 
 # Bollinger Breakout
-res_bb <- plot_robust_strategies("bb", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = FALSE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
+res_bb <- plot_robust_strategies("bb", from_date = as.Date("2018-01-01"), to_date = as.Date("2024-06-01"), dir = getwd(), save_plot = TRUE, output_dir = "backtesting_trading_strategies/summary/plotsFX")
 bb_robust <- res_bb$summary %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
-#fwrite(bb_robust, file.path(getwd(), "backtesting_trading_strategies/summary/bb_robust.csv"))
+#fwrite(bb_robust, file.path(getwd(), "backtesting_trading_strategies/summary/bb_robust_rest.csv"))
+
+all <- rbind(macd_robust, sma2m_robust, sma1_robust, sma2_robust, rsi_robust, adx_robust, sar_robust, bb_robust) %>% arrange(Symbol, desc(TradePnL)) %>% mutate(RR = TradePnL / TradePnLSD)
+fwrite(all, file.path(getwd(), "backtesting_trading_strategies/summary/all.csv"))
