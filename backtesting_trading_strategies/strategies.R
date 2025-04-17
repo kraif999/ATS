@@ -27,7 +27,7 @@ convert_xts_to_wide_df = function() {
     ts <- na.omit(tsRaw)
     data <- coredata(ts)
     dates <- index(ts)
-    close_price <- as.numeric(data[, 4])
+
     # Create data frame for the symbol
     switch(
         self$type,
@@ -38,21 +38,41 @@ convert_xts_to_wide_df = function() {
             na.omit %>%
             unnest(rets)
         },
-        "Close" = {
-        df <- data.frame(Date = as.Date(dates), Close = close_price) %>% 
+        "Price" = {
+        df <- data.frame(Date = as.Date(dates), 
+                         Close = as.numeric(data[, 4]),
+                         High = as.numeric(data[, 2]),
+                         Low = as.numeric(data[, 3])
+                         ) %>% 
             na.omit %>%
             unnest
         },
-        stop("Invalid value for 'type' argument. Choose 'rets' or 'Close'.")
+        stop("Invalid value for 'type' argument. Choose 'rets' or 'Price'.")
     )
     # Store the data frame in the list
     dfs[[symbol]] <- df
     }
-    # Combine all data frames into a single wide data frame
-    wide_df <- bind_rows(dfs, .id = "symbol") %>%
-    pivot_wider(names_from = "symbol", values_from = ifelse(self$type == "rets", "rets", "Close"), 
-                names_prefix = ifelse(self$type == "rets", "rets_", "Close_")) %>%
-                    na.omit()
+
+    wide_df <- bind_rows(dfs, .id = "symbol")
+
+    if (self$type == "rets") {
+      wide_df <- wide_df %>%
+        pivot_wider(
+          names_from = symbol,
+          values_from = rets,
+          names_prefix = "rets_"
+        )
+    } else if (self$type == "Price") {
+      wide_df <- wide_df %>%
+        pivot_wider(
+          names_from = symbol,
+          values_from = c(Close, High, Low),
+          names_glue = "{.value}_{symbol}"
+        )
+    }
+
+    wide_df <- wide_df %>% na.omit()
+
     return(wide_df)
 },
 
@@ -4971,14 +4991,14 @@ initialize = function(
 # Method to generate column of signals and positions
 generate_signals = function() {
 
-  histVolest <- private$estimate_realized_volatility(self$data)
-  instr <- self$data %>% 
-      as.data.frame() %>%
-          rename_with(~ sub(".*\\.", "", .), everything()) %>%
-              mutate(TradeDate = as.Date(rownames(.))) %>%
-                  select(TradeDate, Open, High, Low, Close) %>%
-                      mutate(value = as.numeric(log(Close/lag(Close)))) %>%
-                              na.omit
+histVolest <- private$estimate_realized_volatility(self$data)
+instr <- self$data %>% 
+    as.data.frame() %>%
+        rename_with(~ sub(".*\\.", "", .), everything()) %>%
+            mutate(TradeDate = as.Date(rownames(.))) %>%
+                select(TradeDate, Open, High, Low, Close) %>%
+                    mutate(value = as.numeric(log(Close/lag(Close)))) %>%
+                            na.omit
 
   listgarch <- expand.grid(
   specification = self$specification,
@@ -5071,7 +5091,7 @@ generate_signals = function() {
       #Date = roll@model$index[(listgarch$window.size[i]+1):length(roll@model$index)],
       Date = roll@model$index[(listgarch$window.size+1):length(roll@model$index)],
       Forecast = roll@forecast$density$Sigma
-          )
+  )
 
   # Join realized volatility estimation and instr log returns given TradeDate
   volForHistRoll <- forecastVolRoll %>%
@@ -5107,37 +5127,37 @@ estimate_realized_volatility = function(data) {
                     na.omit %>%
                       as.matrix
 
-    # Different realized volatility estimators for returns (TTR)
-    histVolest <- merge(
-    garman <- as.xts(na.omit(TTR::volatility(ohlc, calc = "garman"))) / sqrt(252),
-    close <- as.xts(na.omit(TTR::volatility(ohlc[,4], calc = "close"))) / sqrt(252),
-    parkinson <- as.xts(na.omit(TTR::volatility(ohlc, calc = "parkinson"))) / sqrt(252),
-    rogers.satchell <- as.xts(na.omit(TTR::volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
-    garman_modified <- as.xts(na.omit(TTR::volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
-    yang.zhang <- as.xts(na.omit(TTR::volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
-    ) %>% 
-    as.data.frame %>% 
-        rename_with(~ c("garman", "close", "parkinson", "rogers_satchell", "garman_modified", "yang_zhang")) %>%
-        mutate(TradeDate = as.Date(rownames(.))) %>%
-            select(TradeDate, everything(.)) %>%
-            na.omit
+  # Different realized volatility estimators for returns (TTR)
+  histVolest <- merge(
+  garman <- as.xts(na.omit(TTR::volatility(ohlc, calc = "garman"))) / sqrt(252),
+  close <- as.xts(na.omit(TTR::volatility(ohlc[,4], calc = "close"))) / sqrt(252),
+  parkinson <- as.xts(na.omit(TTR::volatility(ohlc, calc = "parkinson"))) / sqrt(252),
+  rogers.satchell <- as.xts(na.omit(TTR::volatility(ohlc, calc = "rogers.satchell"))) / sqrt(252),
+  garman_modified <- as.xts(na.omit(TTR::volatility(ohlc, calc = "gk.yz"))) / sqrt(252),
+  yang.zhang <- as.xts(na.omit(TTR::volatility(ohlc, calc = "yang.zhang"))) / sqrt(252)
+  ) %>% 
+  as.data.frame %>% 
+      rename_with(~ c("garman", "close", "parkinson", "rogers_satchell", "garman_modified", "yang_zhang")) %>%
+      mutate(TradeDate = as.Date(rownames(.))) %>%
+          select(TradeDate, everything(.)) %>%
+          na.omit
 
-    return(histVolest)
+  return(histVolest)
 },
 
 # Method to specify signal criteria (based on GARCH model volatility forecasts)
 set_signal_criteria = function(volData) {
-    modified_volData <- volData %>%
-    mutate(
-        q75 = rollapply(Forecast, width = self$n_start, FUN = function(x) quantile(x, probs = 0.75), align = "right", fill = NA),
-        signal = case_when(
-        Forecast < q75 ~ 1,
-        Forecast > q75 ~ -1,
-        TRUE ~ 0    
-        ),
-        position = lag(signal)
-    ) %>% na.omit  # Remove the first row since it will have NA for signal
-    return(modified_volData)
+  modified_volData <- volData %>%
+  mutate(
+      q75 = rollapply(Forecast, width = self$n_start, FUN = function(x) quantile(x, probs = 0.75), align = "right", fill = NA),
+      signal = case_when(
+      Forecast < q75 ~ 1,
+      Forecast > q75 ~ -1,
+      TRUE ~ 0    
+      ),
+      position = lag(signal)
+  ) %>% na.omit  # Remove the first row since it will have NA for signal
+  return(modified_volData)
 }
 
   )
