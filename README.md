@@ -11,7 +11,7 @@ The strategy robustness conclusion is based on two key aspects: (1) the overall 
 All strategies are built using the R6 class system, which provides a modular and flexible framework for adding new strategies or features. This framework is deployed to the Shiny web server: [http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp](http://kraif999.shinyapps.io/backtesting_trading_strategies_shinyapp).  
 
 Choose an instrument, a strategy, and a trading horizon, specify the strategy-specific parameters along with risk and financial management parameters, and see how the strategy performs if you had consistently and strictly invested using its signals with no emotions involved.
-Essentially the algorithm executes the strategy and calculates the number of positions, PnL, and equity curves, based on the daily positions.
+Essentially the algorithm executes the strategy (generates signals) and calculates the number of positions, daily PnL, cumulative PnL.
 If risk management rules are applied, stop loss and take profit levels are calculated, and positions are automatically adjusted when these events occur. There is an option to either stay flat until a new signal is generated or re-enter the position after a stop-loss or take-profit event. Also, there is an option to dynamically shift stop loss in a case of a favourable price move given the position.
 Additionally, other useful metrics are computed, for example, annualized volatility, average true range, and many more, see in *backtesting_trading_strategies/strategies.R.*
 
