@@ -1,0 +1,12 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^cran-comments\.md$
+^docs$
+^_pkgdown\.yml$
+^pkgdown$
+^codecov\.yml$
+^\.github$
+^temp$
+^backtesting_trading_strategies_shinyapp$
+^backtesting_trading_strategies$ 
