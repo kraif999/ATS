@@ -10,6 +10,8 @@ options(scipen = 999)
 options(shiny.maxRequestSize = 30 * 1024^2)  # Adjust the maximum file upload size
 options(shiny.timeout = 1200)  # Timeout for 20 minutes (1200 seconds)
 
+meta <- jsonlite::fromJSON("instr_config.json")
+
 # UI for multiple strategies
 ui <- fluidPage(
   
@@ -39,7 +41,7 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       # User input controls
-      textInput("symbol", "Symbol", value = "BTC-USD"),
+      textInput("symbol", "Symbol:", value = "BTC-USD"),
       
       # Dropdown menu to select a strategy
       selectInput(
@@ -53,11 +55,10 @@ ui <- fluidPage(
         selected = "sma1"
       ),
       
-      dateRangeInput("date_range", "Date Range", start = as.Date("2020-01-01"), end = Sys.Date()),
-      numericInput("capital", "Capital", value = 1000),
-      numericInput("leverage", "Leverage", value = 1),
-      selectInput("data_type", "Data Type", choices = c("in_sample", "out_of_sample")),
-      dateInput("cut_date", "Cut-off Date", value = as.Date("2025-01-01")),
+      dateRangeInput("date_range", "Date Range:", start = as.Date("2020-01-01"), end = Sys.Date()),
+      numericInput("capital", "Capital:", value = 1000),
+      selectInput("data_type", "Data Type:", choices = c("in_sample", "out_of_sample")),
+      dateInput("cut_date", "Cut-off Date:", value = as.Date("2025-01-01")),
       
       # Specific parameters for ADX strategy
       conditionalPanel(
@@ -67,8 +68,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for ADX"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("ndx", "NDX (Number of Periods)", value = 14),
-        numericInput("trend_strength", "Trend Strength Threshold", value = 25)
+        numericInput("ndx", "NDX (Number of Periods):", value = 14),
+        numericInput("trend_strength", "Trend Strength Threshold:", value = 25)
       ),
 
       # Specific parameters for Bollinger Breakout strategy
@@ -79,8 +80,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for Bollinger Breakout"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 20),
-        numericInput("sd_mult", "Standard Deviation multiplicator", value = 0.5)
+        numericInput("window_size", "Window Size:", value = 20),
+        numericInput("sd_mult", "Standard Deviation multiplicator:", value = 0.5)
       ),
 
       # Specific parameters for DonchianChannel strategy
@@ -91,7 +92,7 @@ ui <- fluidPage(
           "Specific Strategy Parameters for Donchian Channel"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 20)
+        numericInput("window_size", "Window Size:", value = 20)
       ),
 
       # Specific parameters for MACD strategy
@@ -102,10 +103,10 @@ ui <- fluidPage(
           "Specific Strategy Parameters for MACD"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Fast Period", value = 10),
-        numericInput("window_size2", "Slow Period", value = 20),
-        numericInput("sline", "Signal Period", value = 7),
-        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+        numericInput("window_size1", "Fast Period:", value = 10),
+        numericInput("window_size2", "Slow Period:", value = 20),
+        numericInput("sline", "Signal Period:", value = 7),
+        selectInput("ma_type", "MA Type:", choices = c("EMA", "SMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for RSI strategy
@@ -116,9 +117,9 @@ ui <- fluidPage(
           "Specific Strategy Parameters for RSI"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Fast Period", value = 7),
-        numericInput("threshold_oversold", "Oversold", value = 30),
-        numericInput("threshold_overbought", "Overbought", value = 70)
+        numericInput("window_size", "Fast Period:", value = 7),
+        numericInput("threshold_oversold", "Oversold:", value = 30),
+        numericInput("threshold_overbought", "Overbought:", value = 70)
       ),
 
       # Specific parameters for SMA1 strategy
@@ -129,8 +130,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for SMA1"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 20),
-        selectInput("ma_type", "MA Type", choices = c("SMA", "EMA", "HMA", "WMA"))
+        numericInput("window_size", "Window Size:", value = 40),
+        selectInput("ma_type", "MA Type:", choices = c("SMA", "EMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for SMA1M strategy
@@ -141,8 +142,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for SMA1M"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 20),
-        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+        numericInput("window_size", "Window Size:", value = 20),
+        selectInput("ma_type", "MA Type:", choices = c("EMA", "SMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for SMA2 strategy
@@ -153,9 +154,9 @@ ui <- fluidPage(
           "Specific Strategy Parameters for SMA2"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Window Size1", value = 20),
-        numericInput("window_size2", "Window Size2", value = 60),
-        selectInput("ma_type", "MA Type", choices = c("EMA", "SMA", "HMA", "WMA"))
+        numericInput("window_size1", "Window Size1:", value = 20),
+        numericInput("window_size2", "Window Size2:", value = 60),
+        selectInput("ma_type", "MA Type:", choices = c("EMA", "SMA", "HMA", "WMA"))
       ),
 
       # Specific parameters for SMA2M strategy
@@ -166,9 +167,9 @@ ui <- fluidPage(
           "Specific Strategy Parameters for SMA2M"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Window Size1", value = 10),
-        numericInput("window_size2", "Window Size2", value = 200),
-        selectInput("ma_type", "MA Type", choices = c("SMA", "EMA", "HMA", "WMA"))
+        numericInput("window_size1", "Window Size1:", value = 10),
+        numericInput("window_size2", "Window Size2:", value = 200),
+        selectInput("ma_type", "MA Type:", choices = c("SMA", "EMA", "HMA", "WMA"))
       ),
 
     # Specific parameters for StopAndReversal strategy
@@ -179,8 +180,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for SAR"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("accel", "Acceleration", value = 0.02),
-        numericInput("accel_max", "AccelerationMax", value = 0.2)
+        numericInput("accel", "Acceleration:", value = 0.02),
+        numericInput("accel_max", "AccelerationMax:", value = 0.2)
       ),
 
     # Specific parameters for TurtleTrading strategy
@@ -191,8 +192,8 @@ ui <- fluidPage(
           "Specific Strategy Parameters for Turtle Trading"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size1", "Window Size1", value = 4*7),
-        numericInput("window_size2", "Window Size2", value = 2*7)
+        numericInput("window_size1", "Window Size1:", value = 4*7),
+        numericInput("window_size2", "Window Size2:", value = 2*7)
       ),
 
     # Specific parameters for VolatilityMeanReverting strategy
@@ -203,7 +204,7 @@ ui <- fluidPage(
           "Specific Strategy Parameters for Volatility Mean Revertung"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size1", value = 20)
+        numericInput("window_size", "Window Size1:", value = 20)
       ),
 
     # Specific parameters for GARCH based strategy
@@ -214,12 +215,12 @@ ui <- fluidPage(
           "Specific Strategy Parameters for GARCH based strategy"
         ),
         tags$br(),
-        selectInput("specification", "Specification", choices = c("sGARCH", "eGARCH", "gjrGARCH")),
-        numericInput("n_start", "Start of the window", value = 126),
-        numericInput("refit_every", "The frequency of the refit", value = 126/2),
-        selectInput("refit_window", "Refit window type", choices = c("moving", "expanding")),
-        selectInput("distribution_model", "Distribution of residuals", choices = c("snorm", "norm", "nig")),
-        selectInput("realized_vol", "Realized volatility approach", choices = c("close", "garman", "gk.yz", "yang.zhang"))
+        selectInput("specification", "Specification:", choices = c("sGARCH", "eGARCH", "gjrGARCH")),
+        numericInput("n_start", "Start of the window:", value = 126),
+        numericInput("refit_every", "The frequency of the refit:", value = 126/2),
+        selectInput("refit_window", "Refit window type:", choices = c("moving", "expanding")),
+        selectInput("distribution_model", "Distribution of residuals:", choices = c("snorm", "norm", "nig")),
+        selectInput("realized_vol", "Realized volatility approach:", choices = c("close", "garman", "gk.yz", "yang.zhang"))
       ),
 
     # Specific parameters for ARIMA strategy
@@ -230,9 +231,9 @@ ui <- fluidPage(
           "Specific Strategy Parameters for ARIMA"
         ),
         tags$br(), # Adds a blank line for spacing
-        numericInput("window_size", "Window Size", value = 21),
-        selectInput("window_type", "Window Type", choices = c("expanding", "moving")),
-        checkboxInput("best_arima", "Best (auto) ARIMA ", value = FALSE),
+        numericInput("window_size", "Window Size:", value = 21),
+        selectInput("window_type", "Window Type:", choices = c("expanding", "moving")),
+        checkboxInput("best_arima", "Best (auto) ARIMA:", value = FALSE),
         selectInput("p1", "AR lag", choices = 1:10, selected = 1),
         selectInput("d1", "Integration", choices = 1:2, selected = 2),
         selectInput("q1", "MA lag", choices = 1:10, selected = 1)
@@ -246,7 +247,7 @@ ui <- fluidPage(
         "Data Granularity"
       ),
       checkboxInput("split_data", "Split Data for Backtest", value = FALSE),
-      numericInput("window", "Slice Data Into Windows (in years)", value = 1),
+      numericInput("window", "Slice Data Into Windows (in years):", value = 1),
 
       # Risk Management
       tags$div(
@@ -256,15 +257,24 @@ ui <- fluidPage(
       checkboxInput("apply_rm", "Apply risk management", value = TRUE),
       checkboxInput("flat_after_event", "Stay flat after stop loss or profit take happen until new signal", value = FALSE),
       checkboxInput("dynamic_limits", "Adjust stop loss and take profit limits in case price evoles in a favourable direction", value = TRUE),
-      numericInput("max_risk", "Maximum risk", value = 0.1),
-      numericInput("reward_ratio", "Reward/Maximum risk ratio", value = 3),
+      numericInput("max_risk", "Maximum risk:", value = 0.1),
+      numericInput("reward_ratio", "Reward/Maximum risk ratio:", value = 3),
+
+      # Financial Management
+      tags$div(
+        style = "margin-top: 10px; font-weight: bold;",
+        "Financial Management"
+      ),
+      
+      numericInput("leverage", "Leverage:", value = 1),
+
 
       # Plot Setup
       tags$div(
         style = "margin-top: 10px; font-weight: bold;",
-        "Plot Setup"
+        "Plot Setup:"
       ),
-      checkboxInput("signal_flag", "Show Signal Lines?", value = TRUE),
+      checkboxInput("signal_flag", "Show Signal Lines", value = TRUE),
     
       # Backtest button
       actionButton("backtest_run", "Run Backtest") 
@@ -274,7 +284,7 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Trading profile", DTOutput("trading_profile")),
         tabPanel("Trading account evolution", plotOutput("performance_plot")),
-        tabPanel("List of all trades", DTOutput("trades")),
+        tabPanel("List of all completed trades", DTOutput("trades")),
         tabPanel("Total PnL distribution", plotOutput("pnl_hist")),
         tabPanel("PnL distribution by trade (buy/sell)", plotOutput("pnl_hist_by_trade")),
         tabPanel("PnL contribution by trade type (buy/sell)", plotOutput("pnl_contr_by_trade")),
@@ -335,11 +345,11 @@ server <- function(input, output, session) {
       print(
         if(input$apply_rm) {
         strategy_instance$data %>% 
-          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlActiveTradeCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
           tail(30)
         } else {
         strategy_instance$data %>% 
-          select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
+          select(Date, Close, signal, position, nopActive, nopPassive, eqlActive, eqlPassive, pnlActiveCumulative, pnlActiveTradeCumulative, pnlPassiveCumulative, ATR, N, annual_vol) %>%
           tail(30)
         }
       )
@@ -354,26 +364,30 @@ server <- function(input, output, session) {
     trading_profile <- t(performance_result)
     trading_profile <- cbind(Metric = rownames(trading_profile), as.data.table(as.data.frame(trading_profile)))
     trading_profile[, units := ifelse(
-      .I <= 5 | Metric %in% c("max_risk", "Strategy", "Number of Trades Per Year", "reward_ratio"), "",
+    .I <= 5 | Metric %in% c("max_risk", "Strategy", "Calmar Ratio", "Number of Trades Per Year", "reward_ratio"), "",
+    ifelse(
+      Metric %in% c("Annualized Profit", "Percentage of Positive Profit Days", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
       ifelse(
-        Metric %in% c("Annualized Profit", "Percentage of Winning Trades", "Max Drawdown", "Max Run Up"), "%",
-        ifelse(
-          Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
-                        "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", "Length of Time in Largest Losing Run", 
-                        "Length of Time in Average Winning Run", "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", "Average Winning Run", "Average Losing Run"), "days",
-          ifelse(
-            grepl("Date", Metric), "Date", 
-            "USD"  # Default case for other rows
-          )
+        Metric %in% c("Length of Largest Win", "Length of Largest Loss", "Length of Average Win", "Length of Average Loss", 
+                      "Length of Max Drawdown", "Length of Max Run-Up", "Length of Time in Largest Winning Run", 
+                      "Length of Time in Largest Losing Run", "Length of Time in Average Winning Run", 
+                      "Length of Time in Average Losing Run", "Largest Winning Run", "Largest Losing Run", 
+                      "Average Winning Run", "Average Losing Run"), 
+        "days",
+        ifelse(grepl("Date", Metric), "Date", 
+              ifelse(Metric %in% c("Max Losing Streak", "Max Winning Streak"), "trades", 
+                      "USD"  # Default case for other rows
+              )
         )
       )
-    )]
+    )
+  )]
 
     trades_lst <- strategy_instance$get_trades(input$apply_rm)
     tail_view <- if(input$apply_rm) {
         strategy_instance$data %>%
-          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(14) %>%
+          select(Date, Close, signal, position, stopLoss, profitTake, eventSL, eventPT, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, pnlActiveTradeCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          tail(30) %>%
           mutate(
             Close = round(Close, 4),
             stopLoss = round(stopLoss, 4),
@@ -384,6 +398,7 @@ server <- function(input, output, session) {
             eqlActive = round(eqlActive, 2),
             eqlPassive = round(eqlPassive, 2),
             pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlActiveTradeCumulative = round(pnlActiveTradeCumulative, 2),
             pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
             ATR = round(ATR, 2),
             N = round(N, 2),
@@ -391,8 +406,8 @@ server <- function(input, output, session) {
           ) %>% rename(trade_id = trade_id_m2)
     } else {
         strategy_instance$data %>%
-          select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
-          tail(14) %>%
+          select(Date, Close, signal, position, nopActive, pnlActive, pnlActiveType, eqlActive, pnlActiveCumulative, pnlActiveTradeCumulative, nopPassive, pnlPassive, eqlPassive, pnlPassiveCumulative, ATR, N, annual_vol, trade_id_m2) %>%
+          tail(30) %>%
           mutate(
             Close = round(Close, 4),
             nopActive = round(nopActive, 4),
@@ -402,6 +417,7 @@ server <- function(input, output, session) {
             eqlActive = round(eqlActive, 2),
             eqlPassive = round(eqlPassive, 2),
             pnlActiveCumulative = round(pnlActiveCumulative, 2),
+            pnlActiveTradeCumulative = round(pnlActiveTradeCumulative, 2),
             pnlPassiveCumulative = round(pnlPassiveCumulative, 2),
             ATR = round(ATR, 2),
             N = round(N, 2),
